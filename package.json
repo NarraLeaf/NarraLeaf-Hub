@@ -1,0 +1,28 @@
+{
+  "name": "@narraleaf/hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted project server for teams using NarraLeaf Studio",
+  "type": "module",
+  "bin": {
+    "nlhub": "dist/nlhub.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "esbuild": "^0.25.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.3"
+  }
+}

@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test and tooling caches
+coverage/
+*.tsbuildinfo
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Operating system noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
