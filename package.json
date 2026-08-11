@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Self-hosted project server for teams using NarraLeaf Studio",
+  "license": "MIT",
+  "author": "NarraLeaf Project",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NarraLeaf/NarraLeaf-Hub.git"
+  },
   "type": "module",
   "bin": {
     "nlhub": "dist/nlhub.js"
