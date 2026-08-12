@@ -10,7 +10,9 @@ import type { DatabaseSync } from "node:sqlite";
 import type { WriteText } from "./cli.js";
 import type { GrpcServer } from "./grpc/server.js";
 import {
+  audienceHosts,
   authUrl,
+  dataRemoteUrl,
   identityConfig,
   jwksUrl,
   type IdentityConfig,
@@ -48,12 +50,13 @@ export interface UpOptions extends LoreserverPorts {
    */
   readonly identity?: boolean;
   /**
-   * Names people will reach this Hub by, put into the auth endpoint's
-   * certificate. The loopback is always in it; anything else has to be said,
-   * because a certificate proves a name and Hub cannot know which one.
+   * Identity settings an operator named; the rest keep their defaults.
+   *
+   * `hostnames` among them: the names people reach this Hub by go into the auth
+   * endpoint's certificate and into every token's audience, and taking both
+   * from one setting is what stops a Hub whose certificate names a host issuing
+   * tokens that do not.
    */
-  readonly hostnames?: readonly string[];
-  /** Identity settings an operator named; the rest keep their defaults. */
   readonly overrides?: Partial<IdentityConfig>;
   /**
    * Aborted to bring the command down. Without one, `up` runs until
@@ -208,7 +211,7 @@ export async function up(
     // is reissued as it approaches its expiry or when a host name is added, and
     // neither of those should wait for somebody to notice.
     const certificates = await ensureCertificates(options.root, {
-      ...(options.hostnames === undefined ? {} : { hostnames: options.hostnames }),
+      hostnames: config.hostnames,
     });
     if (certificates.generatedAuthority) {
       stdout(`generated a certificate authority in ${certificates.authority.layout.tlsDir}\n`);
@@ -264,6 +267,15 @@ export async function up(
     } else {
       stdout(`loreserver will demand a token from ${auth.issuer} for ${auth.audience[0]}\n`);
       stdout(`clients are told to sign in at ${auth.authUrl}\n`);
+      // The remotes a token authorises, spelled out. A client will not send its
+      // token to a remote its audience does not name, so an operator whose
+      // collaborators connect by a name that is missing here has a Hub that
+      // works from its own machine and nowhere else.
+      stdout(
+        `tokens are good for ${audienceHosts(config)
+          .map((host) => dataRemoteUrl(host, config.dataPort))
+          .join(", ")}\n`,
+      );
       stdout(
         `loreserver reaches that endpoint too, and is given ${
           certificates.authority.layout.caCertPath

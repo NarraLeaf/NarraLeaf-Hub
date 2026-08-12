@@ -33,9 +33,11 @@ import {
   decodeCreateResourceRequest,
   decodeDeleteResourceRequest,
   decodeExchangeExternalTokenForUserTokenRequest,
+  decodeExchangeUserTokenForMultiresourceTokenRequest,
   decodeLookupUserPermissionsRequest,
   encodeCheckUserPermissionResponse,
   encodeExchangeExternalTokenForUserTokenResponse,
+  encodeExchangeUserTokenForMultiresourceTokenResponse,
   encodeHealthCheckResponse,
   encodeLookupUserPermissionsResponse,
   EMPTY_MESSAGE,
@@ -43,12 +45,17 @@ import {
   METHOD_CREATE_RESOURCE,
   METHOD_DELETE_RESOURCE,
   METHOD_EXCHANGE_EXTERNAL_TOKEN,
+  METHOD_EXCHANGE_MULTIRESOURCE_TOKEN,
   METHOD_HEALTH_CHECK,
   METHOD_LOOKUP_USER_PERMISSIONS,
   type ResourcePermission,
 } from "../grpc/messages.js";
 import { GrpcServer, type GrpcCall, type GrpcMethod } from "../grpc/server.js";
-import { GRPC_UNAUTHENTICATED, GrpcStatusError } from "../grpc/status.js";
+import {
+  GRPC_PERMISSION_DENIED,
+  GRPC_UNAUTHENTICATED,
+  GrpcStatusError,
+} from "../grpc/status.js";
 import {
   bearerToken,
   describeRefusal,
@@ -57,7 +64,7 @@ import {
 } from "../identity/bearer.js";
 import type { IdentityConfig } from "../identity/config.js";
 import type { KeyStore } from "../identity/keys.js";
-import { mintToken } from "../identity/tokens.js";
+import { mintToken, type ResourceClaim } from "../identity/tokens.js";
 import {
   accessLevel,
   findProject,
@@ -239,10 +246,24 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
     );
   }
 
-  const minted = mintToken(caller.user, context.keys.signingKey, context.config);
+  // Every project this account may reach, named in the token.
+  //
+  // A client opens its data connection and authorizes it with this token,
+  // before it has asked for anything narrower — and loreserver refuses a token
+  // that reaches `StorageAuthorizeTask` with no `resources` claim, having
+  // decoded it perfectly well. A sign-in token with no resources therefore
+  // signs in, resolves a repository, and then cannot read a byte of it.
+  const reachable = listProjectsFor(context.database, caller.user.id).map((entry) => ({
+    resource_id: resourceIdOf(entry.project.id),
+    permission: permissionsFor(entry.level),
+  }));
+
+  const minted = mintToken(caller.user, context.keys.signingKey, context.config, {
+    resources: reachable,
+  });
   context.log(
-    `auth: exchange ${caller.user.username}: issued a token until ` +
-      `${new Date(minted.claims.exp * 1000).toISOString()}`,
+    `auth: exchange ${caller.user.username}: issued a token for ${reachable.length} ` +
+      `project(s) until ${new Date(minted.claims.exp * 1000).toISOString()}`,
   );
 
   return encodeExchangeExternalTokenForUserTokenResponse({
@@ -252,6 +273,95 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
       // The account's id, which is also the token's `sub`. A client requires a
       // caller's configured identity to equal this, so it is what a Studio
       // installation has to be told about itself.
+      userId: caller.user.id,
+      userName: caller.user.displayName,
+    },
+  });
+}
+
+/**
+ * `UrcAuthApi/ExchangeUserTokenForMultiresourceToken`: a token for the data
+ * connection.
+ *
+ * Signing in is not enough to open a repository. Before a client touches a
+ * repository's data it exchanges the user token it holds for one scoped to the
+ * resources it is about to use, and it presents that token on the QUIC storage
+ * connection rather than the one it signed in with. Without this method the
+ * sequence gets remarkably far and then stops: the client signs in, resolves
+ * the repository over gRPC — which Hub allows, and logs as allowed — and then
+ * fails with "Not connected to remote: Not authorized to access repository",
+ * while loreserver records `MissingToken` against a `StorageAuthorizeTask`.
+ * Nothing in either message says a method is missing.
+ *
+ * Hub answers by checking every resource the client named and minting a fresh
+ * token, because a token minted now carries the account's state now. The scope
+ * is not written into the token: loreserver goes on asking
+ * {@link checkUserPermission} about every access, so a token that named
+ * resources it should not would still be refused at the point of use. What this
+ * call adds is that a caller with no grant is stopped here, before any data
+ * connection is opened at all.
+ */
+function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCall): Buffer {
+  const request = decodeExchangeUserTokenForMultiresourceTokenRequest(call.message);
+  const caller = identifyToken(
+    context.database,
+    context.keys,
+    context.config,
+    bearerToken(call.authorization),
+  );
+
+  if (caller.kind === "refused") {
+    context.log(
+      `auth: multiresource ${UNIDENTIFIED} for ${request.resourceIds.length} resource(s): ` +
+        `refused, ${describeRefusal(caller.reason)}`,
+    );
+    throw new GrpcStatusError(
+      GRPC_UNAUTHENTICATED,
+      "the token presented for exchange was not accepted",
+    );
+  }
+
+  // Every resource, not merely one of them: the token being asked for covers
+  // all of them at once, and handing one out for a set that includes something
+  // the caller may not have would be handing out the wrong thing.
+  const granted: ResourceClaim[] = [];
+  for (const resourceId of request.resourceIds) {
+    const projectId = projectIdFromResourceId(resourceId);
+    const level =
+      projectId === undefined
+        ? undefined
+        : accessLevel(context.database, projectId, caller.user.id);
+    if (level === undefined) {
+      context.log(
+        `auth: multiresource ${caller.user.username} ${resourceId}: denied, ${
+          projectId === undefined ? "not a project on this Hub" : "no grant"
+        }`,
+      );
+      // PERMISSION_DENIED rather than an empty answer: the caller is identified,
+      // and the question was whether this account may have this project. A
+      // reply carrying no token would reach the person as a client that could
+      // not find its own credentials.
+      throw new GrpcStatusError(
+        GRPC_PERMISSION_DENIED,
+        "this account has no access to one of the resources it asked for",
+      );
+    }
+    // The id is echoed exactly as it was asked about, for the reason
+    // checkUserPermission echoes it: the comparison downstream is on the string.
+    granted.push({ resource_id: resourceId, permission: permissionsFor(level) });
+    context.log(`auth: multiresource ${caller.user.username} ${resourceId}: allowed (${level})`);
+  }
+
+  // The resources are named in the token itself. This is what makes it a
+  // multiresource token rather than another user token, and it is what the
+  // storage connection reads.
+  const minted = mintToken(caller.user, context.keys.signingKey, context.config, {
+    resources: granted,
+  });
+  return encodeExchangeUserTokenForMultiresourceTokenResponse({
+    token: {
+      userToken: minted.token,
+      expiresAt: minted.claims.exp,
       userId: caller.user.id,
       userName: caller.user.displayName,
     },
@@ -347,6 +457,7 @@ export function authorizationMethods(
     [METHOD_CHECK_USER_PERMISSION]: (call) => checkUserPermission(context, call),
     [METHOD_LOOKUP_USER_PERMISSIONS]: (call) => lookupUserPermissions(context, call),
     [METHOD_EXCHANGE_EXTERNAL_TOKEN]: (call) => exchangeExternalToken(context, call),
+    [METHOD_EXCHANGE_MULTIRESOURCE_TOKEN]: (call) => exchangeMultiresourceToken(context, call),
     [METHOD_CREATE_RESOURCE]: (call) => createResource(context, call),
     [METHOD_DELETE_RESOURCE]: (call) => deleteResource(context, call),
     // Answered because it is part of the service loreserver was pointed at, and

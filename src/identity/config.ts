@@ -6,6 +6,7 @@
  * the `local.toml` Hub generates for loreserver. A token is accepted only when
  * both copies agree, so they are read from one place rather than typed twice.
  */
+import { DEFAULT_PORTS } from "../loreserver/layout.js";
 
 /** Where the identity settings come from when an operator names none. */
 export interface IdentityConfig {
@@ -61,6 +62,26 @@ export interface IdentityConfig {
    * that one is reachable from another machine and one is not.
    */
   readonly authTlsPort: number;
+  /**
+   * The port loreserver serves data on, which a client reaches as
+   * `lore://host:port`.
+   *
+   * It is here, rather than only in the loreserver settings, because a token's
+   * audience has to name that address — see {@link tokenAudience}. It is the
+   * same number `--data-port` gives loreserver; there is no second option for
+   * it, because two numbers that had to agree would eventually not.
+   */
+  readonly dataPort: number;
+  /**
+   * Host names people reach this deployment by, beyond the auth origin's own
+   * host.
+   *
+   * The same `--hostname` values that go into the endpoint's certificate. A
+   * token's audience is written for every one of them, because a collaborator
+   * does not connect on `127.0.0.1` and a token whose audience names only the
+   * loopback works on the Hub machine and nowhere else.
+   */
+  readonly hostnames: readonly string[];
 }
 
 /** The identity settings used when an operator names none. */
@@ -77,6 +98,8 @@ export const DEFAULT_IDENTITY: IdentityConfig = {
   hubPort: 41400,
   authPort: 41401,
   authTlsPort: 41402,
+  dataPort: DEFAULT_PORTS.dataPort,
+  hostnames: [],
 };
 
 /**
@@ -111,25 +134,89 @@ export function authUrl(config: IdentityConfig): string {
 }
 
 /**
+ * The host part of an origin written as `host` or `host:port`.
+ *
+ * An IPv6 literal in an origin is bracketed, and the brackets are what tell its
+ * colons from the one before the port.
+ */
+export function hostOf(origin: string): string {
+  if (origin.startsWith("[")) {
+    const close = origin.indexOf("]");
+    return close === -1 ? origin : origin.slice(0, close + 1);
+  }
+  const colon = origin.indexOf(":");
+  return colon === -1 ? origin : origin.slice(0, colon);
+}
+
+/** A host as it appears inside a URL: an IPv6 literal has to be bracketed. */
+function bracketed(host: string): string {
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+}
+
+/**
+ * Every host this deployment is reached by.
+ *
+ * The auth origin's host is always one: on a Hub nobody else connects to, it is
+ * the only one there is. Anything an operator named with `--hostname` joins it,
+ * which is the same list the endpoint's certificate is issued for — a name
+ * people connect by has to be in both, and taking them from one setting is what
+ * stops one being updated without the other.
+ */
+export function audienceHosts(config: IdentityConfig): string[] {
+  return [...new Set([hostOf(config.authOrigin), ...config.hostnames])];
+}
+
+/** Where loreserver's data port is reached, as a client writes it. */
+export function dataRemoteUrl(host: string, dataPort: number): string {
+  return `lore://${bracketed(host)}:${dataPort}`;
+}
+
+/**
  * The `aud` array a minted token carries.
  *
- * Every entry has to be there. loreserver refuses a token whose audience does
- * not include the one it was configured with, and a Studio installation refuses
- * to use a token whose audience does not name the auth endpoint it is talking
- * to — "JWT 'aud' does not specify remote domain", which it treats as a token
- * that might leak somewhere it does not belong.
+ * A token's audience is not a label. It is the list of remotes the client will
+ * send that token to, and it will send it to nothing else: the audience becomes
+ * `acceptable_root_domains` in the client's own store, and a remote missing
+ * from it is a remote the client treats as a third party it would be leaking
+ * the token to. Every address a client legitimately reaches has to be in here.
  *
- * The origin is written both with and without a trailing slash because the two
- * sides of that comparison are not known to be normalised the same way: the
- * client's own message about it has been seen carrying the slash. An audience
- * a verifier ignores costs a few bytes; one a client will not match costs the
- * sign-in.
+ * There are two such addresses, and it is the second that is easy to forget:
+ *
+ *   - Hub's auth endpoint, `https://host:41402`, where the client signs in.
+ *   - loreserver's data port, `lore://host:41337`, which is where the work
+ *     happens — cloning, committing, pushing. A token naming only the first
+ *     signs in successfully and then fails every repository operation with
+ *     "Failed to resolve repository: No token stored", which reads like a
+ *     missing token rather than a token the client declines to use.
+ *
+ * loreserver's own `jwt_audience` entry is here too, because loreserver checks
+ * the audience before it will look at a token at all.
+ *
+ * Several spellings of each address are written. The comparison the client
+ * makes is against strings it assembled itself, and the two sides are not known
+ * to normalise a trailing slash, a scheme or a port the same way — an audience
+ * seen working end to end carried the bare host, the host with its port, and
+ * the URL both with and without its slash. An entry a verifier ignores costs a
+ * few bytes; one a client will not match costs the whole session. Nothing here
+ * should be tidied down to a single form without watching a real client do the
+ * whole of a clone, commit and push against it.
+ *
+ * Both paths that issue a token — `nlhub token mint` and the exchange method a
+ * client signs in with — build their audience here. Two lists that had to agree
+ * would be two lists that eventually did not.
  *
  * Duplicates are dropped, because a repeated audience says nothing extra.
  */
 export function tokenAudience(config: IdentityConfig): string[] {
   const auth = authUrl(config);
-  return [...new Set([config.audience, auth, `${auth}/`])];
+  const entries = [config.audience, auth, `${auth}/`];
+
+  for (const host of audienceHosts(config)) {
+    const remote = dataRemoteUrl(host, config.dataPort);
+    entries.push(host, `${bracketed(host)}:${config.dataPort}`, remote, `${remote}/`);
+  }
+
+  return [...new Set(entries)];
 }
 
 /** Where Hub publishes its JWKS, as loreserver is told to fetch it. */

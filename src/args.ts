@@ -29,6 +29,8 @@ export interface IdentityOverrides {
   readonly hubPort?: number;
   readonly authPort?: number;
   readonly authTlsPort?: number;
+  readonly dataPort?: number;
+  readonly hostnames?: readonly string[];
 }
 
 /** What a command line asked the program to do. */
@@ -43,8 +45,6 @@ export type Invocation =
       readonly healthPort: number;
       /** True when loreserver is to be told to demand a Hub token. */
       readonly identity: boolean;
-      /** Names to put in the auth endpoint's certificate, beyond the loopback. */
-      readonly hostnames: readonly string[];
       readonly overrides: IdentityOverrides;
     }
   /** Make an invitation and print its code once. */
@@ -289,7 +289,20 @@ const IDENTITY_OPTIONS = [
   "--hub-port",
   "--auth-port",
   "--auth-tls-port",
+  // Not only loreserver's setting: a token's audience has to name the data
+  // remote, so every command that mints one has to know the port.
+  "--data-port",
 ] as const;
+
+/**
+ * The identity options that may be written more than once.
+ *
+ * `--hostname` is one of the identity options rather than only an option of
+ * `up`, for the same reason `--data-port` is: it decides what a token's
+ * audience says, so a token minted without it is a token that works on the Hub
+ * machine and nowhere else.
+ */
+const IDENTITY_LIST_OPTIONS = ["--hostname"] as const;
 
 /**
  * Collect the identity options out of a parsed command line.
@@ -307,6 +320,8 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     hubPort?: number;
     authPort?: number;
     authTlsPort?: number;
+    dataPort?: number;
+    hostnames?: readonly string[];
   } = {};
 
   const issuer = tokens.values.get("--issuer");
@@ -365,6 +380,28 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     }
     overrides.authTlsPort = port;
   }
+  const dataPort = tokens.values.get("--data-port");
+  if (dataPort !== undefined) {
+    const port = parsePort("--data-port", dataPort);
+    if (typeof port === "string") {
+      return port;
+    }
+    overrides.dataPort = port;
+  }
+
+  const hostnames = tokens.lists.get("--hostname");
+  if (hostnames !== undefined) {
+    for (const name of hostnames) {
+      // A scheme, a path or a port here would go into a certificate as a name
+      // no client asks for, and into an audience as a remote no client matches.
+      // Both would look correct. A colon is allowed only in an address, where
+      // it belongs to the address itself.
+      if (name.includes("://") || name.includes("/") || (name.includes(":") && isIP(name) === 0)) {
+        return `--hostname is a host on its own, without a scheme or a port, not "${name}"`;
+      }
+    }
+    overrides.hostnames = hostnames;
+  }
 
   return overrides;
 }
@@ -373,9 +410,9 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
 function parseUp(argv: readonly string[]): Invocation {
   const result = readTokens(
     argv,
-    ["--root", "--data-port", "--health-port", ...IDENTITY_OPTIONS],
+    ["--root", "--health-port", ...IDENTITY_OPTIONS],
     ["--identity"],
-    ["--hostname"],
+    IDENTITY_LIST_OPTIONS,
   );
   if (result.kind !== "tokens") {
     return result.kind === "help" ? { kind: "help" } : error(result.message);
@@ -392,16 +429,6 @@ function parseUp(argv: readonly string[]): Invocation {
     return missingRoot("up");
   }
 
-  let dataPort = DEFAULT_PORTS.dataPort;
-  const dataPortText = tokens.values.get("--data-port");
-  if (dataPortText !== undefined) {
-    const port = parsePort("--data-port", dataPortText);
-    if (typeof port === "string") {
-      return error(port);
-    }
-    dataPort = port;
-  }
-
   let healthPort = DEFAULT_PORTS.healthPort;
   const healthPortText = tokens.values.get("--health-port");
   if (healthPortText !== undefined) {
@@ -416,6 +443,9 @@ function parseUp(argv: readonly string[]): Invocation {
   if (typeof overrides === "string") {
     return error(overrides);
   }
+  // The data port is one of the identity settings as well as one of
+  // loreserver's, because a token's audience names it. It is read once, there.
+  const dataPort = overrides.dataPort ?? DEFAULT_PORTS.dataPort;
 
   // Five TCP listeners come up on one machine, and two on the same port would
   // leave whichever lost the race silently absent. loreserver's gRPC and QUIC
@@ -435,23 +465,12 @@ function parseUp(argv: readonly string[]): Invocation {
     }
   }
 
-  const hostnames = tokens.lists.get("--hostname") ?? [];
-  for (const name of hostnames) {
-    // A scheme, a path or a port here would go into a certificate as a name no
-    // client ever asks for, and the certificate would look correct. A colon is
-    // allowed only in an address, where it is part of the address itself.
-    if (name.includes("://") || name.includes("/") || (name.includes(":") && isIP(name) === 0)) {
-      return error(`--hostname is a host on its own, without a scheme or a port, not "${name}"`);
-    }
-  }
-
   return {
     kind: "up",
     root,
     dataPort,
     healthPort,
     identity: tokens.flags.has("--identity"),
-    hostnames,
     overrides,
   };
 }
@@ -595,7 +614,7 @@ function parseToken(argv: readonly string[]): Invocation {
     return error(`unknown token command: ${verb}`);
   }
 
-  const result = readTokens(rest, ["--root", ...IDENTITY_OPTIONS]);
+  const result = readTokens(rest, ["--root", ...IDENTITY_OPTIONS], [], IDENTITY_LIST_OPTIONS);
   if (result.kind !== "tokens") {
     return result.kind === "help" ? { kind: "help" } : error(result.message);
   }
@@ -631,13 +650,12 @@ function parseProject(argv: readonly string[]): Invocation {
   }
 
   if (verb === "create") {
-    const result = readTokens(rest, [
-      "--root",
-      "--description",
-      "--as",
-      "--data-port",
-      ...IDENTITY_OPTIONS,
-    ]);
+    const result = readTokens(
+      rest,
+      ["--root", "--description", "--as", ...IDENTITY_OPTIONS],
+      [],
+      IDENTITY_LIST_OPTIONS,
+    );
     if (result.kind !== "tokens") {
       return result.kind === "help" ? { kind: "help" } : error(result.message);
     }
@@ -655,16 +673,6 @@ function parseProject(argv: readonly string[]): Invocation {
       return missingRoot("project create");
     }
 
-    let dataPort = DEFAULT_PORTS.dataPort;
-    const dataPortText = tokens.values.get("--data-port");
-    if (dataPortText !== undefined) {
-      const port = parsePort("--data-port", dataPortText);
-      if (typeof port === "string") {
-        return error(port);
-      }
-      dataPort = port;
-    }
-
     const overrides = readIdentityOverrides(tokens);
     if (typeof overrides === "string") {
       return error(overrides);
@@ -676,7 +684,8 @@ function parseProject(argv: readonly string[]): Invocation {
       name,
       description: tokens.values.get("--description"),
       as: tokens.values.get("--as"),
-      dataPort,
+      // Where loreserver is, and also what a token's audience says about it.
+      dataPort: overrides.dataPort ?? DEFAULT_PORTS.dataPort,
       overrides,
     };
   }

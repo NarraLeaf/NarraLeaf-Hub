@@ -5,12 +5,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GrpcCallError, unaryCall } from "../src/grpc/client.js";
 import {
   decodeExchangeExternalTokenForUserTokenResponse,
+  decodeExchangeUserTokenForMultiresourceTokenResponse,
   encodeExchangeExternalTokenForUserTokenRequest,
+  encodeExchangeUserTokenForMultiresourceTokenRequest,
   METHOD_EXCHANGE_EXTERNAL_TOKEN,
+  METHOD_EXCHANGE_MULTIRESOURCE_TOKEN,
   type UserToken,
 } from "../src/grpc/messages.js";
 import type { GrpcServer } from "../src/grpc/server.js";
-import { GRPC_UNAUTHENTICATED } from "../src/grpc/status.js";
+import { GRPC_PERMISSION_DENIED, GRPC_UNAUTHENTICATED } from "../src/grpc/status.js";
 import { authUrl, identityConfig } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
 import { KeyStore } from "../src/identity/keys.js";
@@ -24,6 +27,7 @@ import {
   requireUser,
   type UserRecord,
 } from "../src/identity/users.js";
+import { createProject, newProjectId, resourceIdOf } from "../src/projects/registry.js";
 import { startAuthorizationService } from "../src/projects/service.js";
 import { ensureCertificates } from "../src/tls/authority.js";
 import { useTemporaryRoots } from "./temporary.js";
@@ -263,6 +267,176 @@ describe("ExchangeExternalTokenForUserToken", () => {
     expect((failure as GrpcCallError).statusMessage).toBe(
       "the token presented for exchange was not accepted",
     );
+  });
+});
+
+/**
+ * The claims of a token, as a verifier reads them off the wire.
+ *
+ * Read from the encoded token rather than from what minted it, because the
+ * `resources` claim is one loreserver reads and Hub's own verifier does not
+ * return — a check against the parsed claim object would not see it.
+ */
+function claimsOf(token: string): Record<string, unknown> {
+  const payload = token.split(".")[1] ?? "";
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+}
+
+describe("the resources claim", () => {
+  it("names every project the account may reach, with what it may do", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const project = createProject(hub.database, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada.id,
+    });
+
+    const issued = await hub.exchange(hub.tokenFor(ada));
+    const claims = claimsOf(issued?.userToken ?? "");
+
+    // Not decoration. A client authorizes its data connection with this token,
+    // and loreserver refuses one that arrives with no `resources` — the token
+    // decodes, is logged as `resources: None`, and the connection answers
+    // AuthorizationFailure. The client reports "Not authorized to access
+    // repository" and nothing anywhere names the missing claim.
+    expect(claims["resources"]).toEqual([
+      { resource_id: resourceIdOf(project.id), permission: ["read", "write", "owner"] },
+    ]);
+  });
+
+  it("is a list of objects, because a list of strings will not decode", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    createProject(hub.database, { id: newProjectId(), name: "harbour", createdBy: ada.id });
+
+    const issued = await hub.exchange(hub.tokenFor(ada));
+    const resources = claimsOf(issued?.userToken ?? "")["resources"];
+
+    // loreserver deserializes this into Vec<ResourcePermission>, whose fields
+    // it names `resource_id` and `permission`. Given plain strings it fails to
+    // decode the whole token, and its log shows "Decoding JWT token" with
+    // nothing after it.
+    expect(Array.isArray(resources)).toBe(true);
+    for (const entry of resources as unknown[]) {
+      expect(typeof entry).toBe("object");
+      expect(Object.keys(entry as object).sort()).toEqual(["permission", "resource_id"]);
+    }
+  });
+
+  it("is empty for an account with no grants, rather than absent", async () => {
+    const hub = await harness();
+    const bob = await hub.user("bob");
+
+    const issued = await hub.exchange(hub.tokenFor(bob));
+
+    expect(claimsOf(issued?.userToken ?? "")["resources"]).toEqual([]);
+  });
+
+  it("is not on a token minted for anything else", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+
+    // `nlhub token mint` opens no data connection, so it names no resources.
+    expect(claimsOf(hub.tokenFor(ada))).not.toHaveProperty("resources");
+  });
+});
+
+describe("ExchangeUserTokenForMultiresourceToken", () => {
+  /** Ask for a token covering some resources, as a client does before a clone. */
+  async function multiresource(
+    hub: Harness,
+    token: string,
+    resourceIds: readonly string[],
+  ): Promise<UserToken | undefined> {
+    const reply = await unaryCall({
+      url: hub.server.url,
+      path: METHOD_EXCHANGE_MULTIRESOURCE_TOKEN,
+      message: encodeExchangeUserTokenForMultiresourceTokenRequest({ resourceIds }),
+      authorization: `Bearer ${token}`,
+      ...(hub.caPem === undefined ? {} : { ca: hub.caPem }),
+      timeoutMs: 5000,
+    });
+    return decodeExchangeUserTokenForMultiresourceTokenResponse(reply).token;
+  }
+
+  it("hands back a token naming the resources that were asked for", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const project = createProject(hub.database, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada.id,
+    });
+    const resource = resourceIdOf(project.id);
+
+    const issued = await multiresource(hub, hub.tokenFor(ada), [resource]);
+
+    expect(issued?.userId).toBe(ada.id);
+    expect(claimsOf(issued?.userToken ?? "")["resources"]).toEqual([
+      { resource_id: resource, permission: ["read", "write", "owner"] },
+    ]);
+  });
+
+  it("refuses when the caller has no grant on one of them", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const bob = await hub.user("bob");
+    const project = createProject(hub.database, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada.id,
+    });
+
+    // Refused outright rather than answered with a narrower token: the token
+    // asked for covers the whole set, and one that quietly covered less would
+    // fail later, somewhere that cannot say why.
+    await expect(
+      multiresource(hub, hub.tokenFor(bob), [resourceIdOf(project.id)]),
+    ).rejects.toMatchObject({ status: GRPC_PERMISSION_DENIED });
+    expect(hub.log.some((line) => line.includes("multiresource bob"))).toBe(true);
+    expect(hub.log.some((line) => line.includes("denied, no grant"))).toBe(true);
+  });
+
+  it("refuses a resource that is not a project on this Hub", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+
+    await expect(multiresource(hub, hub.tokenFor(ada), ["not-a-resource"])).rejects.toMatchObject({
+      status: GRPC_PERMISSION_DENIED,
+    });
+  });
+
+  it("refuses a caller it cannot identify", async () => {
+    const hub = await harness();
+
+    await expect(multiresource(hub, "not a token", ["urc-whatever"])).rejects.toMatchObject({
+      status: GRPC_UNAUTHENTICATED,
+    });
+  });
+
+  it("covers every resource asked for at once", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const first = createProject(hub.database, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada.id,
+    });
+    const second = createProject(hub.database, {
+      id: newProjectId(),
+      name: "lighthouse",
+      createdBy: ada.id,
+    });
+    const resources = [resourceIdOf(first.id), resourceIdOf(second.id)];
+
+    const issued = await multiresource(hub, hub.tokenFor(ada), resources);
+
+    expect(
+      (claimsOf(issued?.userToken ?? "")["resources"] as { resource_id: string }[]).map(
+        (entry) => entry.resource_id,
+      ),
+    ).toEqual(resources);
   });
 });
 

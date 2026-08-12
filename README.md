@@ -152,16 +152,32 @@ connect to lore auth service".
 
 ## Signing in, and the certificate that makes it possible
 
-A Studio installation signs in by calling one method, over TLS, on port 41402:
+A Studio installation signs in by calling two methods, over TLS, on port 41402:
 
 ```
-epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken
+epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken       signing in
+epic_urc.UrcAuthApi/ExchangeUserTokenForMultiresourceToken  before touching a repository
 ```
 
-It presents a token Hub minted, and Hub hands back a fresh one. Minting rather
+The first presents a token Hub minted and gets a fresh one back. Minting rather
 than echoing is the point of the exchange: the new token carries the account's
 state as it stands now, so an account disabled a minute ago gets nothing, and a
 fifteen-minute token cannot renew itself for ever.
+
+The second is what a client asks for before it opens a repository's data
+connection, naming the resources it wants. Hub checks every one of them and
+refuses the whole request if the caller has no grant on any — which is where a
+collaborator without access is stopped, before a data connection is opened at
+all.
+
+Both tokens carry a `resources` claim: which projects, and what the bearer may
+do to each. It is not decoration. The data connection is a separate leg from the
+gRPC one, and it authorizes with this token; loreserver refuses a token that
+arrives without the claim. Between them, the audience and the resources are the
+two things that turn a token from something a client will accept into something
+it can actually use — and both fail in ways that name neither. See
+`src/identity/config.ts` and `src/identity/tokens.ts` for what each failure
+looks like from the outside.
 
 The transport is not a choice. Studio's client library accepts the `https` and
 `ucs-auth` schemes and refuses `http` and `grpc` by name, and it verifies the
@@ -215,12 +231,42 @@ nlhub up --root /srv/hub --identity --hostname hub.example.com
 ```
 
 `--hostname` is repeatable, and `DNS:localhost`, `IP:127.0.0.1` and `IP:::1` are
-always included. `--auth-origin` has to name the same host, because it is what
-goes into the tokens' audience and into what a client is told to connect to.
+always included. It does two jobs at once, and the second is the one that bites:
+the name goes into the certificate, and into the audience of every token Hub
+mints. A Hub told no hostname issues tokens a client will use from the Hub
+machine and from nowhere else — see below.
+
+`--hostname` and `--data-port` are identity options, so `token mint` and
+`project create` take them too, and a command given a different set from the one
+`up` was given mints a token that will not be accepted.
 
 Both are written by hand, from `src/tls/der.ts` upwards: the ASN.1, the
 extensions and the DER. Hub shells out to nothing and depends on nothing, and a
 server cannot be assumed to have `openssl` on it.
+
+### What a token's audience authorises
+
+A token's `aud` is not a label. The client turns it into the list of remotes it
+is willing to send that token to, and it will send it to nothing else — a remote
+missing from the list is one it treats as a third party it would be leaking the
+token to. Two addresses have to be in there:
+
+- Hub's auth endpoint, `https://host:41402`, where the client signs in.
+- `loreserver`'s data port, `lore://host:41337`, where the work happens.
+
+Leave the second out and the client signs in perfectly, stores the token, and
+then fails every repository operation with "Failed to resolve repository: No
+token stored" — which reads like a missing token rather than a token the client
+has decided it may not use here. Hub therefore writes both, for the auth
+origin's host and for every `--hostname` given, each in the several spellings
+the client has been observed to compare against. `up` prints the list it built:
+
+```
+tokens are good for lore://127.0.0.1:41337, lore://hub.example.com:41337
+```
+
+That line is worth reading on a Hub other people connect to. A name missing from
+it is a person who cannot open a project.
 
 ### What `loreserver` does with the same address
 
@@ -338,7 +384,8 @@ header. That address is Hub.
 ```
 epic_urc.UrcAuthApi/CheckUserPermission     may this caller reach these?
 epic_urc.UrcAuthApi/LookupUserPermissions   what may this caller reach?
-epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken   sign in
+epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken       sign in
+epic_urc.UrcAuthApi/ExchangeUserTokenForMultiresourceToken  a token for the data connection
 ucs.auth.RebacApi/CreateResource            a repository now exists
 ucs.auth.RebacApi/DeleteResource            a repository is gone
 ```

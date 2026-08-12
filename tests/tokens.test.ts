@@ -70,7 +70,18 @@ describe("mintToken", () => {
     expect(header).toEqual({ alg: "RS256", typ: "JWT", kid: keys.signingKey.kid });
     expect(claims).toEqual({
       iss: "narraleaf-hub",
-      aud: ["loreserver", "https://hub.example.com", "https://hub.example.com/"],
+      // Every remote this token may be sent to, in every spelling the client
+      // has been seen to compare against. tests/audience.test.ts is where each
+      // entry is accounted for.
+      aud: [
+        "loreserver",
+        "https://hub.example.com",
+        "https://hub.example.com/",
+        "hub.example.com",
+        "hub.example.com:41337",
+        "lore://hub.example.com:41337",
+        "lore://hub.example.com:41337/",
+      ],
       sub: ADA.id,
       env: "local",
       name: "Ada Lovelace",

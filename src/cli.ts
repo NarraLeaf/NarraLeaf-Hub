@@ -54,12 +54,8 @@ Commands:
 Every command takes --root <path>, the directory Hub keeps its files in.
 
 Options for up:
-      --data-port <port>    gRPC and QUIC port (default ${DEFAULT_PORTS.dataPort})
       --health-port <port>  loreserver's HTTP health check port (default ${DEFAULT_PORTS.healthPort})
       --identity            Configure loreserver to demand a Hub token
-      --hostname <host>     A name people will reach this Hub by, put into the
-                            auth endpoint's certificate. Repeatable; the
-                            loopback and localhost are always included
 
 Options for trust:
       --install             Trust this authority in this account's trust store
@@ -78,7 +74,6 @@ Options for project create:
       --description <text>
       --as <username>       The account it belongs to, when the Hub has more
                             than one
-      --data-port <port>    Where loreserver is (default ${DEFAULT_PORTS.dataPort})
 
 Options for project list:
       --as <username>       List what that account can reach, rather than all
@@ -86,7 +81,15 @@ Options for project list:
 Options for project grant:
       --level read|write    How far the account may go (default read)
 
-Identity options, taken by up, token mint and project create:
+Identity options, taken by up, token mint and project create. A token's
+audience is built from these, so a command given a different set to the one
+up was given mints a token that will not be accepted:
+      --data-port <port>    Where loreserver serves data, which a client reaches
+                            as lore://host:port (default ${DEFAULT_PORTS.dataPort})
+      --hostname <host>     A name people reach this Hub by. Goes into the auth
+                            endpoint's certificate and into every token's
+                            audience. Repeatable; the loopback and localhost are
+                            always included
       --hub-port <port>     Hub's own HTTP port (default ${DEFAULT_IDENTITY.hubPort})
       --auth-port <port>    Port loreserver asks about permissions on, in plain
                             HTTP/2 on the loopback (default ${DEFAULT_IDENTITY.authPort})
@@ -138,7 +141,6 @@ export async function run(
           dataPort: invocation.dataPort,
           healthPort: invocation.healthPort,
           identity: invocation.identity,
-          hostnames: invocation.hostnames,
           overrides: invocation.overrides,
           ...(options.signal === undefined ? {} : { signal: options.signal }),
         },
