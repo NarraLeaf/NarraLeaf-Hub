@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 
 import { downloadVerified } from "./download.js";
 import { extractArchive } from "./extract.js";
-import type { InstanceLayout } from "./layout.js";
+import type { InstallLocation, InstanceLayout } from "./layout.js";
 import { LICENSE_FILE_NAME, NOTICES_FILE_NAME, type LoreserverArtifact } from "./pin.js";
 
 /** Raised when the unpacked archive did not hold what the pin describes. */
@@ -25,7 +25,16 @@ export class ArchiveContentsError extends Error {
 
 /** What an install did. */
 export interface InstallResult {
+  /**
+   * The executable to run.
+   *
+   * Read this rather than working it out from the layout: it is the per-user
+   * cache for anything installed since binaries moved there, and the storage
+   * root for a Hub that had one before.
+   */
   readonly binaryPath: string;
+  /** The directory it and the two licence files are in. */
+  readonly binDir: string;
   /** True when the pinned build was already unpacked and nothing was fetched. */
   readonly alreadyInstalled: boolean;
 }
@@ -48,30 +57,48 @@ export interface InstallReporter {
  * files rather than only the executable means an install interrupted partway
  * through extraction is repeated rather than trusted.
  */
-function isUnpacked(layout: InstanceLayout): boolean {
+function isUnpacked(location: InstallLocation): boolean {
   return (
-    existsSync(layout.binaryPath) &&
-    existsSync(layout.licensePath) &&
-    existsSync(layout.noticesPath)
+    existsSync(location.binaryPath) &&
+    existsSync(location.licensePath) &&
+    existsSync(location.noticesPath)
   );
 }
 
 /**
- * Make sure the pinned loreserver is unpacked at `layout.binDir`, downloading
- * it if it is not.
+ * Make sure the pinned loreserver is unpacked, downloading it if it is not, and
+ * answer with the executable to run.
  *
- * Everything happens in a temporary directory beside the destination and is
- * renamed into place at the end, so an interrupted install leaves no directory
- * that a later run would mistake for a finished one.
+ * A new install goes to the per-user cache. An install a previous version of
+ * Hub left under the storage root is used where it lies: it is not moved, and
+ * it is not downloaded again.
+ *
+ * Not moved, because this is the path a supervised loreserver was started
+ * from, and renaming a directory holding a running executable fails outright on
+ * Windows — an upgrade would then fail on exactly the Hubs that were working.
+ * Leaving it costs that one machine one copy of a binary it already has, and no
+ * firewall prompt it has not already answered. A machine that wants the copy
+ * gone can delete `<root>/bin` while Hub is stopped, and the next start fetches
+ * one into the cache.
+ *
+ * Everything else happens in a temporary directory beside the destination and
+ * is renamed into place at the end, so an interrupted install leaves no
+ * directory that a later run would mistake for a finished one.
  */
 export async function ensureInstalled(
   layout: InstanceLayout,
   artifact: LoreserverArtifact,
   reporter: InstallReporter = {},
 ): Promise<InstallResult> {
-  if (isUnpacked(layout)) {
-    reporter.onAlreadyInstalled?.(layout.binaryPath);
-    return { binaryPath: layout.binaryPath, alreadyInstalled: true };
+  for (const location of [layout.stored, layout]) {
+    if (isUnpacked(location)) {
+      reporter.onAlreadyInstalled?.(location.binaryPath);
+      return {
+        binaryPath: location.binaryPath,
+        binDir: location.binDir,
+        alreadyInstalled: true,
+      };
+    }
   }
 
   const parent = dirname(layout.binDir);
@@ -110,5 +137,5 @@ export async function ensureInstalled(
     await rm(staging, { recursive: true, force: true });
   }
 
-  return { binaryPath: layout.binaryPath, alreadyInstalled: false };
+  return { binaryPath: layout.binaryPath, binDir: layout.binDir, alreadyInstalled: false };
 }

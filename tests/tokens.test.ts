@@ -20,6 +20,7 @@ const ADA: UserRecord = {
   createdAt: 1_700_000_000_000,
   disabledAt: undefined,
   tokenEpoch: 3,
+  tokensInvalidatedAt: undefined,
   groups: ["admin", "authors"],
 };
 

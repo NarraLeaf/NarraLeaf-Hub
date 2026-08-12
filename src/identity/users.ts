@@ -33,6 +33,15 @@ export interface UserRecord {
   readonly disabledAt: number | undefined;
   /** Bumped to make outstanding tokens unrenewable; see ./tokens.ts. */
   readonly tokenEpoch: number;
+  /**
+   * When the epoch above was last bumped, or undefined for an account whose
+   * tokens have never been refused.
+   *
+   * Undefined also on an account whose tokens were refused before Hub kept this
+   * moment: migration 4 leaves the column NULL for rows that already existed
+   * rather than inventing a timestamp for a bump nobody recorded.
+   */
+  readonly tokensInvalidatedAt: number | undefined;
   readonly groups: readonly string[];
 }
 
@@ -108,13 +117,14 @@ function toUser(database: DatabaseSync, row: Row): UserRecord {
     createdAt: integerColumn(row, "created_at"),
     disabledAt: optionalIntegerColumn(row, "disabled_at"),
     tokenEpoch: integerColumn(row, "token_epoch"),
+    tokensInvalidatedAt: optionalIntegerColumn(row, "tokens_invalidated_at"),
     groups: groupsOf(database, id),
   };
 }
 
 const SELECT_USER =
   "SELECT id, username, display_name, email, is_service_account, created_at, " +
-  "disabled_at, token_epoch FROM users";
+  "disabled_at, token_epoch, tokens_invalidated_at FROM users";
 
 /** Every account, in name order. */
 export function listUsers(database: DatabaseSync): UserRecord[] {
@@ -285,12 +295,22 @@ export async function createUser(
  * next sign-in and the next mint; the bumped `token_epoch` makes any token
  * already issued unrenewable. Neither reaches back and cancels a token that is
  * already out there — ./tokens.ts sets out exactly what that leaves open.
+ *
+ * `tokens_invalidated_at` moves with the epoch, here and in
+ * {@link revokeUserTokens}, and those are the only two places the epoch is
+ * bumped. A moment written anywhere else, or left behind by one of them, would
+ * be a screen saying an account's tokens were last refused at a time they were
+ * not.
  */
 export function disableUser(database: DatabaseSync, username: string): UserRecord {
   const user = requireUser(database, username);
+  const now = Date.now();
   database
-    .prepare("UPDATE users SET disabled_at = ?, token_epoch = token_epoch + 1 WHERE id = ?")
-    .run(Date.now(), user.id);
+    .prepare(
+      "UPDATE users SET disabled_at = ?, token_epoch = token_epoch + 1, " +
+        "tokens_invalidated_at = ? WHERE id = ?",
+    )
+    .run(now, now, user.id);
   return requireUser(database, user.username);
 }
 
@@ -319,7 +339,11 @@ export function enableUser(database: DatabaseSync, username: string): UserRecord
  */
 export function revokeUserTokens(database: DatabaseSync, username: string): UserRecord {
   const user = requireUser(database, username);
-  database.prepare("UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?").run(user.id);
+  database
+    .prepare(
+      "UPDATE users SET token_epoch = token_epoch + 1, tokens_invalidated_at = ? WHERE id = ?",
+    )
+    .run(Date.now(), user.id);
   return requireUser(database, user.username);
 }
 

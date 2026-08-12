@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { cachedInstallDir, storedInstallDir } from "../loreserver/cache.js";
 import { downloadVerified, type DownloadReporter } from "../loreserver/download.js";
 import { extractArchive } from "../loreserver/extract.js";
 import { LICENSE_FILE_NAME, LORESERVER_VERSION, NOTICES_FILE_NAME } from "../loreserver/pin.js";
@@ -98,15 +99,37 @@ export function resolveLorelibArtifact(
 }
 
 /**
- * Where the notices are kept: beside loreserver's, under the storage root.
+ * Where the notices are kept: beside loreserver's, in the per-user cache.
  *
  * Not literally beside the library, which npm put inside `node_modules` — that
  * directory belongs to the installer and is rewritten by it. The version is in
  * the name for the same reason it is in loreserver's: a changed pin adds a
  * directory rather than overwriting what a running Hub was started with.
+ *
+ * The terms follow the binaries. They are the terms one release is
+ * redistributed under, not something about one Hub, and a copy per storage root
+ * was a copy of the same two files for every instance on the machine.
  */
-export function lorelibNoticesDir(root: string, version: string = LORELIB_VERSION): string {
-  return join(root, "bin", `lorelib-${version}`);
+export function lorelibNoticesDir(version: string = LORELIB_VERSION): string {
+  return cachedInstallDir("lorelib", version);
+}
+
+/** Where a Hub older than that change kept them, which is still read first. */
+export function storedLorelibNoticesDir(
+  root: string,
+  version: string = LORELIB_VERSION,
+): string {
+  return storedInstallDir(root, "lorelib", version);
+}
+
+/** Both files in `directory`, or nothing when either is missing. */
+function presentIn(directory: string): NoticesResult | undefined {
+  const licensePath = join(directory, LICENSE_FILE_NAME);
+  const noticesPath = join(directory, NOTICES_FILE_NAME);
+  if (!existsSync(licensePath) || !existsSync(noticesPath)) {
+    return undefined;
+  }
+  return { directory, licensePath, noticesPath, alreadyPresent: true };
 }
 
 /** What {@link ensureLorelibNotices} did, and where it put it. */
@@ -125,19 +148,29 @@ export interface NoticesResult {
  * somebody else's library, not a precondition of reading a repository. A
  * machine that cannot reach GitHub still reads its projects, which is why the
  * caller is expected to let a failure here pass rather than refuse to work.
+ *
+ * `root` is here only so that a copy an older Hub left under the storage root
+ * can be found; nothing new is written there.
  */
 export async function ensureLorelibNotices(
   root: string,
   artifact: LorelibArtifact,
   reporter: DownloadReporter = {},
 ): Promise<NoticesResult> {
-  const directory = lorelibNoticesDir(root);
+  // The storage root first, for the same reason the binary is used where it
+  // lies: a Hub that already fetched these has them, and fetching a second copy
+  // to satisfy a change of directory would be a download nobody asked for on
+  // every Hub that upgrades.
+  for (const candidate of [storedLorelibNoticesDir(root), lorelibNoticesDir()]) {
+    const found = presentIn(candidate);
+    if (found !== undefined) {
+      return found;
+    }
+  }
+
+  const directory = lorelibNoticesDir();
   const licensePath = join(directory, LICENSE_FILE_NAME);
   const noticesPath = join(directory, NOTICES_FILE_NAME);
-
-  if (existsSync(licensePath) && existsSync(noticesPath)) {
-    return { directory, licensePath, noticesPath, alreadyPresent: true };
-  }
 
   const parent = dirname(directory);
   await mkdir(parent, { recursive: true });

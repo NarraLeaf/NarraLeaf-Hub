@@ -8,6 +8,7 @@ import { isIP } from "node:net";
 
 import { DEFAULT_IDENTITY } from "./identity/config.js";
 import { DEFAULT_INVITE_LIFETIME_MS, DEFAULT_ROLE } from "./identity/invites.js";
+import { isSettingKey, SETTING_KEYS, type SettingKey } from "./identity/settings.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
 import { GRANTABLE_LEVELS, type AccessLevel } from "./projects/registry.js";
 
@@ -122,6 +123,23 @@ export type Invocation =
       readonly root: string;
       readonly project: string;
       readonly username: string;
+    }
+  /** Show the settings this Hub keeps in its database. */
+  | { readonly kind: "settings-list"; readonly root: string }
+  /**
+   * Change one setting.
+   *
+   * The value arrives here as the seconds it will be stored as, because the
+   * duration it was written with — `7d`, `30m`, a bare number of seconds — is a
+   * question about the command line and belongs in this file. What is out of
+   * range is not: the bounds are the database's, and src/identity/settings.ts
+   * refuses one with a sentence saying what they are.
+   */
+  | {
+      readonly kind: "settings-set";
+      readonly root: string;
+      readonly key: SettingKey;
+      readonly seconds: number;
     }
   /** Show the signing keys. */
   | { readonly kind: "key-list"; readonly root: string }
@@ -816,6 +834,67 @@ function parseProject(argv: readonly string[]): Invocation {
   return error(`unknown project command: ${verb}`);
 }
 
+/** Parse the arguments that follow `settings`. */
+function parseSettings(argv: readonly string[]): Invocation {
+  const [verb, ...rest] = argv;
+  if (verb === undefined) {
+    return error("settings needs a verb: list or set");
+  }
+  if (verb === "-h" || verb === "--help") {
+    return { kind: "help" };
+  }
+
+  if (verb === "list") {
+    const result = readTokens(rest, ["--root"]);
+    if (result.kind !== "tokens") {
+      return result.kind === "help" ? { kind: "help" } : error(result.message);
+    }
+    const extra = result.tokens.positionals[0];
+    if (extra !== undefined) {
+      return error(`unexpected argument: ${extra}`);
+    }
+    const root = result.tokens.values.get("--root");
+    return root === undefined ? missingRoot("settings list") : { kind: "settings-list", root };
+  }
+
+  if (verb === "set") {
+    const result = readTokens(rest, ["--root"]);
+    if (result.kind !== "tokens") {
+      return result.kind === "help" ? { kind: "help" } : error(result.message);
+    }
+    const { tokens } = result;
+
+    const [key, value, extra] = tokens.positionals;
+    if (key === undefined || value === undefined) {
+      return error("settings set needs a key and a value");
+    }
+    if (extra !== undefined) {
+      return error(`unexpected argument: ${extra}`);
+    }
+    const root = tokens.values.get("--root");
+    if (root === undefined) {
+      return missingRoot("settings set");
+    }
+    // Named, rather than left as "unknown setting": somebody who has typed the
+    // wrong one of two keys is one line away from the right one, and a message
+    // that only says no is a message that sends them to the source.
+    if (!isSettingKey(key)) {
+      return error(
+        `there is no setting called ${key}. The settings are ${SETTING_KEYS.join(" and ")}.`,
+      );
+    }
+    // The durations `--token-lifetime` takes, read by the same function, so
+    // that 7d means the same thing on every command line here.
+    const milliseconds = parseDuration(key, value);
+    if (typeof milliseconds === "string") {
+      return error(milliseconds);
+    }
+    return { kind: "settings-set", root, key, seconds: Math.floor(milliseconds / 1000) };
+  }
+
+  return error(`unknown settings command: ${verb}`);
+}
+
 /** Parse the arguments that follow `key`. */
 function parseKey(argv: readonly string[]): Invocation {
   const [verb, ...rest] = argv;
@@ -907,6 +986,8 @@ export function parseArgs(argv: readonly string[]): Invocation {
       return parseToken(rest);
     case "project":
       return parseProject(rest);
+    case "settings":
+      return parseSettings(rest);
     case "key":
       return parseKey(rest);
     case "trust":

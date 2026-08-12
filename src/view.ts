@@ -21,11 +21,12 @@ import { stat, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { describeDuration } from "./duration.js";
+import { listDecisions } from "./identity/audit.js";
 import { audienceHosts, authUrl, dataRemoteUrl, type IdentityConfig } from "./identity/config.js";
 import { listInvites } from "./identity/invites.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
-import { storedTokenLifetimes } from "./identity/settings.js";
+import { REPOSITORY_LIFETIME_CAUTION, storedTokenLifetimes } from "./identity/settings.js";
 import { findUserById, listUsers } from "./identity/users.js";
 import { checkHealth } from "./loreserver/health.js";
 import { instanceLayout } from "./loreserver/layout.js";
@@ -75,6 +76,17 @@ export interface ProjectReadingLookup {
  * half a million objects in it.
  */
 const STORAGE_FILE_LIMIT = 50_000;
+
+/**
+ * How many decisions a view carries.
+ *
+ * Far fewer than the database keeps. The dashboard shows the last handful and
+ * the log window draws every entry it is handed, one line each, so what is
+ * useful here is a screenful and a good deal of scrollback — not the whole
+ * bound, which would be a window two thousand lines tall and a count nobody
+ * asked for.
+ */
+const AUDIT_LIMIT = 100;
 
 /**
  * The labels of the two rows Hub has somewhere to write.
@@ -139,9 +151,14 @@ function userView(database: DatabaseSync, user: ReturnType<typeof listUsers>[num
     disabled: user.disabledAt !== undefined,
     serviceAccount: user.isServiceAccount,
     createdAt: user.createdAt,
-    // When somebody was last seen, and when their tokens were last refused,
-    // are not written down: the accounts table keeps a counter rather than a
-    // moment. Absent is what the interface draws as unknown.
+    // When somebody was last seen is still not written down anywhere, so it
+    // stays absent and the interface draws it as unknown. When their tokens
+    // were last refused is: it is absent only for an account whose tokens have
+    // never been refused, or one whose last refusal was before Hub kept the
+    // moment.
+    ...(user.tokensInvalidatedAt === undefined
+      ? {}
+      : { tokensInvalidatedAt: user.tokensInvalidatedAt }),
     projects: listProjectsFor(database, user.id).map((reachable) => ({
       name: reachable.project.name,
       level: reachable.level,
@@ -208,8 +225,7 @@ export function settingRows(context: ViewContext): SettingView[] {
       label: REPOSITORY_SETTING,
       value: describeDuration(lifetimes.repositoryTokenLifetimeSeconds),
       editable: true,
-      caution:
-        "loreserver accepts this one without asking Hub, so revoking access cannot cut it short.",
+      caution: REPOSITORY_LIFETIME_CAUTION,
     },
     { group: "identity", label: "issuer", value: config.issuer, editable: false },
     { group: "identity", label: "audience", value: config.audience, editable: false },
@@ -287,10 +303,11 @@ export async function gatherHubView(context: ViewContext): Promise<HubView> {
     },
     users: listUsers(database).map((user) => userView(database, user)),
     projects: listProjects(database).map((project) => projectView(context, project)),
-    // Every decision Hub makes is written to the log of the `up` process that
-    // made it, and nowhere else. Until Hub keeps them, this is empty rather
-    // than filled with something that resembles them.
-    audit: [],
+    // The decisions themselves, as src/identity/audit.ts kept them. Empty here
+    // now means a Hub that has genuinely not been asked anything — a Hub with
+    // no `up` running, or one nobody has reached yet — rather than a Hub that
+    // makes decisions and keeps none.
+    audit: listDecisions(database, AUDIT_LIMIT),
     settings: settingRows(context),
     invitesLive,
     signingKeys,

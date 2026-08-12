@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
+import { CACHE_DIRECTORY_ENV } from "../src/loreserver/cache.js";
 import { checkHealth, waitForHealth } from "../src/loreserver/health.js";
 import {
   BinaryContentsError,
@@ -31,6 +32,15 @@ import { Supervisor } from "../src/loreserver/supervisor.js";
  */
 const configuredRoot = process.env["NLHUB_TEST_LORESERVER_ROOT"] ?? "";
 
+// The binaries live in a per-user cache, and this test installs one, corrupts
+// it and deletes it. It must not do any of that to the copy an operator's own
+// Hub on this machine is running, so the cache is pointed inside the directory
+// the test was given. Beside the per-run directories rather than inside one, so
+// that the reuse the comment above promises is what actually happens.
+if (configuredRoot !== "") {
+  process.env[CACHE_DIRECTORY_ENV] = join(configuredRoot, "cache");
+}
+
 /**
  * Ports for the test instance, chosen away from the defaults so that a run
  * does not collide with a loreserver an operator is already running.
@@ -54,7 +64,9 @@ describe.skipIf(configuredRoot === "")("loreserver, end to end", () => {
     const layout = instanceLayout(root, artifact.binaryName);
 
     const install = await ensureInstalled(layout, artifact);
-    expect(install.alreadyInstalled).toBe(false);
+    // Where it went, rather than whether it was fetched: the cache outlives one
+    // run on purpose, so a second run finds the build already unpacked.
+    expect(install.binaryPath).toBe(layout.binaryPath);
     expect((await stat(layout.binaryPath)).isFile()).toBe(true);
     // Epic Games' terms travel with the binary Hub redistributes.
     expect((await stat(layout.licensePath)).size).toBeGreaterThan(0);

@@ -120,6 +120,41 @@ describe("disableUser and enableUser", () => {
     expect(disabled.tokenEpoch).toBe(2);
   });
 
+  it("writes the moment the tokens were made unrenewable beside the bump", async () => {
+    const connection = await database();
+    await createUser(connection, hasher, { username: "ada", password: PASSWORD });
+    const before = Date.now();
+
+    const disabled = disableUser(connection, "ada");
+
+    expect(disabled.tokensInvalidatedAt).toBeGreaterThanOrEqual(before);
+    // One moment, not two: an account was disabled and its tokens refused in
+    // the same act, and two clocks read a millisecond apart would read as two
+    // separate things having happened.
+    expect(disabled.tokensInvalidatedAt).toBe(disabled.disabledAt);
+  });
+
+  it("leaves that moment absent on an account nobody has done this to", async () => {
+    const connection = await database();
+
+    const ada = await createUser(connection, hasher, { username: "ada", password: PASSWORD });
+
+    expect(ada.tokensInvalidatedAt).toBeUndefined();
+  });
+
+  it("does not move it when the account is enabled again", async () => {
+    const connection = await database();
+    await createUser(connection, hasher, { username: "ada", password: PASSWORD });
+    const when = disableUser(connection, "ada").tokensInvalidatedAt;
+
+    const enabled = enableUser(connection, "ada");
+
+    // Enabling puts nothing back — not the epoch, and so not the moment it was
+    // bumped either. The tokens issued before it are still refused, and that
+    // is still when they started being refused.
+    expect(enabled.tokensInvalidatedAt).toBe(when);
+  });
+
   it("does not put the epoch back when the account is enabled again", async () => {
     const connection = await database();
     await createUser(connection, hasher, { username: "ada", password: PASSWORD });
@@ -155,6 +190,33 @@ describe("revokeUserTokens", () => {
     await expect(authenticate(connection, hasher, "ada", PASSWORD)).resolves.toMatchObject({
       kind: "signed-in",
     });
+  });
+
+  it("writes the moment beside the bump, on an account that stays enabled", async () => {
+    const connection = await database();
+    await createUser(connection, hasher, { username: "ada", password: PASSWORD });
+    const before = Date.now();
+
+    const revoked = revokeUserTokens(connection, "ada");
+
+    expect(revoked.tokensInvalidatedAt).toBeGreaterThanOrEqual(before);
+    expect(revoked.disabledAt).toBeUndefined();
+  });
+
+  it("says nothing about a bump made before Hub kept the moment", async () => {
+    const connection = await database();
+    await createUser(connection, hasher, { username: "ada", password: PASSWORD });
+    // The row as a Hub older than this column left it: the epoch moved, and
+    // there was nowhere to write when. There is no honest timestamp for it, so
+    // the record carries none and the screen says unknown.
+    connection
+      .prepare("UPDATE users SET token_epoch = token_epoch + 1 WHERE username = ?")
+      .run("ada");
+
+    const ada = findUser(connection, "ada");
+
+    expect(ada?.tokenEpoch).toBe(2);
+    expect(ada?.tokensInvalidatedAt).toBeUndefined();
   });
 
   it("leaves a disabled account disabled", async () => {

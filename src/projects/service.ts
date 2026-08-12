@@ -22,9 +22,9 @@
  * for whoever reads this next.
  *
  * Every decision is written to the log with the caller, the resource and the
- * outcome. Nothing else in the system records who reached what: loreserver logs
- * that it asked, not what it was told, and a refusal reaches the person as
- * "not found".
+ * outcome, and kept in the database by src/identity/audit.ts. Nothing else in
+ * the system records who reached what: loreserver logs that it asked, not what
+ * it was told, and a refusal reaches the person as "not found".
  */
 import type { DatabaseSync } from "node:sqlite";
 
@@ -56,6 +56,11 @@ import {
   GRPC_UNAUTHENTICATED,
   GrpcStatusError,
 } from "../grpc/status.js";
+import {
+  recordDecision,
+  UNIDENTIFIED_ACCOUNT,
+  type NewDecision,
+} from "../identity/audit.js";
 import {
   bearerToken,
   describeRefusal,
@@ -114,6 +119,49 @@ function mintingConfig(context: AuthorizationContext): IdentityConfig {
 const UNIDENTIFIED = "an unidentified caller";
 
 /**
+ * What a decision is filed under when it is not about one project.
+ *
+ * Short nouns, because they sit in the same column as a project's name on a
+ * screen that is often narrow.
+ */
+const SIGN_IN = "sign-in";
+const LISTING = "listing";
+const DATA_CONNECTION = "data connection";
+const NOTHING = "nothing";
+
+/**
+ * Say what was decided, once, to both places it has to go.
+ *
+ * The log line and the record are written side by side rather than one derived
+ * from the other: the line is a sentence for somebody watching a terminal, and
+ * the record is five fields for somebody looking at a screen a week later.
+ * Writing both at one call site is what stops either being forgotten; the two
+ * calls that stay on `context.log` alone are the ones where Hub decided
+ * nothing, and each of them says so.
+ */
+function decided(context: AuthorizationContext, line: string, decision: NewDecision): void {
+  context.log(line);
+  recordDecision(context.database, decision);
+}
+
+/**
+ * The name a decision about `resourceId` is filed under.
+ *
+ * Resolved as the decision is made rather than as the log is read, so that the
+ * record still says which project it was about after that project has been
+ * deleted from this Hub. A resource Hub knows nothing about keeps its resource
+ * id, which is all there is to say about it.
+ *
+ * It costs one lookup by primary key in a local SQLite file, on a call that has
+ * already verified an RSA signature.
+ */
+function resourceName(context: AuthorizationContext, resourceId: string): string {
+  const projectId = projectIdFromResourceId(resourceId);
+  const project = projectId === undefined ? undefined : findProject(context.database, projectId);
+  return project?.name ?? resourceId;
+}
+
+/**
  * Identify whoever the question is about.
  *
  * Normally that is the bearer of the token loreserver forwarded. A request may
@@ -153,10 +201,20 @@ async function checkUserPermission(
     // One line per resource, and one line even when the request named none, so
     // that a refusal is never a gap in the log.
     if (request.resourceIds.length === 0) {
-      context.log(`auth: check ${UNIDENTIFIED} for nothing: refused, ${because}`);
+      decided(context, `auth: check ${UNIDENTIFIED} for nothing: refused, ${because}`, {
+        username: UNIDENTIFIED_ACCOUNT,
+        resource: NOTHING,
+        allowed: false,
+        detail: because,
+      });
     }
     for (const resourceId of request.resourceIds) {
-      context.log(`auth: check ${UNIDENTIFIED} ${resourceId}: refused, ${because}`);
+      decided(context, `auth: check ${UNIDENTIFIED} ${resourceId}: refused, ${because}`, {
+        username: UNIDENTIFIED_ACCOUNT,
+        resource: resourceName(context, resourceId),
+        allowed: false,
+        detail: because,
+      });
     }
     // An empty allow list, not a gRPC failure. A refusal is an answer to the
     // question loreserver asked, and it turns into "not found" for the client
@@ -176,18 +234,25 @@ async function checkUserPermission(
     );
     if (level === undefined) {
       denied.push({ resourceId, permission: [] });
-      context.log(
-        `auth: check ${caller.user.username} ${resourceId}: denied, ${
-          projectId === undefined ? "not a project on this Hub" : "no grant"
-        }`,
-      );
+      const why = projectId === undefined ? "not a project on this Hub" : "no grant";
+      decided(context, `auth: check ${caller.user.username} ${resourceId}: denied, ${why}`, {
+        username: caller.user.username,
+        resource: resourceName(context, resourceId),
+        allowed: false,
+        detail: why,
+      });
       continue;
     }
     // The id is echoed exactly as it was asked about, not rebuilt from the
     // project: loreserver compares the two strings, and a rebuilt one that
     // differed in any character would read as an answer about something else.
     allowed.push({ resourceId, permission: permissionsFor(level) });
-    context.log(`auth: check ${caller.user.username} ${resourceId}: allowed (${level})`);
+    decided(context, `auth: check ${caller.user.username} ${resourceId}: allowed (${level})`, {
+      username: caller.user.username,
+      resource: resourceName(context, resourceId),
+      allowed: true,
+      detail: level,
+    });
   }
 
   return encodeCheckUserPermissionResponse({ allowed, denied });
@@ -202,7 +267,13 @@ async function lookupUserPermissions(
   const caller = await identify(context, call, undefined);
 
   if (caller.kind === "refused") {
-    context.log(`auth: lookup ${UNIDENTIFIED}: refused, ${describeRefusal(caller.reason)}`);
+    const because = describeRefusal(caller.reason);
+    decided(context, `auth: lookup ${UNIDENTIFIED}: refused, ${because}`, {
+      username: UNIDENTIFIED_ACCOUNT,
+      resource: LISTING,
+      allowed: false,
+      detail: because,
+    });
     return encodeLookupUserPermissionsResponse({ permissions: [] });
   }
 
@@ -215,10 +286,17 @@ async function lookupUserPermissions(
     (entry) => only === undefined || entry.project.id === only,
   );
 
-  context.log(
+  decided(
+    context,
     `auth: lookup ${caller.user.username}: ${reachable.length} project(s)${
       only === undefined ? "" : ` matching ${request.resourceFilter}`
     }`,
+    {
+      username: caller.user.username,
+      resource: LISTING,
+      allowed: true,
+      detail: `${reachable.length} project(s)`,
+    },
   );
 
   // Every project in one reply. Paging exists in the protocol and is not used:
@@ -262,7 +340,13 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
   const caller = identifyToken(context.database, context.keys, context.config, presented);
 
   if (caller.kind === "refused") {
-    context.log(`auth: exchange ${UNIDENTIFIED}: refused, ${describeRefusal(caller.reason)}`);
+    const because = describeRefusal(caller.reason);
+    decided(context, `auth: exchange ${UNIDENTIFIED}: refused, ${because}`, {
+      username: UNIDENTIFIED_ACCOUNT,
+      resource: SIGN_IN,
+      allowed: false,
+      detail: because,
+    });
     // One status and one sentence for every refusal, unlike the permission
     // calls: this is the sign-in path, and the caller is whoever reached the
     // endpoint. Saying which check failed would say whether an account exists.
@@ -291,9 +375,16 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
     purpose: "sign-in",
     resources: reachable,
   });
-  context.log(
+  decided(
+    context,
     `auth: exchange ${caller.user.username}: issued a token for ${reachable.length} ` +
       `project(s) until ${new Date(minted.claims.exp * 1000).toISOString()}`,
+    {
+      username: caller.user.username,
+      resource: SIGN_IN,
+      allowed: true,
+      detail: `a token for ${reachable.length} project(s)`,
+    },
   );
 
   return encodeExchangeExternalTokenForUserTokenResponse({
@@ -341,9 +432,17 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
   );
 
   if (caller.kind === "refused") {
-    context.log(
+    const because = describeRefusal(caller.reason);
+    decided(
+      context,
       `auth: multiresource ${UNIDENTIFIED} for ${request.resourceIds.length} resource(s): ` +
-        `refused, ${describeRefusal(caller.reason)}`,
+        `refused, ${because}`,
+      {
+        username: UNIDENTIFIED_ACCOUNT,
+        resource: DATA_CONNECTION,
+        allowed: false,
+        detail: because,
+      },
     );
     throw new GrpcStatusError(
       GRPC_UNAUTHENTICATED,
@@ -362,10 +461,16 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
         ? undefined
         : accessLevel(context.database, projectId, caller.user.id);
     if (level === undefined) {
-      context.log(
-        `auth: multiresource ${caller.user.username} ${resourceId}: denied, ${
-          projectId === undefined ? "not a project on this Hub" : "no grant"
-        }`,
+      const why = projectId === undefined ? "not a project on this Hub" : "no grant";
+      decided(
+        context,
+        `auth: multiresource ${caller.user.username} ${resourceId}: denied, ${why}`,
+        {
+          username: caller.user.username,
+          resource: resourceName(context, resourceId),
+          allowed: false,
+          detail: why,
+        },
       );
       // PERMISSION_DENIED rather than an empty answer: the caller is identified,
       // and the question was whether this account may have this project. A
@@ -379,7 +484,16 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
     // The id is echoed exactly as it was asked about, for the reason
     // checkUserPermission echoes it: the comparison downstream is on the string.
     granted.push({ resource_id: resourceId, permission: permissionsFor(level) });
-    context.log(`auth: multiresource ${caller.user.username} ${resourceId}: allowed (${level})`);
+    decided(
+      context,
+      `auth: multiresource ${caller.user.username} ${resourceId}: allowed (${level})`,
+      {
+        username: caller.user.username,
+        resource: resourceName(context, resourceId),
+        allowed: true,
+        detail: level,
+      },
+    );
   }
 
   // The resources are named in the token itself. This is what makes it a
@@ -414,6 +528,10 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
  * A resource Hub has never heard of is logged and otherwise let be: it is a
  * repository created by something other than Hub, and inventing a project for
  * it would be inventing an owner.
+ *
+ * Nothing is recorded as a decision, because nothing was decided: no caller is
+ * named and no access is granted or refused. A row here would be a line on the
+ * screen of decisions saying that a project somebody had just created existed.
  */
 function createResource(context: AuthorizationContext, call: GrpcCall): Buffer {
   const request = decodeCreateResourceRequest(call.message);
@@ -457,17 +575,30 @@ async function deleteResource(context: AuthorizationContext, call: GrpcCall): Pr
       ? accessLevel(context.database, project.id, caller.user.id)
       : undefined;
   if (level !== "owner") {
-    context.log(
-      `auth: delete resource ${who} ${request.resourceId}: kept, ${
-        caller.kind === "identified" ? "the caller does not own it" : describeRefusal(caller.reason)
-      }`,
-    );
+    const why =
+      caller.kind === "identified" ? "the caller does not own it" : describeRefusal(caller.reason);
+    decided(context, `auth: delete resource ${who} ${request.resourceId}: kept, ${why}`, {
+      username: caller.kind === "identified" ? who : UNIDENTIFIED_ACCOUNT,
+      resource: project.name,
+      allowed: false,
+      detail: `kept, ${why}`,
+    });
     return EMPTY_MESSAGE;
   }
 
   forgetProject(context.database, project.id);
-  context.log(
+  // Recorded after the project row is gone, and holding the name rather than a
+  // reference to it: this is the one decision whose subject no longer exists by
+  // the time anybody reads about it.
+  decided(
+    context,
     `auth: delete resource ${who} ${request.resourceId}: forgot the project ${project.name}`,
+    {
+      username: who,
+      resource: project.name,
+      allowed: true,
+      detail: "forgot the project",
+    },
   );
   return EMPTY_MESSAGE;
 }

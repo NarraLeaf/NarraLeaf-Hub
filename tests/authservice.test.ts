@@ -17,6 +17,7 @@ import {
 } from "../src/grpc/messages.js";
 import type { GrpcServer } from "../src/grpc/server.js";
 import { GRPC_UNIMPLEMENTED } from "../src/grpc/status.js";
+import { listDecisions } from "../src/identity/audit.js";
 import { identityConfig } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
 import { KeyStore } from "../src/identity/keys.js";
@@ -339,6 +340,52 @@ describe("CheckUserPermission", () => {
       `auth: check ada ${resourceIdOf(project.id)}: allowed (owner)`,
       "auth: check ada urc-something-else: denied, not a project on this Hub",
     ]);
+  });
+
+  it("keeps the same decisions where something other than this process can read them", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const project = createProject(hub.database, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada.id,
+    });
+
+    await hub.check(hub.bearer(ada), [resourceIdOf(project.id), "urc-something-else"]);
+
+    // Under the project's name, not its resource id: this is what a person
+    // reads, and it goes on saying which project it was about after the project
+    // is gone. A resource Hub knows nothing about keeps the id, because that is
+    // all there is to know about it.
+    expect(listDecisions(hub.database)).toEqual([
+      {
+        at: expect.any(Number),
+        username: "ada",
+        resource: "urc-something-else",
+        allowed: false,
+        detail: "not a project on this Hub",
+      },
+      {
+        at: expect.any(Number),
+        username: "ada",
+        resource: "harbour",
+        allowed: true,
+        detail: "owner",
+      },
+    ]);
+  });
+
+  it("keeps a refusal it cannot name anybody for", async () => {
+    const hub = await harness();
+
+    await hub.check(undefined, ["urc-anything"]);
+
+    expect(listDecisions(hub.database)).toMatchObject([
+      { username: "unknown", resource: "urc-anything", allowed: false },
+    ]);
+    // The reason the log gave, kept with it. A refusal recorded as a refusal
+    // and nothing else would make an expired token look like a missing grant.
+    expect(listDecisions(hub.database)[0]?.detail).toBe("the call carried no bearer token");
   });
 });
 

@@ -34,6 +34,33 @@ export const SIGN_IN_LIFETIME_KEY = "token.sign_in_lifetime_seconds";
 export const REPOSITORY_LIFETIME_KEY = "token.repository_lifetime_seconds";
 
 /**
+ * Every key a person may name, in the order they are shown.
+ *
+ * The keys are the ones the table stores rather than shorter names invented for
+ * the command line. A second set of names would have to be mapped onto these,
+ * and the mapping would be the thing that says one name and writes another.
+ */
+export const SETTING_KEYS = [SIGN_IN_LIFETIME_KEY, REPOSITORY_LIFETIME_KEY] as const;
+
+/** One of the keys above. */
+export type SettingKey = (typeof SETTING_KEYS)[number];
+
+/** True when `key` is a setting this Hub has. */
+export function isSettingKey(key: string): key is SettingKey {
+  return SETTING_KEYS.some((known) => known === key);
+}
+
+/**
+ * The one thing about the repository lifetime that is not obvious from its
+ * name, said in one sentence wherever it is being changed.
+ *
+ * Here rather than beside either surface, because both the command and the
+ * terminal interface say it and two copies would drift.
+ */
+export const REPOSITORY_LIFETIME_CAUTION =
+  "loreserver accepts this one without asking Hub, so revoking access cannot cut it short.";
+
+/**
  * The range a stored lifetime has to fall in.
  *
  * The floor is a minute so that a lifetime stays longer than the exchange that
@@ -99,6 +126,11 @@ function lifetimeOf(database: DatabaseSync, key: string, fallback: number): numb
   return Number(stored);
 }
 
+/** True when somebody has stored a value for `key`, rather than left the default. */
+export function isSettingStored(database: DatabaseSync, key: SettingKey): boolean {
+  return readSetting(database, key) !== undefined;
+}
+
 /** The two lifetimes as they stand: stored where set, default where not. */
 export function storedTokenLifetimes(database: DatabaseSync): TokenLifetimes {
   return {
@@ -148,6 +180,33 @@ export function setTokenLifetimes(
   }
 
   return storedTokenLifetimes(database);
+}
+
+/**
+ * One lifetime out of the pair, by the key it is stored under.
+ *
+ * The pair is what everything else here passes around, and a caller working
+ * from a key — a command line, or a row on a screen — would otherwise have to
+ * write out the same two-way choice each time it needed the value back.
+ */
+export function lifetimeUnder(lifetimes: TokenLifetimes, key: SettingKey): number {
+  return key === SIGN_IN_LIFETIME_KEY
+    ? lifetimes.signInTokenLifetimeSeconds
+    : lifetimes.repositoryTokenLifetimeSeconds;
+}
+
+/** Store one lifetime by its key, and answer with the pair as it now stands. */
+export function setTokenLifetime(
+  database: DatabaseSync,
+  key: SettingKey,
+  seconds: number,
+): TokenLifetimes {
+  return setTokenLifetimes(
+    database,
+    key === SIGN_IN_LIFETIME_KEY
+      ? { signInTokenLifetimeSeconds: seconds }
+      : { repositoryTokenLifetimeSeconds: seconds },
+  );
 }
 
 /**
