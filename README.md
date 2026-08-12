@@ -162,13 +162,14 @@ epic_urc.UrcAuthApi/ExchangeUserTokenForMultiresourceToken  before touching a re
 The first presents a token Hub minted and gets a fresh one back. Minting rather
 than echoing is the point of the exchange: the new token carries the account's
 state as it stands now, so an account disabled a minute ago gets nothing, and a
-fifteen-minute token cannot renew itself for ever.
+token with a lifetime cannot renew itself for ever.
 
 The second is what a client asks for before it opens a repository's data
 connection, naming the resources it wants. Hub checks every one of them and
 refuses the whole request if the caller has no grant on any — which is where a
 collaborator without access is stopped, before a data connection is opened at
-all.
+all. What it hands back is the shorter-lived of Hub's two tokens, for the
+reason set out under "Tokens and taking access away".
 
 Both tokens carry a `resources` claim: which projects, and what the bearer may
 do to each. It is not decoration. The data connection is a separate leg from the
@@ -323,19 +324,50 @@ printf '%s' "$PASSWORD" | nlhub token mint ada --root /srv/hub
 ```
 
 The token goes to standard output on its own; what is in it goes to standard
-error. It lasts fifteen minutes by default.
+error. It is a sign-in token, and it lasts thirty days.
 
-That number is the revocation window for anything Hub is not asked about, and it
-is short on purpose. `loreserver` checks a token's signature and its expiry, and
-by itself asks Hub nothing — so a token already in somebody's hands stays valid
-to it until it expires, and nothing short of retiring the signing key, which
-invalidates everyone's tokens at once, can shorten that.
+There are two kinds of token here, with two lifetimes, and what separates them
+is who is asked before one is honoured.
 
-Reaching a repository is not one of those things: `loreserver` asks Hub about
-every access, and Hub refuses a caller whose account has been disabled or whose
-token was issued before their access was revoked. Disabling an account therefore
-stops it reaching any project at once, as well as stopping it being issued
-anything new.
+A sign-in token is one Hub is asked about every time it matters. It comes back
+to Hub to be exchanged for a fresh one, and every repository access `loreserver`
+serves goes on to ask Hub whether that caller may have that repository. Hub
+refuses a caller whose account has been disabled, or whose token was issued
+before their access was revoked, so the expiry is not what bounds this token: a
+thirty-day lifetime is not thirty days in which a revoked account keeps working.
+
+A repository token is what `ExchangeUserTokenForMultiresourceToken` hands back,
+and it is presented on the data connection rather than to Hub. `loreserver`
+checks its signature and its expiry there, and is not obliged to ask Hub
+anything more before it runs out; nothing Hub does reaches a connection that is
+already open. The lifetime is that token's only bound, which is the whole reason
+it is fifteen minutes.
+
+Both lifetimes are settings. They are kept in `hub.db` and read as each token is
+minted, so changing one reaches a Hub that is already running, and a Hub nobody
+has told otherwise uses the two numbers above. `--token-lifetime` overrides the
+sign-in lifetime for one run of one command, and leaves the stored setting
+alone.
+
+Taking access away is two commands, and they are not the same one:
+
+```sh
+nlhub user disable ada --root /srv/hub          # the account, entirely
+nlhub user revoke-tokens ada --root /srv/hub    # only the tokens it holds
+```
+
+`revoke-tokens` refuses every token Hub has already issued to that account and
+changes nothing else, so the person can sign in a second later and be given one
+that works. It is the command for a token that has got out, where disabling
+would take the account away from somebody who has done nothing wrong.
+
+Both reach the same distance where tokens are concerned, and both say so when
+they run. Every token Hub has issued to that account is refused from that moment
+wherever Hub is the one asked — signing in, exchanging, and the permission
+question behind every repository access. A data connection already open is
+checked by `loreserver`'s data plane rather than by Hub, and may last until the
+repository token it was opened with expires. Nothing short of retiring the
+signing key, which invalidates everybody's tokens at once, shortens that.
 
 ### Signing keys
 
@@ -352,7 +384,8 @@ nlhub key list --root /srv/hub
 
 Taking a key out of the JWKS is deliberately not part of rotating: tokens it
 signed are valid until they expire, so it has to keep verifying for at least one
-token lifetime after it stops signing.
+sign-in token lifetime after it stops signing — thirty days, unless this Hub has
+been set to something else.
 
 ## Projects and access
 

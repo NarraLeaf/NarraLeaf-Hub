@@ -37,12 +37,49 @@ describe("migrate", () => {
       expect(schemaVersion(database)).toBe(0);
       expect(migrate(database, path)).toBe(SCHEMA_VERSION);
       expect(tableNames(database)).toEqual(
-        expect.arrayContaining(["invites", "schema_version", "user_groups", "users"]),
+        expect.arrayContaining([
+          "invites",
+          "schema_version",
+          "settings",
+          "user_groups",
+          "users",
+        ]),
       );
     } finally {
       database.close();
     }
     expect(existsSync(path)).toBe(true);
+  });
+
+  it("adds a later migration to a file that already has accounts in it", async () => {
+    const root = await temporaryRoot();
+    const path = identityLayout(root).databasePath;
+    const database = await openDatabase(path);
+    try {
+      migrate(database, path);
+      database
+        .prepare(
+          `INSERT INTO users (id, username, display_name, password_hash, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run("9a1c0e2e", "ada", "Ada Lovelace", "scrypt$N=16384,r=8,p=1$c2FsdA==$aGFzaA==", 1);
+
+      // Put the file back to the version before the settings table, rather than
+      // writing out that older schema again here: a second copy of it in this
+      // file would be one more thing to keep in step with the migration list.
+      database.exec("DROP TABLE settings");
+      database.prepare("DELETE FROM schema_version WHERE version = ?").run(SCHEMA_VERSION);
+      expect(schemaVersion(database)).toBe(SCHEMA_VERSION - 1);
+
+      expect(migrate(database, path)).toBe(SCHEMA_VERSION);
+
+      expect(tableNames(database)).toContain("settings");
+      // The account is still there. A migration that took the file back to
+      // something empty would pass every check about tables and lose a Hub.
+      expect(database.prepare("SELECT username FROM users").all()).toEqual([{ username: "ada" }]);
+    } finally {
+      database.close();
+    }
   });
 
   it("does nothing the second time, and nothing the third", async () => {

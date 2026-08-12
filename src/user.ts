@@ -1,19 +1,29 @@
 /**
- * The `user` commands: list the accounts, make one from an invitation, and
- * take access away or give it back.
+ * The `user` commands: list the accounts, make one from an invitation, take
+ * access away or give it back, and refuse the tokens one account already has.
  *
- * Disabling and enabling say what they did and what they did not do. An
- * operator who has just disabled somebody is entitled to know that a token
- * already in that person's hands works until it expires — src/identity/tokens.ts
- * explains why nothing here can shorten that.
+ * The ones that change something say what they did and what they did not do.
+ * An operator who has just disabled somebody is entitled to know how far that
+ * reaches, and it is not the same distance everywhere: Hub refuses every token
+ * it has issued them from that moment on, while a data connection already open
+ * is checked by loreserver's data plane rather than by Hub and may last until
+ * the token it was opened with expires. src/identity/tokens.ts is where the two
+ * lifetimes are set out, and why they are two.
  */
 import type { WriteText } from "./cli.js";
-import { DEFAULT_IDENTITY } from "./identity/config.js";
+import { describeDuration } from "./duration.js";
 import { openMigratedDatabase } from "./identity/database.js";
 import { redeemInvite } from "./identity/invites.js";
 import { identityLayout } from "./identity/layout.js";
 import { defaultPasswordHasher } from "./identity/passwords.js";
-import { disableUser, enableUser, listUsers, type UserRecord } from "./identity/users.js";
+import { storedTokenLifetimes } from "./identity/settings.js";
+import {
+  disableUser,
+  enableUser,
+  listUsers,
+  revokeUserTokens,
+  type UserRecord,
+} from "./identity/users.js";
 import { readPassword } from "./stdin.js";
 
 export interface UserListOptions {
@@ -119,13 +129,16 @@ export async function userDisable(
   const database = await openMigratedDatabase(layout.databasePath);
   try {
     const user = disableUser(database, options.username);
+    const lifetimes = storedTokenLifetimes(database);
     stdout(`disabled ${user.username}\n`);
     // Stated every time, because the alternative is an operator believing
-    // access ended the moment they pressed return.
+    // either more than happened or less. Nothing new is issued and nothing
+    // already issued is accepted; a connection already open is the one thing
+    // neither of those covers.
     stdout(
-      "Tokens already issued to them keep working until they expire, at most one token " +
-        `lifetime away (${Math.round(DEFAULT_IDENTITY.tokenLifetimeSeconds / 60)} minutes ` +
-        "unless --token-lifetime said otherwise). Nothing new will be issued.\n",
+      "Nothing new is issued, and tokens already issued are refused from now on; a " +
+        "connection already open may last until its repository token expires, at most " +
+        `${describeDuration(lifetimes.repositoryTokenLifetimeSeconds)} from now.\n`,
     );
     return 0;
   } catch (error) {
@@ -147,6 +160,44 @@ export async function userEnable(
   try {
     const user = enableUser(database, options.username);
     stdout(`enabled ${user.username}\n`);
+    return 0;
+  } catch (error) {
+    stderr(`nlhub: ${describeError(error)}\n`);
+    return 1;
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * Refuse every token an account already holds. Returns the process exit code.
+ *
+ * What it prints is the whole of what it did, and the middle sentence is the
+ * one that has to be there: an operator reading only the first would take the
+ * word "every" to include a session somebody has open, and it does not.
+ */
+export async function userRevokeTokens(
+  options: UserStateOptions,
+  stdout: WriteText,
+  stderr: WriteText,
+): Promise<number> {
+  const layout = identityLayout(options.root);
+  const database = await openMigratedDatabase(layout.databasePath);
+  try {
+    const user = revokeUserTokens(database, options.username);
+    const lifetimes = storedTokenLifetimes(database);
+    stdout(`revoked the tokens of ${user.username}\n`);
+    // Two sentences, because two things about this surprise people: what it
+    // does not reach, and that it is not the same as disabling the account.
+    stdout(
+      "Tokens already issued are refused from now on; a connection already open may last " +
+        `until its repository token expires, at most ` +
+        `${describeDuration(lifetimes.repositoryTokenLifetimeSeconds)} from now.\n`,
+    );
+    stdout(
+      `The account is not disabled, so ${user.username} can sign in and be issued a token ` +
+        "that works.\n",
+    );
     return 0;
   } catch (error) {
     stderr(`nlhub: ${describeError(error)}\n`);

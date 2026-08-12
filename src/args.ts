@@ -25,7 +25,8 @@ export interface IdentityOverrides {
   readonly authOrigin?: string;
   readonly env?: string;
   readonly idp?: string;
-  readonly tokenLifetimeSeconds?: number;
+  /** The sign-in token's lifetime; the repository token's has no option. */
+  readonly signInTokenLifetimeSeconds?: number;
   readonly hubPort?: number;
   readonly authPort?: number;
   readonly authTlsPort?: number;
@@ -68,6 +69,11 @@ export type Invocation =
     }
   | { readonly kind: "user-disable"; readonly root: string; readonly username: string }
   | { readonly kind: "user-enable"; readonly root: string; readonly username: string }
+  /**
+   * Refuse every token already issued to an account, leaving the account able
+   * to sign in and be given a working one straight away.
+   */
+  | { readonly kind: "user-revoke-tokens"; readonly root: string; readonly username: string }
   /** Sign a token for an account that has proved who it is. */
   | {
       readonly kind: "token-mint";
@@ -316,7 +322,7 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     authOrigin?: string;
     env?: string;
     idp?: string;
-    tokenLifetimeSeconds?: number;
+    signInTokenLifetimeSeconds?: number;
     hubPort?: number;
     authPort?: number;
     authTlsPort?: number;
@@ -354,7 +360,11 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     if (typeof milliseconds === "string") {
       return milliseconds;
     }
-    overrides.tokenLifetimeSeconds = Math.floor(milliseconds / 1000);
+    // The sign-in token's lifetime, which is what this option has always
+    // named: it was the only lifetime there was. The repository token's is a
+    // stored setting with no option of its own, because a lifetime that exists
+    // to be the only bound on a token is not one to lengthen for a single run.
+    overrides.signInTokenLifetimeSeconds = Math.floor(milliseconds / 1000);
   }
   const hubPort = tokens.values.get("--hub-port");
   if (hubPort !== undefined) {
@@ -523,7 +533,7 @@ function parseInvite(argv: readonly string[]): Invocation {
 function parseUser(argv: readonly string[]): Invocation {
   const [verb, ...rest] = argv;
   if (verb === undefined) {
-    return error("user needs a verb: list, create, disable or enable");
+    return error("user needs a verb: list, create, disable, enable or revoke-tokens");
   }
   if (verb === "-h" || verb === "--help") {
     return { kind: "help" };
@@ -576,7 +586,7 @@ function parseUser(argv: readonly string[]): Invocation {
     };
   }
 
-  if (verb === "disable" || verb === "enable") {
+  if (verb === "disable" || verb === "enable" || verb === "revoke-tokens") {
     const result = readTokens(rest, ["--root"]);
     if (result.kind !== "tokens") {
       return result.kind === "help" ? { kind: "help" } : error(result.message);
@@ -593,9 +603,12 @@ function parseUser(argv: readonly string[]): Invocation {
     if (root === undefined) {
       return missingRoot(`user ${verb}`);
     }
-    return verb === "disable"
-      ? { kind: "user-disable", root, username }
-      : { kind: "user-enable", root, username };
+    if (verb === "disable") {
+      return { kind: "user-disable", root, username };
+    }
+    return verb === "enable"
+      ? { kind: "user-enable", root, username }
+      : { kind: "user-revoke-tokens", root, username };
   }
 
   return error(`unknown user command: ${verb}`);

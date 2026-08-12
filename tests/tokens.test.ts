@@ -90,7 +90,10 @@ describe("mintToken", () => {
       is_service_account: false,
       idp: "narraleaf-hub",
       iat: 1_786_438_800,
-      exp: 1_786_438_800 + 15 * 60,
+      // Thirty days, because nothing said otherwise and a token minted for
+      // anything but a repository's data connection is one Hub is asked about
+      // again before it can be used for anything.
+      exp: 1_786_438_800 + 30 * 24 * 60 * 60,
       // Hub's own claim, and the only one loreserver does not read: it is what
       // lets Hub refuse a token that was signed before this account's access
       // was revoked.
@@ -124,12 +127,40 @@ describe("mintToken", () => {
 
   it("expires a lifetime after it was issued, and says which epoch it was minted under", async () => {
     const keys = await store();
-    const config = identityConfig({ tokenLifetimeSeconds: 60 });
+    const config = identityConfig({ signInTokenLifetimeSeconds: 60 });
 
     const minted = mintToken(ADA, keys.signingKey, config);
 
     expect(minted.claims.exp - minted.claims.iat).toBe(60);
     expect(minted.tokenEpoch).toBe(ADA.tokenEpoch);
+  });
+
+  it("takes the repository lifetime when the token is for a data connection", async () => {
+    const keys = await store();
+    const config = identityConfig({
+      signInTokenLifetimeSeconds: 30 * 24 * 60 * 60,
+      repositoryTokenLifetimeSeconds: 15 * 60,
+    });
+
+    const signIn = mintToken(ADA, keys.signingKey, config);
+    const repository = mintToken(ADA, keys.signingKey, config, { purpose: "repository" });
+
+    // Two numbers, not one applied twice. The short one is the only bound on a
+    // token loreserver's data plane checks for itself.
+    expect(signIn.claims.exp - signIn.claims.iat).toBe(30 * 24 * 60 * 60);
+    expect(repository.claims.exp - repository.claims.iat).toBe(15 * 60);
+  });
+
+  it("defaults to the sign-in lifetime when a caller names no purpose", async () => {
+    const keys = await store();
+    const config = identityConfig({
+      signInTokenLifetimeSeconds: 3600,
+      repositoryTokenLifetimeSeconds: 60,
+    });
+
+    const minted = mintToken(ADA, keys.signingKey, config);
+
+    expect(minted.claims.exp - minted.claims.iat).toBe(3600);
   });
 
   it("refuses to sign anything for a disabled account", async () => {

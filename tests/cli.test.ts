@@ -40,6 +40,23 @@ describe("run", () => {
     expect(out).toContain("Usage: nlhub");
   });
 
+  it("documents taking an account's tokens away without disabling it", async () => {
+    const { out } = await invoke(["--help"]);
+
+    expect(out).toContain("user revoke-tokens <username>");
+  });
+
+  it("says how long a sign-in token lasts in a unit somebody would type", async () => {
+    const { out } = await invoke(["--help"]);
+
+    // Thirty days, said as thirty days. The same number in the minutes the
+    // one-lifetime version printed is "43200m", which is correct and which
+    // nobody can compare with what they set.
+    expect(out).toContain("--token-lifetime");
+    expect(out).toContain("30 days");
+    expect(out).not.toContain("43200");
+  });
+
   it("documents the up command and its options", async () => {
     const { out } = await invoke(["--help"]);
 

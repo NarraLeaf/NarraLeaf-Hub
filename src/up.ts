@@ -22,6 +22,7 @@ import { IdentityEndpoint } from "./identity/endpoint.js";
 import { createInvite, withdrawUnusedBootstrapInvites } from "./identity/invites.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
+import { namedTokenLifetimes } from "./identity/settings.js";
 import { countUsers } from "./identity/users.js";
 import { renderInvite } from "./invite.js";
 import { waitForHealth, healthCheckUrl } from "./loreserver/health.js";
@@ -200,6 +201,11 @@ export async function up(
       database,
       keys,
       config,
+      // Only what --token-lifetime named on this command line. Everything else
+      // about the two lifetimes is read from the database as each token is
+      // minted, so changing a stored one reaches this process without a
+      // restart.
+      namedLifetimes: namedTokenLifetimes(options.overrides ?? {}),
       log: (line: string) => stdout(`${line}\n`),
       onError: (error: Error) => stderr(`nlhub: authorization service: ${error.message}\n`),
     };

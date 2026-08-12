@@ -64,6 +64,7 @@ import {
 } from "../identity/bearer.js";
 import type { IdentityConfig } from "../identity/config.js";
 import type { KeyStore } from "../identity/keys.js";
+import { storedTokenLifetimes, type TokenLifetimes } from "../identity/settings.js";
 import { mintToken, type ResourceClaim } from "../identity/tokens.js";
 import {
   accessLevel,
@@ -80,8 +81,33 @@ export interface AuthorizationContext {
   readonly database: DatabaseSync;
   readonly keys: KeyStore;
   readonly config: IdentityConfig;
+  /**
+   * Token lifetimes named on the command line this Hub was started with.
+   *
+   * Absent is the ordinary case, and then the stored settings decide. What an
+   * operator typed has to outrank them, or `up --token-lifetime` would stop
+   * doing anything the moment somebody stored the setting it names.
+   */
+  readonly namedLifetimes?: Partial<TokenLifetimes>;
   /** Where one line per decision goes. */
   readonly log: (line: string) => void;
+}
+
+/**
+ * The settings to mint with, carrying the two token lifetimes as they stand in
+ * the database at this moment.
+ *
+ * Read per mint rather than kept from the start, so that shortening a lifetime
+ * reaches a Hub that is already running instead of waiting for somebody to
+ * restart it. It is one row fetched by primary key out of a local SQLite file,
+ * beside the several queries each of these calls already makes.
+ */
+function mintingConfig(context: AuthorizationContext): IdentityConfig {
+  return {
+    ...context.config,
+    ...storedTokenLifetimes(context.database),
+    ...context.namedLifetimes,
+  };
 }
 
 /** What a caller is called in the log when there is nobody to name. */
@@ -219,8 +245,8 @@ async function lookupUserPermissions(
  * token is proof of identity and nothing more; the token that comes back is
  * issued now, so it carries the account's `token_epoch` as it stands now, and
  * an account that has been disabled or had its access revoked in the meantime
- * gets nothing. Echoing would turn a fifteen-minute token into one that renews
- * itself for ever.
+ * gets nothing. Echoing would turn a token with a lifetime into one that
+ * renews itself for ever.
  *
  * A refusal is a gRPC status, not a success carrying no token. A client reading
  * an empty `user_token` on an OK reply has no way to tell a refusal from a
@@ -258,7 +284,11 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
     permission: permissionsFor(entry.level),
   }));
 
-  const minted = mintToken(caller.user, context.keys.signingKey, context.config, {
+  // The sign-in lifetime, which is the long one. This token comes back here to
+  // be exchanged and is asked about again on every repository access, so
+  // revoking an account's tokens refuses it without waiting for it to expire.
+  const minted = mintToken(caller.user, context.keys.signingKey, mintingConfig(context), {
+    purpose: "sign-in",
     resources: reachable,
   });
   context.log(
@@ -355,7 +385,12 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
   // The resources are named in the token itself. This is what makes it a
   // multiresource token rather than another user token, and it is what the
   // storage connection reads.
-  const minted = mintToken(caller.user, context.keys.signingKey, context.config, {
+  // The repository lifetime, which is the short one, and this is the call that
+  // makes the pair worth having. What is minted here is presented on the data
+  // connection, to loreserver's data plane, and Hub is not necessarily asked
+  // about it again — so the expiry is the only thing that ends it.
+  const minted = mintToken(caller.user, context.keys.signingKey, mintingConfig(context), {
+    purpose: "repository",
     resources: granted,
   });
   return encodeExchangeUserTokenForMultiresourceTokenResponse({
