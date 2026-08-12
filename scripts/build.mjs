@@ -1,4 +1,12 @@
-// Bundles src/nlhub.ts into a single executable file, dist/nlhub.js.
+// Bundles src/nlhub.ts into dist/nlhub.js.
+//
+// Not a self-contained file, and it cannot be one. Reading a repository needs
+// koffi, which is a native addon, and lorelib, which is a 29.5 MB shared
+// library that arrives as one of four platform packages. Neither can live
+// inside a JavaScript bundle, so both are left external and found at runtime
+// in node_modules — which is there for `npm i -g`, for a checkout, and inside a
+// container. What is no longer possible is copying one file somewhere and
+// running it.
 //
 // Run with `--watch` to rebuild whenever a source file changes.
 import { chmod, readFile } from "node:fs/promises";
@@ -35,6 +43,11 @@ const options = {
   // added here rather than in the TypeScript source so that the checker and
   // the test runner never have to make sense of a line that is not JavaScript.
   alias: { "react-devtools-core": join(root, "scripts", "devtools-stub.js") },
+  // The two that cannot be bundled, for the reason at the top of this file.
+  // The platform packages are named as a group because exactly one of the four
+  // is ever installed — each declares the os and cpu it is for — and a build on
+  // one machine must not decide which one the finished file may look for.
+  external: ["koffi", "@lore-vcs/*"],
   banner: {
     js: [
       "#!/usr/bin/env node",

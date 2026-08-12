@@ -19,6 +19,8 @@ import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
 import { setTokenLifetimes, storedTokenLifetimes } from "./identity/settings.js";
 import { disableUser, enableUser, revokeUserTokens } from "./identity/users.js";
+import { ProjectReadings } from "./projects/refresh.js";
+import type { HubView } from "./tui/hubview.js";
 import { runInterface } from "./tui/run.js";
 import type { Action } from "./tui/state.js";
 import { readAuthority } from "./tls/authority.js";
@@ -41,6 +43,14 @@ export interface InterfaceOptions {
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * How long a redraw waits for more readings before it happens.
+ *
+ * Short enough that a project appearing feels immediate, long enough that a
+ * pass over several of them costs one redraw rather than one each.
+ */
+const PUBLISH_DELAY_MS = 200;
 
 /**
  * Read a duration the way it was written on screen.
@@ -178,18 +188,82 @@ export async function terminalInterface(
       fingerprint = undefined;
     }
 
+    // What is inside a repository is read over the network, so it is read
+    // beside the interface rather than in front of it: the first view is
+    // gathered from the database and drawn at once, and each project's history
+    // and file replace the word unknown as it arrives.
+    const listeners = new Set<(view: HubView) => void>();
+    const readings = new ProjectReadings({
+      root: layout.root,
+      database,
+      config: options.config,
+      onChange: () => publish(),
+    });
+
     const context: ViewContext = {
       root: layout.root,
       database,
       config: options.config,
       healthPort: options.healthPort,
       fingerprint,
+      readings,
     };
 
-    await runInterface(await gatherHubView(context), {
-      refresh: () => gatherHubView(context),
-      perform: (action) => perform(context, action),
-    });
+    /**
+     * Gather a view and hand it to whoever is drawing.
+     *
+     * Coalesced, and that matters: a pass reads every project in turn, and
+     * gathering measures the whole storage root each time. One gather per short
+     * window turns a Hub with forty projects from forty walks of the store into
+     * a handful, and the screen still fills in as the readings land.
+     */
+    let scheduled: NodeJS.Timeout | undefined;
+    const publish = (): void => {
+      if (scheduled !== undefined) {
+        return;
+      }
+      scheduled = setTimeout(() => {
+        scheduled = undefined;
+        void gatherHubView(context)
+          .then((view) => {
+            for (const listener of listeners) {
+              listener(view);
+            }
+          })
+          .catch(() => {
+            // Nothing is written anywhere from here: the interface owns the
+            // alternate screen, and a line on stderr in the middle of it is
+            // rubbish across whatever was drawn. A gather that failed is a
+            // screen that stays as it was, and the next reading tries again.
+          });
+      }, PUBLISH_DELAY_MS);
+      // Nothing should be held open by a redraw that has not happened yet.
+      scheduled.unref();
+    };
+
+    readings.start();
+    try {
+      await runInterface(await gatherHubView(context), {
+        refresh: () => {
+          // Somebody asking for a refresh means the repositories too, and
+          // waiting for them is exactly what this must not do.
+          readings.request();
+          return gatherHubView(context);
+        },
+        perform: (action) => perform(context, action),
+        subscribe: (listen) => {
+          listeners.add(listen);
+          return () => {
+            listeners.delete(listen);
+          };
+        },
+      });
+    } finally {
+      readings.stop();
+      if (scheduled !== undefined) {
+        clearTimeout(scheduled);
+      }
+    }
     return 0;
   } catch (error) {
     stderr(`nlhub: ${describeError(error)}\n`);

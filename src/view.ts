@@ -6,12 +6,16 @@
  * {@link HubView} and nothing else, which is what lets src/tui be a thing that
  * draws rather than a second implementation of the rules.
  *
- * What Hub cannot work out is left out, not guessed at. A project's revision
- * history and the file inside it belong to loreserver's repository, which Hub
- * does not open — it is served by a process holding an exclusive lock on it,
- * and a second reader would wait for ever. Those fields therefore arrive
- * absent and are drawn as "unknown", which is the same thing the interface
- * does with a project written by a newer Studio.
+ * Everything gathered here is read from the database or from a file, and
+ * nothing here waits on the network. What a project's revision history and its
+ * project file say is not in the database at all: it is inside a repository,
+ * which is read by a client over the network — see src/projects/cache.ts for
+ * why it must be, and src/projects/refresh.ts for how it arrives. Whatever has
+ * been read is handed in and used; whatever has not is absent and drawn as
+ * "unknown", which is the same thing the interface does with a project written
+ * by a newer Studio.
+ *
+ * What Hub cannot work out is left out, not guessed at.
  */
 import { stat, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -29,7 +33,9 @@ import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { listGrants, listProjects, listProjectsFor } from "./projects/registry.js";
 import type {
   HubView,
+  ProjectFileView,
   ProjectView,
+  RevisionView,
   SettingView,
   UserView,
 } from "./tui/hubview.js";
@@ -45,6 +51,20 @@ export interface ViewContext {
   readonly healthPort: number;
   /** The fingerprint of this Hub's authority, absent until one exists. */
   readonly fingerprint: string | undefined;
+  /**
+   * What has been read out of the repositories so far.
+   *
+   * Deliberately only a lookup, and deliberately optional. Gathering a view
+   * must not start a read, wait for one, or be able to: a command that prints
+   * a view and a screen that refreshes itself are both callers here, and
+   * neither should stop on a loreserver that is not answering.
+   */
+  readonly readings?: ProjectReadingLookup;
+}
+
+/** Whatever holds what the repositories last said. */
+export interface ProjectReadingLookup {
+  get(projectId: string): { history: RevisionView; file: ProjectFileView } | undefined;
 }
 
 /**
@@ -129,8 +149,25 @@ function userView(database: DatabaseSync, user: ReturnType<typeof listUsers>[num
   };
 }
 
-function projectView(database: DatabaseSync, project: ReturnType<typeof listProjects>[number]): ProjectView {
+/**
+ * What is said about a project nobody has read yet.
+ *
+ * An empty history rather than a zeroed one: absent draws as unknown, and a
+ * project that has been worked on for months must not read as one nobody has
+ * touched while the first clone of it is still running.
+ */
+const NOT_READ_YET: { history: RevisionView; file: ProjectFileView } = {
+  history: {},
+  file: { readable: false, reason: "Hub has not read this project's repository yet" },
+};
+
+function projectView(
+  context: ViewContext,
+  project: ReturnType<typeof listProjects>[number],
+): ProjectView {
+  const { database } = context;
   const nameOf = (id: string): string => findUserById(database, id)?.username ?? "unknown";
+  const read = context.readings?.get(project.id) ?? NOT_READ_YET;
   return {
     name: project.name,
     description: project.description,
@@ -140,15 +177,8 @@ function projectView(database: DatabaseSync, project: ReturnType<typeof listProj
       username: nameOf(grant.userId),
       level: grant.level,
     })),
-    // Everything below here lives inside the repository loreserver serves,
-    // which Hub does not open. Nothing is stated rather than guessed: an
-    // empty history draws as unknown, and a project that has been worked on
-    // for months does not read as one nobody has touched.
-    history: {},
-    file: {
-      readable: false,
-      reason: "the project file is inside loreserver's repository, which Hub does not open",
-    },
+    history: read.history,
+    file: read.file,
   };
 }
 
@@ -256,7 +286,7 @@ export async function gatherHubView(context: ViewContext): Promise<HubView> {
       ],
     },
     users: listUsers(database).map((user) => userView(database, user)),
-    projects: listProjects(database).map((project) => projectView(database, project)),
+    projects: listProjects(database).map((project) => projectView(context, project)),
     // Every decision Hub makes is written to the log of the `up` process that
     // made it, and nowhere else. Until Hub keeps them, this is empty rather
     // than filled with something that resembles them.
