@@ -21,11 +21,11 @@ Hub is meant to take on four jobs:
 The first job is done: `nlhub up` installs a pinned `loreserver`, configures it,
 runs it and keeps it running.
 
-The second has its core: Hub keeps accounts, hashes passwords, hands out invite
-codes, holds RSA signing keys, publishes them as a JWKS and mints the tokens
-`loreserver` accepts. What is missing from it is the endpoint people
-authenticate against — today a token is minted by a command on the server rather
-than by a Studio installation over the network.
+The second is done: Hub keeps accounts, hashes passwords, hands out invite
+codes, holds RSA signing keys, publishes them as a JWKS, mints the tokens
+`loreserver` accepts, and serves the endpoint a Studio installation signs in at
+— over TLS, with a certificate authority of its own that an operator trusts once
+by hand.
 
 The third is done: `nlhub project create` creates a repository on `loreserver`,
 and `loreserver` asks Hub, on every access, whether the caller may have it.
@@ -33,7 +33,6 @@ and `loreserver` asks Hub, on every access, whether the caller may have it.
 Not yet implemented:
 
 - upgrading between pinned `loreserver` versions
-- the auth endpoint a Studio installation would sign in to, and token exchange
 - the terminal interface and the project overview
 
 ## Requirements
@@ -63,22 +62,45 @@ everything Hub writes goes underneath it:
 <root>/logs/loreserver.log         loreserver's output, and Hub's notes about it
 <root>/hub.db                      the accounts, the invitations and the projects
 <root>/keys/                       the RSA private keys tokens are signed with
+<root>/tls/                        the certificate authority and the auth endpoint's certificate
 ```
 
-`<root>/keys/` and `<root>/hub.db` are the two files worth guarding: together
-they are every account on this Hub and the authority to issue a token for any of
-them. The key files are written 0600 where the platform has such a thing.
+`<root>/keys/`, `<root>/tls/` and `<root>/hub.db` are what is worth guarding:
+together they are every account on this Hub, the authority to issue a token for
+any of them, and the authority to be believed by every machine that has trusted
+this Hub. The key files are written 0600 where the platform has such a thing.
 
 `up` installs the pinned build if it is not already there, checks that the
 binary reports the version Hub expects, writes the configuration, starts the
 server and waits for `GET /health_check` to answer. It then runs until it is
 interrupted, restarting `loreserver` if it exits, and stops it on the way out.
 
-`--data-port` (default 41337) carries gRPC and QUIC — one number, because gRPC
-listens on TCP and QUIC on UDP. `--health-port` (default 41339) carries HTTP.
-Hub's own two listeners are `--hub-port` (default 41400) and `--auth-port`
-(default 41401). All four must differ, and `up` says so rather than letting
-whichever lost the race go silently missing.
+### Ports
+
+| Port  | What listens             | Protocol                | Reachable from another machine     |
+| ----- | ------------------------ | ----------------------- | ---------------------------------- |
+| 41337 | `loreserver` data        | gRPC over TCP, and QUIC over UDP | Yes — this is what Studio opens a project through |
+| 41339 | `loreserver` health      | HTTP                    | No                                 |
+| 41400 | Hub's endpoint and JWKS  | HTTP/1.1                | No                                 |
+| 41401 | Hub's authorization service, in the clear | gRPC over plain HTTP/2 | **No, and it must not be** — see below |
+| 41402 | Hub's auth endpoint      | gRPC over TLS           | Yes — this is where people sign in |
+
+Only 41337 and 41402 belong on a network a collaborator can reach. The other
+three are between programs on the Hub machine, and `up` binds them to the
+loopback so that they are not reachable from anywhere else even if a firewall
+says they are.
+
+41401 deserves the emphasis. It serves the same methods as 41402 with no
+transport security at all, because that is what `loreserver` can speak to Hub
+over the loopback; anything that could reach it could sign in as anybody whose
+token it had seen. It is bound to `127.0.0.1` for that reason and moving it to
+another interface is not a supported thing to do.
+
+Each port is moved by an option: `--data-port`, `--health-port`, `--hub-port`,
+`--auth-port` and `--auth-tls-port`. All five must differ, and `up` says so
+rather than letting whichever lost the race go silently missing. `--data-port`
+carries both of `loreserver`'s data listeners — one number, because gRPC listens
+on TCP and QUIC on UDP.
 
 ### The pinned build
 
@@ -127,6 +149,148 @@ one Hub has always written, and the server accepts any client. Both blocks are
 written together: with the first alone, the server demands a token while having
 nowhere to ask about one, and every repository access fails with "Failed to
 connect to lore auth service".
+
+## Signing in, and the certificate that makes it possible
+
+A Studio installation signs in by calling two methods, over TLS, on port 41402:
+
+```
+epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken       signing in
+epic_urc.UrcAuthApi/ExchangeUserTokenForMultiresourceToken  before touching a repository
+```
+
+The first presents a token Hub minted and gets a fresh one back. Minting rather
+than echoing is the point of the exchange: the new token carries the account's
+state as it stands now, so an account disabled a minute ago gets nothing, and a
+fifteen-minute token cannot renew itself for ever.
+
+The second is what a client asks for before it opens a repository's data
+connection, naming the resources it wants. Hub checks every one of them and
+refuses the whole request if the caller has no grant on any — which is where a
+collaborator without access is stopped, before a data connection is opened at
+all.
+
+Both tokens carry a `resources` claim: which projects, and what the bearer may
+do to each. It is not decoration. The data connection is a separate leg from the
+gRPC one, and it authorizes with this token; loreserver refuses a token that
+arrives without the claim. Between them, the audience and the resources are the
+two things that turn a token from something a client will accept into something
+it can actually use — and both fail in ways that name neither. See
+`src/identity/config.ts` and `src/identity/tokens.ts` for what each failure
+looks like from the outside.
+
+The transport is not a choice. Studio's client library accepts the `https` and
+`ucs-auth` schemes and refuses `http` and `grpc` by name, and it verifies the
+endpoint's certificate against its own host's trust store. There is no
+certificate-pinning hook, and `SSL_CERT_FILE` has no effect on Windows, so
+nothing inside the connection can establish trust the first time — a person has
+to. That is the one manual step, and it is deliberately manual:
+
+```sh
+nlhub trust --root /srv/hub                # prints a fingerprint; changes nothing
+nlhub trust --root /srv/hub --install      # after comparing it
+nlhub trust --root /srv/hub --remove
+```
+
+With no arguments it prints the authority's SHA-256 fingerprint, the file it is
+in, and the command for the platform it is run on. Compare that fingerprint with
+the one the Hub printed when it started, over something other than the
+connection you are about to trust. Nothing is ever installed as a side effect of
+`up`.
+
+`--install` puts the authority into the **current user's** trust store: the
+`Root` store on Windows, the login keychain on macOS. Both operating systems may
+raise a window of their own, and Hub says so before starting the command,
+because a dialog that opened behind another window looks exactly like a program
+that has hung. On Windows it is the opposite way round from what you would
+expect: adding is silent, and **removing** raises a confirmation dialog that
+nothing suppresses. Linux has no per-user store that other programs read, so
+nothing is run there and the two commands to run under `sudo` are printed
+instead.
+
+### The certificates
+
+Hub is its own certificate authority. On first run it writes two key pairs into
+`<root>/tls/`, both keys at mode 0600:
+
+```
+<root>/tls/ca.crt     the authority, self-signed, ten years — this is what is trusted
+<root>/tls/ca.key
+<root>/tls/auth.crt   the auth endpoint's certificate, issued by the authority
+<root>/tls/auth.key
+```
+
+The split is what makes the manual step happen once. The endpoint's certificate
+lasts 397 days — the longest Apple's platforms accept — and is reissued whenever
+it nears its expiry or a name is added, by the next `up`, without anybody being
+asked to trust anything again. The authority is what people trusted, and it is
+untouched by any of that.
+
+A certificate proves a name, so Hub has to be told the names people will use:
+
+```sh
+nlhub up --root /srv/hub --identity --hostname hub.example.com
+```
+
+`--hostname` is repeatable, and `DNS:localhost`, `IP:127.0.0.1` and `IP:::1` are
+always included. It does two jobs at once, and the second is the one that bites:
+the name goes into the certificate, and into the audience of every token Hub
+mints. A Hub told no hostname issues tokens a client will use from the Hub
+machine and from nowhere else — see below.
+
+`--hostname` and `--data-port` are identity options, so `token mint` and
+`project create` take them too, and a command given a different set from the one
+`up` was given mints a token that will not be accepted.
+
+Both are written by hand, from `src/tls/der.ts` upwards: the ASN.1, the
+extensions and the DER. Hub shells out to nothing and depends on nothing, and a
+server cannot be assumed to have `openssl` on it.
+
+### What a token's audience authorises
+
+A token's `aud` is not a label. The client turns it into the list of remotes it
+is willing to send that token to, and it will send it to nothing else — a remote
+missing from the list is one it treats as a third party it would be leaking the
+token to. Two addresses have to be in there:
+
+- Hub's auth endpoint, `https://host:41402`, where the client signs in.
+- `loreserver`'s data port, `lore://host:41337`, where the work happens.
+
+Leave the second out and the client signs in perfectly, stores the token, and
+then fails every repository operation with "Failed to resolve repository: No
+token stored" — which reads like a missing token rather than a token the client
+has decided it may not use here. Hub therefore writes both, for the auth
+origin's host and for every `--hostname` given, each in the several spellings
+the client has been observed to compare against. `up` prints the list it built:
+
+```
+tokens are good for lore://127.0.0.1:41337, lore://hub.example.com:41337
+```
+
+That line is worth reading on a Hub other people connect to. A name missing from
+it is a person who cannot open a project.
+
+### What `loreserver` does with the same address
+
+`[environment.endpoint] auth_url` is one setting with two readers. It is what a
+client is told to sign in at, so it is the https origin — and it is also where
+`loreserver` asks whether a caller may touch a repository. Measured against
+`loreserver` 0.8.6 with nothing else done, it connects, starts a TLS handshake,
+and refuses the certificate with `tlsv1 alert unknown ca`; every repository
+access then fails with "Failed to connect to rebac service".
+
+Its TLS client is `rustls` with `rustls-native-certs`, which reads
+`SSL_CERT_FILE` before the platform's own store. So Hub starts `loreserver` with
+that variable naming `<root>/tls/ca.crt`, and the whole flow works with no trust
+store on the server machine touched at all. It is narrower than installing the
+authority there would be: only that process is affected, and only while Hub is
+running it.
+
+The cost is that a Hub-supervised `loreserver` trusts Hub's authority and no
+other. Everything it reaches is on the same machine — the JWKS over the loopback
+in plain HTTP, and this endpoint — so there is nothing else for it to verify. A
+configuration giving it a remote store or a telemetry endpoint over https would
+need the public roots back.
 
 ### Accounts
 
@@ -217,15 +381,23 @@ project. A grant or a revocation takes effect on the next thing the person does
 
 `loreserver` does not decide who may touch a repository. It asks, over gRPC, at
 the address in its `auth_url`, forwarding the caller's own `authorization`
-header. That address is Hub: `up` serves it on port 41401 unless `--auth-port`
-says otherwise, in plain HTTP/2 on the loopback.
+header. That address is Hub.
 
 ```
 epic_urc.UrcAuthApi/CheckUserPermission     may this caller reach these?
 epic_urc.UrcAuthApi/LookupUserPermissions   what may this caller reach?
+epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken       sign in
+epic_urc.UrcAuthApi/ExchangeUserTokenForMultiresourceToken  a token for the data connection
 ucs.auth.RebacApi/CreateResource            a repository now exists
 ucs.auth.RebacApi/DeleteResource            a repository is gone
 ```
+
+The same methods are served twice: on 41402 over TLS, which is what a client and
+a Hub-supervised `loreserver` both reach, and on 41401 in plain HTTP/2 on the
+loopback, which is what a `loreserver` that cannot be given Hub's authority can
+be pointed at instead. Neither listener is given anything the other is not —
+every method decides from the token it was presented, not from where the
+connection came.
 
 Hub identifies the caller by verifying the token against its own signing keys,
 and answers with the projects that caller has a grant on. A token that is
@@ -267,7 +439,15 @@ The `bin` entry names the executable `nlhub`, so `npm link` puts a working
 There are no runtime dependencies, and the intention is to keep it that way.
 That includes gRPC, which Hub both serves and calls: `src/grpc/` is the protocol
 buffer codec, the framing, a server and a client, on `node:http2`, for the dozen
-small messages `loreserver` and Hub exchange.
+small messages `loreserver` and Hub exchange. It also includes X.509: `src/tls/`
+writes the DER of a certificate a byte at a time, and `node:crypto` signs it.
+
+The certificate tests are worth knowing about before changing anything under
+`src/tls/`. They read what the writer produced back with
+`crypto.X509Certificate`, compare the extensions against the exact bytes DER
+allows for them, and complete a real TLS handshake between a server holding the
+generated pair and a client holding the authority. A certificate that only looks
+right is worth nothing.
 
 `npm test` downloads nothing and contacts nothing outside the machine. The test
 of the whole lifecycle against a real `loreserver` is skipped unless

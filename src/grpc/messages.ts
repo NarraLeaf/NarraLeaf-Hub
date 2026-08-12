@@ -31,6 +31,10 @@ import {
 /** The full gRPC method paths, as they appear on an HTTP/2 `:path`. */
 export const METHOD_CHECK_USER_PERMISSION = "/epic_urc.UrcAuthApi/CheckUserPermission";
 export const METHOD_LOOKUP_USER_PERMISSIONS = "/epic_urc.UrcAuthApi/LookupUserPermissions";
+export const METHOD_EXCHANGE_EXTERNAL_TOKEN =
+  "/epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken";
+export const METHOD_EXCHANGE_MULTIRESOURCE_TOKEN =
+  "/epic_urc.UrcAuthApi/ExchangeUserTokenForMultiresourceToken";
 export const METHOD_HEALTH_CHECK = "/epic_urc.UrcAuthApi/HealthCheck";
 export const METHOD_CREATE_RESOURCE = "/ucs.auth.RebacApi/CreateResource";
 export const METHOD_DELETE_RESOURCE = "/ucs.auth.RebacApi/DeleteResource";
@@ -272,10 +276,16 @@ export function decodeLookupUserPermissionsResponse(
 /**
  * `epic_urc.UserToken`: what an exchange hands back.
  *
- * Hub does not serve the exchange calls — a client signs in by other means and
- * presents the token Hub minted — but the message is here because it is the one
- * `ExchangeExternalTokenForUserTokenResponse` carries, and reading a reply is
- * not optional for anything that ever makes that call.
+ * Two things about this message are worth knowing before changing it, because
+ * both were found by watching a real client fail rather than by reading the
+ * protocol file:
+ *
+ *   - `user_token` in the response is this message, not a string. A bare string
+ *     there makes the client fail decoding with "invalid wire type value: 7",
+ *     which reads like a corrupt reply rather than a mistake in the reply's
+ *     shape.
+ *   - `expires_at` is an `int64` of seconds since the epoch, and a varint on the
+ *     wire. Written as a string it breaks decoding in the same way.
  */
 export interface UserToken {
   readonly userToken: string;
@@ -394,6 +404,83 @@ export function decodeExchangeExternalTokenForUserTokenResponse(
     return false;
   });
   return { userToken };
+}
+
+/**
+ * `epic_urc.ExchangeUserTokenForMultiresourceTokenRequest`.
+ *
+ * What a client asks for before it touches a repository's data. The user token
+ * it already holds is in the `authorization` header, as it is on every other
+ * call; this message carries only the resources the token is wanted for.
+ *
+ * The field is repeated, which one resource encodes indistinguishably from a
+ * singular field — the name of the method is what says which it is. A request
+ * observed from lore 0.8.5 asking to open one repository was, exactly:
+ *
+ *     0a 24 "urc-57d679274c65429db58d797cf10aa741"
+ */
+export interface ExchangeUserTokenForMultiresourceTokenRequest {
+  readonly resourceIds: readonly string[];
+}
+
+export function encodeExchangeUserTokenForMultiresourceTokenRequest(
+  value: ExchangeUserTokenForMultiresourceTokenRequest,
+): Buffer {
+  const writer = new MessageWriter();
+  for (const resourceId of value.resourceIds) {
+    writer.string(1, resourceId);
+  }
+  return writer.finish();
+}
+
+export function decodeExchangeUserTokenForMultiresourceTokenRequest(
+  bytes: Uint8Array,
+): ExchangeUserTokenForMultiresourceTokenRequest {
+  const resourceIds: string[] = [];
+  readFields(new MessageReader(bytes), (tag, message) => {
+    if (tag.field === 1 && tag.wireType === WIRE_DELIMITED) {
+      resourceIds.push(message.readString());
+      return true;
+    }
+    return false;
+  });
+  return { resourceIds };
+}
+
+/**
+ * `epic_urc.ExchangeUserTokenForMultiresourceTokenResponse`.
+ *
+ * One field, named `token` rather than `user_token` — the client library's own
+ * descriptor strings say so — and carrying the same `UserToken` message the
+ * other exchange returns. A client that finds it empty reports "empty user
+ * token in exchange response".
+ */
+export interface ExchangeUserTokenForMultiresourceTokenResponse {
+  readonly token?: UserToken | undefined;
+}
+
+export function encodeExchangeUserTokenForMultiresourceTokenResponse(
+  value: ExchangeUserTokenForMultiresourceTokenResponse,
+): Buffer {
+  const writer = new MessageWriter();
+  if (value.token !== undefined) {
+    writer.message(1, writeUserToken(value.token));
+  }
+  return writer.finish();
+}
+
+export function decodeExchangeUserTokenForMultiresourceTokenResponse(
+  bytes: Uint8Array,
+): ExchangeUserTokenForMultiresourceTokenResponse {
+  let token: UserToken | undefined;
+  readFields(new MessageReader(bytes), (tag, message) => {
+    if (tag.field === 1 && tag.wireType === WIRE_DELIMITED) {
+      token = readUserToken(message.readMessage());
+      return true;
+    }
+    return false;
+  });
+  return { token };
 }
 
 /** `epic_urc.HealthCheckResponse`. */

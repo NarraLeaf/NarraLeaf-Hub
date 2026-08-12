@@ -10,9 +10,11 @@ import type { DatabaseSync } from "node:sqlite";
 import type { WriteText } from "./cli.js";
 import type { GrpcServer } from "./grpc/server.js";
 import {
+  audienceHosts,
+  authUrl,
+  dataRemoteUrl,
   identityConfig,
   jwksUrl,
-  loreserverAuthUrl,
   type IdentityConfig,
 } from "./identity/config.js";
 import { openMigratedDatabase } from "./identity/database.js";
@@ -34,6 +36,8 @@ import {
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { Supervisor, describeExit } from "./loreserver/supervisor.js";
 import { startAuthorizationService } from "./projects/service.js";
+import { ensureCertificates, type HubAuthority } from "./tls/authority.js";
+import { trustCommandFor } from "./tls/trust.js";
 import { VERSION } from "./version.js";
 
 export interface UpOptions extends LoreserverPorts {
@@ -45,7 +49,14 @@ export interface UpOptions extends LoreserverPorts {
    * tokens at all.
    */
   readonly identity?: boolean;
-  /** Identity settings an operator named; the rest keep their defaults. */
+  /**
+   * Identity settings an operator named; the rest keep their defaults.
+   *
+   * `hostnames` among them: the names people reach this Hub by go into the auth
+   * endpoint's certificate and into every token's audience, and taking both
+   * from one setting is what stops a Hub whose certificate names a host issuing
+   * tokens that do not.
+   */
   readonly overrides?: Partial<IdentityConfig>;
   /**
    * Aborted to bring the command down. Without one, `up` runs until
@@ -83,6 +94,40 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The environment that lets loreserver reach Hub's https auth endpoint.
+ *
+ * `auth_url` serves two callers at once. It is where a client is told to sign
+ * in, so it has to be the https origin — and it is also where loreserver itself
+ * asks whether a caller may touch a repository. Measured against loreserver
+ * 0.8.6 on Windows, with the endpoint on https and nothing else done:
+ *
+ *   - loreserver does connect, and does start a TLS handshake.
+ *   - It refuses the certificate with `tlsv1 alert unknown ca` (alert 48), and
+ *     the call fails with "Failed to connect to rebac service". A repository
+ *     cannot be created, and no repository can be opened.
+ *   - Its TLS client is rustls with `rustls-native-certs`, which reads
+ *     `SSL_CERT_FILE` before it reads the platform's own store.
+ *   - With `SSL_CERT_FILE` naming Hub's authority, the handshake completes and
+ *     the whole flow works: `nlhub project create` succeeds and Hub logs the
+ *     `CreateResource` call arriving on the TLS listener.
+ *
+ * So the authority is handed to loreserver directly rather than by asking an
+ * operator to install it on the server machine as well. It is narrower than a
+ * trust store change in both directions: only this process is affected, and
+ * only for as long as Hub is running it.
+ *
+ * The one thing it costs is that loreserver, while Hub supervises it, trusts
+ * Hub's authority and no other. Everything a Hub-configured loreserver reaches
+ * is on this machine — the JWKS over the loopback in plain HTTP, and this
+ * endpoint — so there is nothing else for it to verify. A configuration that
+ * gave it a remote store or a telemetry endpoint over https would need the
+ * public roots back, and this is the line that would have to change.
+ */
+function loreserverTrustAnchor(authority: HubAuthority): Record<string, string> {
+  return { SSL_CERT_FILE: authority.layout.caCertPath };
+}
+
 /** What loreserver has to be told when identity is switched on. */
 function loreserverAuth(config: IdentityConfig): LoreserverAuth {
   return {
@@ -91,10 +136,10 @@ function loreserverAuth(config: IdentityConfig): LoreserverAuth {
     // what a token carries. A token is accepted when its `aud` array holds it.
     audience: [config.audience],
     jwksUrl: jwksUrl(config.hubPort),
-    // Hub's authorization service, on the loopback and in plain HTTP/2. Not
-    // the https origin in the `aud` claim: that is where a person signs in, and
-    // this is where loreserver asks about the token they signed in with.
-    authUrl: loreserverAuthUrl(config),
+    // The https origin, because `auth_url` is what a client is told to sign in
+    // at as well as where loreserver asks about a token. src/loreserver/layout.ts
+    // records what that means for loreserver's own calls.
+    authUrl: authUrl(config),
   };
 }
 
@@ -118,6 +163,7 @@ export async function up(
   let supervisor: Supervisor | undefined;
   let endpoint: IdentityEndpoint | undefined;
   let authorization: GrpcServer | undefined;
+  let authorizationTls: GrpcServer | undefined;
   let database: DatabaseSync | undefined;
 
   try {
@@ -147,18 +193,56 @@ export async function up(
     });
     stdout(`identity endpoint on ${endpoint.url}, signing with ${keys.signingKey.kid}\n`);
 
-    // The authorization service comes up whether or not loreserver is told to
-    // use it, so that the port is proved free at the same moment the other two
-    // are, rather than on the first repository access somebody attempts.
-    authorization = await startAuthorizationService({
-      port: config.authPort,
+    // Both authorization listeners come up whether or not loreserver is told to
+    // use them, so that their ports are proved free at the same moment the
+    // others are, rather than on the first repository access somebody attempts.
+    const service = {
       database,
       keys,
       config,
-      log: (line) => stdout(`${line}\n`),
-      onError: (error) => stderr(`nlhub: authorization service: ${error.message}\n`),
-    });
+      log: (line: string) => stdout(`${line}\n`),
+      onError: (error: Error) => stderr(`nlhub: authorization service: ${error.message}\n`),
+    };
+    authorization = await startAuthorizationService({ ...service, port: config.authPort });
     stdout(`authorization service on ${authorization.url}\n`);
+
+    // The certificates are generated before the listener that needs them, and
+    // on every start rather than only the first: the endpoint's own certificate
+    // is reissued as it approaches its expiry or when a host name is added, and
+    // neither of those should wait for somebody to notice.
+    const certificates = await ensureCertificates(options.root, {
+      hostnames: config.hostnames,
+    });
+    if (certificates.generatedAuthority) {
+      stdout(`generated a certificate authority in ${certificates.authority.layout.tlsDir}\n`);
+    }
+    if (certificates.issuedLeafBecause !== undefined) {
+      stdout(
+        `issued a certificate for the auth endpoint: ${certificates.issuedLeafBecause}\n`,
+      );
+    }
+
+    authorizationTls = await startAuthorizationService({
+      ...service,
+      port: config.authTlsPort,
+      // Every interface, not the loopback: this is the listener a Studio
+      // installation on somebody else's machine reaches, and one bound to
+      // 127.0.0.1 would be reachable by nobody but this machine — which is what
+      // the plaintext listener is already for.
+      anyInterface: true,
+      portOption: "--auth-tls-port",
+      tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
+    });
+    stdout(
+      `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +
+        `reached as ${authUrl(config)}\n`,
+    );
+    stdout(`its certificate authority is ${certificates.authority.fingerprint256}\n`);
+    stdout(
+      "a machine that has not trusted this Hub cannot connect: compare that fingerprint with\n" +
+        `      nlhub trust --root ${identity.root}\n` +
+        `      and then run ${trustCommandFor(certificates.authority.layout.caCertPath)}\n`,
+    );
 
     await ensureInstalled(layout, artifact, {
       onAlreadyInstalled: (path) => stdout(`already installed at ${path}\n`),
@@ -182,15 +266,20 @@ export async function up(
       stdout("loreserver will accept any client: pass --identity to make it demand a token\n");
     } else {
       stdout(`loreserver will demand a token from ${auth.issuer} for ${auth.audience[0]}\n`);
-      stdout(`loreserver will ask ${auth.authUrl} who a caller is\n`);
-      // A Studio installation still has no way to obtain a token: it would sign
-      // in at the https origin in the `aud` claim, and nothing serves that yet.
-      // Tokens from `nlhub token mint` work, which is what `nlhub project
-      // create` uses. Saying so here is cheaper than letting an operator find
-      // out from a client that cannot connect.
+      stdout(`clients are told to sign in at ${auth.authUrl}\n`);
+      // The remotes a token authorises, spelled out. A client will not send its
+      // token to a remote its audience does not name, so an operator whose
+      // collaborators connect by a name that is missing here has a Hub that
+      // works from its own machine and nowhere else.
       stdout(
-        "note: signing in from Studio is not finished yet — a token has to come from\n" +
-          "      nlhub token mint, and there is no endpoint for a client to sign in at\n",
+        `tokens are good for ${audienceHosts(config)
+          .map((host) => dataRemoteUrl(host, config.dataPort))
+          .join(", ")}\n`,
+      );
+      stdout(
+        `loreserver reaches that endpoint too, and is given ${
+          certificates.authority.layout.caCertPath
+        }\n      as the only authority it trusts while Hub runs it\n`,
       );
     }
 
@@ -203,6 +292,10 @@ export async function up(
       command: layout.binaryPath,
       args: ["--config", layout.configDir],
       logPath: layout.logPath,
+      // See the note on loreserverTrustAnchor: without this, loreserver cannot
+      // reach the https `auth_url` it was configured with, and every repository
+      // access fails.
+      ...(auth === undefined ? {} : { env: loreserverTrustAnchor(certificates.authority) }),
       onEvent: (event) => {
         switch (event.kind) {
           case "started":
@@ -274,6 +367,9 @@ export async function up(
     }
     if (authorization !== undefined) {
       await authorization.close();
+    }
+    if (authorizationTls !== undefined) {
+      await authorizationTls.close();
     }
     database?.close();
   }

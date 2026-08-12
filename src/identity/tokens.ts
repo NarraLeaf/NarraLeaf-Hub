@@ -51,6 +51,32 @@ export interface TokenClaims {
   readonly exp: number;
   /** The account's `token_epoch` at the moment this was signed. */
   readonly token_epoch: number;
+  /**
+   * What the bearer may do to which resources.
+   *
+   * loreserver's data connection insists on this claim, and the shape is not
+   * negotiable — it deserializes into `Option<Vec<ResourcePermission>>`, whose
+   * fields the binary names as `resource_id` and `permission`. Both mistakes
+   * fail silently in different ways and neither says which claim was wrong:
+   *
+   *   - Absent, the token decodes and is logged with `resources: None`, and the
+   *     storage connection answers `AuthorizationFailure`.
+   *   - Present as an array of plain strings, the token fails to decode at all,
+   *     and the log shows "Decoding JWT token" with no result after it.
+   */
+  readonly resources?: readonly ResourceClaim[];
+}
+
+/**
+ * One resource a token is good for.
+ *
+ * The same pair as the gRPC `ResourcePermission` message, in its JSON form.
+ * The names are loreserver's, which is why they are not camel case like every
+ * other field here.
+ */
+export interface ResourceClaim {
+  readonly resource_id: string;
+  readonly permission: readonly string[];
 }
 
 /** The JOSE header of one token. */
@@ -94,6 +120,12 @@ function encodeSegment(value: unknown): string {
 export interface MintOptions {
   /** When the token is issued. Supplied by tests; defaults to the clock. */
   readonly now?: Date;
+  /**
+   * The resources this token is being issued for, written as the `resources`
+   * claim. Given by the two exchanges a client makes; a token minted for
+   * anything else opens no data connection and names none.
+   */
+  readonly resources?: readonly ResourceClaim[];
 }
 
 /**
@@ -153,6 +185,10 @@ export function mintToken(
     iat: issuedAt,
     exp: issuedAt + config.tokenLifetimeSeconds,
     token_epoch: user.tokenEpoch,
+    // Written only when there are resources to name. An empty array is not the
+    // same as an absent claim to a reader that treats the field as optional,
+    // and a token for signing in is good for no resources rather than for none.
+    ...(options.resources === undefined ? {} : { resources: options.resources }),
   };
 
   const signingInput = `${encodeSegment(header)}.${encodeSegment(claims)}`;

@@ -1,5 +1,5 @@
 /**
- * A gRPC server, on HTTP/2 without TLS.
+ * A gRPC server, on HTTP/2 with TLS or without it.
  *
  * gRPC is HTTP/2 with four conventions on top: the method is POST, the path is
  * `/package.Service/Method`, the body is framed as src/grpc/framing.ts
@@ -7,14 +7,21 @@
  * code. That is the whole of what this implements, for calls of one message in
  * each direction — the only shape either service Hub serves uses.
  *
- * Plaintext is not a shortcut taken here. loreserver connects to the address in
- * its `auth_url`, which is the loopback of the machine Hub started it on, and it
- * was measured to speak h2c there with no certificate involved. What travels is
- * a token the caller already holds and a list of resource ids, over a socket
- * nothing off the machine can reach.
+ * Both transports are served, by two listeners over one set of methods, because
+ * the two callers cannot use the same one:
+ *
+ *   - loreserver connects to the address in its `auth_url` over the loopback of
+ *     the machine Hub started it on, and speaks h2c there with no certificate
+ *     involved. What travels is a token the caller already holds and a list of
+ *     resource ids, over a socket nothing off the machine can reach.
+ *   - A Studio installation refuses anything but TLS, and refuses a certificate
+ *     that does not chain to a trust anchor of its own host. src/tls/ is what
+ *     that costs.
  */
 import {
+  createSecureServer,
   createServer,
+  type Http2SecureServer,
   type Http2Server,
   type IncomingHttpHeaders,
   type ServerHttp2Stream,
@@ -46,13 +53,33 @@ export interface GrpcCall {
 /** What a method does with a call: answer with one message, or fail. */
 export type GrpcMethod = (call: GrpcCall) => Buffer | Promise<Buffer>;
 
+/** The certificate and key a TLS listener presents. */
+export interface GrpcTlsOptions {
+  /** The endpoint's certificate, and the authority's after it. */
+  readonly cert: string;
+  readonly key: string;
+}
+
 /** What a server needs to answer. */
 export interface GrpcServerOptions {
   readonly port: number;
   /** Interface to listen on; the loopback by default. */
   readonly host?: string;
+  /**
+   * True to listen on every interface rather than one.
+   *
+   * No address is given to `listen` in that case, so node binds the unspecified
+   * IPv6 address where IPv6 exists and falls back to the IPv4 one where it does
+   * not. Naming `0.0.0.0` here instead would be reachable over IPv4 only, and
+   * naming `::` would fail outright on a machine with IPv6 switched off.
+   */
+  readonly anyInterface?: boolean;
   /** Methods by full path. Anything else is answered `UNIMPLEMENTED`. */
   readonly methods: Readonly<Record<string, GrpcMethod>>;
+  /** Present for an https listener; absent for a plaintext one. */
+  readonly tls?: GrpcTlsOptions;
+  /** The option that moves this listener, named in the message if it cannot start. */
+  readonly portOption?: string;
   /**
    * Called for a failure that belongs to no call — a broken session, a socket
    * that died mid-reply. Without one, such a failure is swallowed, because
@@ -63,10 +90,10 @@ export interface GrpcServerOptions {
 
 /** Raised when the server could not take its port. */
 export class GrpcListenError extends Error {
-  constructor(address: string, cause: Error) {
+  constructor(address: string, cause: Error, portOption = "--auth-port") {
     super(
       `Hub's authorization service could not listen on ${address}: ${cause.message}. ` +
-        "Another program may hold that port; --auth-port moves it.",
+        `Another program may hold that port; ${portOption} moves it.`,
       { cause },
     );
     this.name = "GrpcListenError";
@@ -192,27 +219,41 @@ function handleStream(
 
 /** A gRPC server, listening. */
 export class GrpcServer {
-  readonly #server: Http2Server;
+  readonly #server: Http2Server | Http2SecureServer;
   readonly #sessions: Set<ServerHttp2Session>;
   readonly #host: string;
   readonly #port: number;
+  readonly #scheme: "http" | "https";
 
   private constructor(
-    server: Http2Server,
+    server: Http2Server | Http2SecureServer,
     sessions: Set<ServerHttp2Session>,
     host: string,
     port: number,
+    scheme: "http" | "https",
   ) {
     this.#server = server;
     this.#sessions = sessions;
     this.#host = host;
     this.#port = port;
+    this.#scheme = scheme;
   }
 
   /** Start listening, or fail saying why. */
   static async start(options: GrpcServerOptions): Promise<GrpcServer> {
     const host = options.host ?? "127.0.0.1";
-    const server = createServer();
+    const server =
+      options.tls === undefined
+        ? createServer()
+        : createSecureServer({
+            cert: options.tls.cert,
+            key: options.tls.key,
+            // gRPC over TLS is HTTP/2 over TLS, and a client that negotiates
+            // anything else has not found a gRPC service. Offering only `h2`
+            // makes that a handshake failure rather than an HTTP/1.1 request
+            // this server would answer with a protocol error.
+            ALPNProtocols: ["h2"],
+          });
     const sessions = new Set<ServerHttp2Session>();
 
     server.on("session", (session: ServerHttp2Session) => {
@@ -220,26 +261,58 @@ export class GrpcServer {
       session.on("close", () => sessions.delete(session));
       session.on("error", (error: Error) => options.onError?.(error));
     });
+    if (options.tls !== undefined) {
+      // A handshake that fails never becomes a session, and node reports it
+      // here rather than as an `error`. Unlistened it is dropped silently,
+      // which is the wrong thing for exactly the failure this endpoint is
+      // most likely to have: a client whose host has not been told to trust
+      // this Hub sees a connection error, and the server would say nothing.
+      server.on("tlsClientError", (error: Error) => {
+        options.onError?.(
+          new Error(
+            `a client could not complete a TLS handshake: ${error.message}. ` +
+              "If it says the certificate is unknown, that machine has not run nlhub trust.",
+          ),
+        );
+      });
+    }
     server.on("stream", (stream, headers) => {
       handleStream(stream, headers, options);
     });
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error): void => {
-        reject(new GrpcListenError(`${host}:${options.port}`, error));
+        reject(
+        new GrpcListenError(
+          `${options.anyInterface === true ? "every interface" : host}:${options.port}`,
+          error,
+          options.portOption,
+        ),
+      );
       };
       server.once("error", onError);
-      server.listen(options.port, host, () => {
+      const listening = (): void => {
         server.removeListener("error", onError);
         resolve();
-      });
+      };
+      if (options.anyInterface === true) {
+        server.listen(options.port, listening);
+      } else {
+        server.listen(options.port, host, listening);
+      }
     });
 
     // Port 0 means "any free port", and which one it landed on is only knowable
     // afterwards, which is how a test gets an address that cannot collide.
     const address = server.address();
     const port = typeof address === "object" && address !== null ? address.port : options.port;
-    return new GrpcServer(server, sessions, host, port);
+    return new GrpcServer(
+      server,
+      sessions,
+      host,
+      port,
+      options.tls === undefined ? "http" : "https",
+    );
   }
 
   /** The port it is listening on. */
@@ -249,7 +322,7 @@ export class GrpcServer {
 
   /** Where it is listening, as a caller writes it. */
   get url(): string {
-    return `http://${this.#host}:${this.#port}`;
+    return `${this.#scheme}://${this.#host}:${this.#port}`;
   }
 
   /**
