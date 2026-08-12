@@ -7,6 +7,8 @@
  * asks for an {@link Action}, and the host carries it out through the same
  * operations the commands use.
  */
+import { accountsFor, canBeGranted, clamp as clampChoice, holdersOf, LEVELS, projectsFor } from "./choices.js";
+import type { Choice } from "./choices.js";
 import type { HubView } from "./hubview.js";
 
 /** The size of the terminal, in cells. */
@@ -41,6 +43,20 @@ export type Overlay =
   | { readonly kind: "user-detail"; readonly username: string }
   | { readonly kind: "revoke-tokens"; readonly username: string }
   | { readonly kind: "edit-setting"; readonly index: number }
+  // The four that ask a question. A picker carries its own cursor so that a
+  // drawn screen stays a function of the state and nothing else; the surface's
+  // own selection goes on meaning the row underneath.
+  | { readonly kind: "name-project" }
+  | { readonly kind: "pick-account"; readonly project: string; readonly choice: number }
+  | {
+      readonly kind: "pick-level";
+      readonly project: string;
+      readonly username: string;
+      readonly choice: number;
+    }
+  | { readonly kind: "pick-project"; readonly username: string; readonly choice: number }
+  | { readonly kind: "take-access"; readonly project: string; readonly choice: number }
+  | { readonly kind: "pick-owner"; readonly name: string; readonly choice: number }
   | { readonly kind: "connection" }
   | { readonly kind: "help" }
   | { readonly kind: "log" };
@@ -68,9 +84,14 @@ export type Action =
   | { readonly kind: "create-invite" }
   | { readonly kind: "rotate-key" }
   | { readonly kind: "restart-loreserver" }
-  | { readonly kind: "new-project" }
-  | { readonly kind: "grant-access"; readonly project: string }
-  | { readonly kind: "revoke-access"; readonly project: string }
+  | { readonly kind: "create-project"; readonly name: string; readonly owner: string }
+  | {
+      readonly kind: "grant";
+      readonly project: string;
+      readonly username: string;
+      readonly level: string;
+    }
+  | { readonly kind: "revoke"; readonly project: string; readonly username: string }
   | { readonly kind: "set-user-disabled"; readonly username: string; readonly disabled: boolean }
   | { readonly kind: "revoke-tokens"; readonly username: string }
   | { readonly kind: "set-setting"; readonly index: number; readonly value: string };
@@ -223,6 +244,12 @@ export function reduce(session: Session, key: KeyPress, view: HubView): Step {
   if (top?.kind === "revoke-tokens") {
     return confirm(session, key, { kind: "revoke-tokens", username: top.username });
   }
+  if (top?.kind === "name-project") {
+    return nameProject(session, key, view);
+  }
+  if (top !== undefined && isPicker(top)) {
+    return pick(session, key, top, view);
+  }
 
   if (key.escape === true) {
     return state.overlays.length === 0 ? { session } : pop(session);
@@ -263,11 +290,27 @@ export function reduce(session: Session, key: KeyPress, view: HubView): Step {
     case "i":
       return { session, action: { kind: "create-invite" } };
     case "n":
-      return { session, action: { kind: "new-project" } };
-    case "r":
-      return asked(session, withProject(state, view, "revoke-access"));
-    case "g":
-      return asked(session, withProject(state, view, "grant-access"));
+      return state.surface === "projects" ? push(session, { kind: "name-project" }, "") : { session };
+    case "r": {
+      const project = projectInPlay(session.state, view);
+      return project === undefined
+        ? { session }
+        : push(session, { kind: "take-access", project, choice: 0 });
+    }
+    case "g": {
+      // The same key from either side of the same relation: over a project it
+      // asks which account, over an account it asks which project.
+      if (state.surface === "users") {
+        const user = selectedUser(state, view);
+        return user === undefined
+          ? { session }
+          : push(session, { kind: "pick-project", username: user.username, choice: 0 });
+      }
+      const project = projectInPlay(session.state, view);
+      return project === undefined
+        ? { session }
+        : push(session, { kind: "pick-account", project, choice: 0 });
+    }
     case "R":
       return { session, action: { kind: "restart-loreserver" } };
     case "d":
@@ -309,13 +352,174 @@ function disableAction(state: TuiState, view: HubView): Action | undefined {
   return { kind: "set-user-disabled", username: user.username, disabled: !user.disabled };
 }
 
-function withProject(
-  state: TuiState,
-  view: HubView,
-  kind: "grant-access" | "revoke-access",
-): Action | undefined {
-  const project = selectedProject(state, view);
-  return project === undefined ? undefined : { kind, project: project.name };
+/**
+ * The project a key is about.
+ *
+ * The one whose detail is open if one is, and otherwise the one under the
+ * cursor — so that `g` means the same thing whether it is pressed on the list
+ * or inside the panel that lists who can already reach it.
+ */
+function projectInPlay(state: TuiState, view: HubView): string | undefined {
+  for (let index = state.overlays.length - 1; index >= 0; index -= 1) {
+    const overlay = state.overlays[index];
+    if (overlay?.kind === "project-detail") {
+      return overlay.project;
+    }
+  }
+  return selectedProject(state, view)?.name;
+}
+
+/** An overlay that is a list to choose from. */
+type Picker = Extract<Overlay, { choice: number }>;
+
+function isPicker(overlay: Overlay): overlay is Picker {
+  return (
+    overlay.kind === "pick-account" ||
+    overlay.kind === "pick-level" ||
+    overlay.kind === "pick-project" ||
+    overlay.kind === "take-access"
+  );
+}
+
+/** The rows a picker is showing, read from the one place that decides them. */
+export function choicesOf(overlay: Picker, view: HubView): Choice[] {
+  switch (overlay.kind) {
+    case "pick-account":
+      return accountsFor(view, overlay.project);
+    case "take-access":
+      return holdersOf(view, overlay.project);
+    case "pick-project":
+      return projectsFor(view, overlay.username);
+    case "pick-level":
+      return [...LEVELS];
+    case "pick-owner":
+      return view.users.map((user) => ({
+        name: user.username,
+        note: user.disabled ? `${user.role}, disabled` : user.role,
+      }));
+  }
+}
+
+/** Replace the topmost overlay, which is how a picker moves its cursor. */
+function replaceTop(session: Session, overlay: Overlay): Step {
+  return withState(session, {
+    ...session.state,
+    overlays: [...session.state.overlays.slice(0, -1), overlay],
+  });
+}
+
+/**
+ * Moving and choosing in a picker.
+ *
+ * Escape takes back one question rather than closing the lot, so the second
+ * step of giving access returns to the first and an operator who picked the
+ * wrong person is one key from fixing it.
+ */
+function pick(session: Session, key: KeyPress, overlay: Picker, view: HubView): Step {
+  const rows = choicesOf(overlay, view);
+
+  if (key.escape === true) {
+    return pop(session);
+  }
+  const by = key.upArrow === true || key.input === "k" ? -1 : key.downArrow === true || key.input === "j" ? 1 : 0;
+  if (by !== 0) {
+    return replaceTop(session, { ...overlay, choice: clampChoice(overlay.choice + by, rows.length) });
+  }
+  if (key.return !== true) {
+    return { session };
+  }
+
+  const chosen = rows[clampChoice(overlay.choice, rows.length)];
+  if (chosen === undefined) {
+    return { session };
+  }
+
+  switch (overlay.kind) {
+    case "pick-account": {
+      // An owner already reaches everything in their own project, so there is
+      // nothing to give them and the key does nothing rather than opening a
+      // window whose answer would be discarded.
+      if (!canBeGranted(view, overlay.project, chosen.name)) {
+        return { session };
+      }
+      return replaceTop(session, {
+        kind: "pick-level",
+        project: overlay.project,
+        username: chosen.name,
+        choice: 0,
+      });
+    }
+    case "pick-project":
+      return replaceTop(session, {
+        kind: "pick-level",
+        project: chosen.name,
+        username: overlay.username,
+        choice: 0,
+      });
+    case "pick-level":
+      return {
+        session: { ...session, state: { ...session.state, overlays: session.state.overlays.slice(0, -1) } },
+        action: {
+          kind: "grant",
+          project: overlay.project,
+          username: overlay.username,
+          level: chosen.name,
+        },
+      };
+    case "take-access":
+      return {
+        session: { ...session, state: { ...session.state, overlays: session.state.overlays.slice(0, -1) } },
+        action: { kind: "revoke", project: overlay.project, username: chosen.name },
+      };
+    case "pick-owner":
+      return {
+        session: { ...session, state: { ...session.state, overlays: session.state.overlays.slice(0, -1) } },
+        action: { kind: "create-project", name: overlay.name, owner: chosen.name },
+      };
+  }
+}
+
+/**
+ * Naming a new project.
+ *
+ * The same field the settings surface edits with, for the same reason: a name
+ * is the one thing here that cannot be chosen from a list, because it does not
+ * exist yet.
+ */
+function nameProject(session: Session, key: KeyPress, view: HubView): Step {
+  if (key.escape === true) {
+    return { session: { state: { ...session.state, overlays: session.state.overlays.slice(0, -1) }, draft: "" } };
+  }
+  if (key.return === true) {
+    const name = session.draft.trim();
+    if (name === "") {
+      return { session };
+    }
+    // One account is unambiguous. With more there is no obvious owner, and the
+    // command line answers that by telling you to name one with --as; there is
+    // no --as here, so the interface asks instead.
+    const rest = { ...session.state, overlays: session.state.overlays.slice(0, -1) };
+    const only = view.users.length === 1 ? view.users[0] : undefined;
+    if (only !== undefined) {
+      return {
+        session: { state: rest, draft: "" },
+        action: { kind: "create-project", name, owner: only.username },
+      };
+    }
+    return {
+      session: {
+        state: { ...rest, overlays: [...rest.overlays, { kind: "pick-owner", name, choice: 0 }] },
+        draft: "",
+      },
+    };
+  }
+  if (key.backspace === true || key.delete === true) {
+    return { session: { ...session, draft: session.draft.slice(0, -1) } };
+  }
+  if (key.input !== undefined && key.input.length > 0 && !key.ctrl && !key.meta) {
+    return { session: { ...session, draft: session.draft + key.input } };
+  }
+  return { session };
 }
 
 /** What return does on each surface. */

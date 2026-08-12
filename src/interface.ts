@@ -18,6 +18,19 @@ import { createInvite, DEFAULT_INVITE_LIFETIME_MS, DEFAULT_ROLE } from "./identi
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
 import { setTokenLifetimes, storedTokenLifetimes } from "./identity/settings.js";
+import { mintToken } from "./identity/tokens.js";
+import { identityConfig } from "./identity/config.js";
+import {
+  createProject,
+  forgetProject,
+  grantAccess,
+  newProjectId,
+  requireProject,
+  revokeAccess,
+  type AccessLevel,
+} from "./projects/registry.js";
+import { loreserverUrl, repositoryCreate } from "./projects/repository.js";
+import { requireUser } from "./identity/users.js";
 import { disableUser, enableUser, revokeUserTokens } from "./identity/users.js";
 import { ProjectReadings } from "./projects/refresh.js";
 import type { HubView } from "./tui/hubview.js";
@@ -143,12 +156,46 @@ async function perform(context: ViewContext, action: Action): Promise<string> {
     }
     case "set-setting":
       return writeSetting(context, action.index, action.value);
-    case "new-project":
-      return `a project needs a name: nlhub project create <name> --root ${root}`;
-    case "grant-access":
-      return `nlhub project grant ${action.project} <username> --root ${root} --level read`;
-    case "revoke-access":
-      return `nlhub project revoke ${action.project} <username> --root ${root}`;
+    case "create-project": {
+      // The same sequence `project create` runs, and for the same reason it
+      // runs it in that order: the row is written first so that a repository
+      // is never made without something recording who it belongs to, and it is
+      // withdrawn again if loreserver refuses, so a failure leaves nothing.
+      const owner = requireUser(database, action.owner);
+      const keys = await KeyStore.open(identityLayout(root).keysDir);
+      const config = identityConfig({ ...context.config, ...storedTokenLifetimes(database) });
+      const minted = mintToken(owner, keys.signingKey, config, { purpose: "repository" });
+      const project = createProject(database, {
+        id: newProjectId(),
+        name: action.name,
+        createdBy: owner.id,
+      });
+      try {
+        await repositoryCreate({
+          url: loreserverUrl(config.dataPort),
+          token: minted.token,
+          id: project.id,
+          name: project.name,
+          description: project.description,
+        });
+      } catch (error) {
+        forgetProject(database, project.id);
+        throw error;
+      }
+      return `created ${project.name}, owned by ${owner.username}`;
+    }
+    case "grant": {
+      const project = requireProject(database, action.project);
+      const user = requireUser(database, action.username);
+      grantAccess(database, project.id, user.id, action.level as AccessLevel, undefined);
+      return `${action.username} can ${action.level} ${action.project}, from their next request`;
+    }
+    case "revoke": {
+      const project = requireProject(database, action.project);
+      const user = requireUser(database, action.username);
+      revokeAccess(database, project.id, user.id);
+      return `${action.username} can no longer reach ${action.project}, from their next request`;
+    }
     case "restart-loreserver":
       return "loreserver belongs to the nlhub up that started it; stop and start that";
     case "quit":

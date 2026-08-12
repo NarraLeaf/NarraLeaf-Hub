@@ -22,7 +22,7 @@ import {
   wrapText,
 } from "./format.js";
 import type { HubView, ProjectView, UserView } from "./hubview.js";
-import type { Surface } from "./state.js";
+import type { Surface, TuiState } from "./state.js";
 import { SURFACES, SURFACE_NAMES } from "./state.js";
 import { BLANK, span, type Line, type Span } from "./text.js";
 
@@ -55,31 +55,21 @@ export function field(label: string, value: string | Line, pad = FIELD_PAD): Lin
   return typeof value === "string" ? [head, { text: value }] : [head, ...value];
 }
 
-/** What the server is doing, in one word. */
-function healthWord(view: HubView): string {
-  if (!view.server.running) {
-    return "stopped";
-  }
-  return view.server.healthy ? "healthy" : "not healthy";
-}
-
 export function headerLine(view: HubView, width: number): Line {
   const left = `nlhub ${view.hubVersion}`;
-  const wide = width >= HEADER_WIDE_FROM;
-  const right = `loreserver ${view.server.version} · ${healthWord(view)}${
-    wide ? ` · ${plural(view.projects.length, "project")}` : ""
-  }`;
-  // The path gives way first. What this line is for is whether loreserver is
-  // up, and a storage root deep enough to push that off the edge is on the
-  // settings surface in full.
-  const room = Math.max(0, width - left.length - right.length - 4);
-  const middle = room === 0 ? "" : `  ${ellipsis(view.root, room)}`;
-  const gap = Math.max(1, width - left.length - middle.length - right.length - 1);
+  // What this line carries is which Hub you are looking at. It used to carry
+  // loreserver's version and a green word for its health as well, and both
+  // were already on the first line of the dashboard — the health twice over,
+  // since the same check is what "running" is worked out from. A screen that
+  // says a thing in two places has to be read twice to find out it said
+  // nothing new.
+  const right = view.root;
+  const gap = Math.max(1, width - left.length - right.length - 2);
+  const room = width - left.length - gap - 1;
   return [
-    { text: left, bold: true },
-    { text: middle, dim: true },
+    { text: " " + left, bold: true },
     { text: " ".repeat(gap) },
-    { text: right, color: view.server.running && view.server.healthy ? "green" : "red" },
+    { text: ellipsis(right, Math.max(0, room)), dim: true },
   ];
 }
 
@@ -90,14 +80,25 @@ export function headerLine(view: HubView, width: number): Line {
  * where they are can at least tell how to leave.
  */
 const KEYS: Readonly<Record<Surface, string>> = {
-  dashboard: " 1-4 surface · i invite · n new project · l log · ? help · q quit",
-  users: " ↑↓ move · ⏎ open · i invite · d disable · x revoke tokens · l log · q quit",
+  dashboard: " 1-4 surface · i invite · n new project · c connection · l log · ? keys · q quit",
+  users: " ↑↓ move · ⏎ open · i invite · g grant · DISABLE · x revoke tokens · q quit",
   projects: " ↑↓ move · ⏎ open · n new · g grant · r revoke · l log · q quit",
   settings: " ↑↓ move · ⏎ change · l log · q quit  (· cannot be changed here)",
 };
 
-export function footerLine(surface: Surface, width: number): Line {
-  return span(ellipsis(KEYS[surface], width), { dim: true });
+/**
+ * The keys, with the one that changes meaning saying which it means.
+ *
+ * `d` toggles, and a footer that reads "disable" over an account already
+ * disabled is telling the operator the opposite of what the key will do.
+ */
+export function footerLine(state: TuiState, view: HubView, width: number): Line {
+  let keys = KEYS[state.surface];
+  if (state.surface === "users") {
+    const user = view.users[state.selection];
+    keys = keys.replace("DISABLE", user?.disabled === true ? "d enable" : "d disable");
+  }
+  return span(ellipsis(keys, width), { dim: true });
 }
 
 /** The rail down the left, one line per surface, each twelve columns wide. */
@@ -158,33 +159,6 @@ function newestFirst(view: HubView): HubView["audit"] {
   return [...view.audit].sort((left, right) => right.at - left.at);
 }
 
-/** What loreserver is doing, as much of it as Hub can see from outside. */
-function serverValue(view: HubView, wide: boolean): string {
-  const { server } = view;
-  const parts = [`${server.version} ${server.running ? "running" : "stopped"}`];
-  if (wide && server.pid !== undefined) {
-    parts.push(`pid ${server.pid}`);
-  }
-  if (server.startedAt !== undefined) {
-    const since = view.now - server.startedAt;
-    parts.push(`up ${wide ? uptime(since) : shortUptime(since)}`);
-  }
-  if (wide && server.startedAt !== undefined) {
-    parts.push(plural(server.restarts, "restart"));
-  }
-  return parts.join(" · ");
-}
-
-function healthValue(view: HubView, wide: boolean): string {
-  const state = view.server.healthy ? "ok" : "failing";
-  const checked = relativeTime(view.server.healthCheckedAt, view.now);
-  const port = view.reach.loopback.find((listener) => listener.what === "health")?.port;
-  if (!wide || port === undefined) {
-    return `${state} · ${checked}`;
-  }
-  return `${state} · :${port}/health_check · ${checked}`;
-}
-
 /** When anybody last pushed to any project. */
 function lastPush(view: HubView): string {
   const times = view.projects
@@ -205,56 +179,105 @@ function projectBytes(view: HubView): number | undefined {
   return sizes.length === 0 ? undefined : sizes.reduce((total, bytes) => total + bytes, 0);
 }
 
+/**
+ * The line that answers "is it working", and it is loud only when the answer
+ * is no.
+ *
+ * There is no separate health row because there was never a second fact in it:
+ * the gatherer works `running` out from whether the health check answered, so
+ * a screen carrying both said the same thing twice — and a word that says
+ * "fine" on every screen is one the reader stops seeing, which is exactly the
+ * word you need them to notice on the day it changes.
+ */
+function serverLine(view: HubView, wide: boolean): Line {
+  const { server } = view;
+  const parts: Span[] = [{ text: " " + "loreserver".padEnd(FIELD_PAD, " "), dim: true }];
+
+  if (!server.running) {
+    parts.push({ text: server.version + "  " });
+    parts.push({ text: "not running", color: "red", bold: true });
+    const checked = relativeTime(server.healthCheckedAt, view.now);
+    parts.push({ text: `  no answer on the health check, ${checked}`, dim: true });
+    return parts;
+  }
+
+  const said = [`${server.version}  running`];
+  if (wide && server.pid !== undefined) {
+    said.push(`pid ${server.pid}`);
+  }
+  if (server.startedAt !== undefined) {
+    const since = view.now - server.startedAt;
+    said.push(`up ${wide ? uptime(since) : shortUptime(since)}`);
+  }
+  if (wide && server.startedAt !== undefined && server.restarts > 0) {
+    // Nought restarts is the ordinary case and saying it fills a screen with a
+    // number nobody is looking for. A restart is worth reading about.
+    said.push(plural(server.restarts, "restart"));
+  }
+  parts.push({ text: said.join("  ") });
+  return parts;
+}
+
+/**
+ * The loopback ports, which are worth knowing are not reachable.
+ *
+ * Each keeps its name at every width. Three bare numbers fit more easily and
+ * tell a reader nothing they can act on, and the row has room for the words on
+ * the narrowest terminal this interface supports.
+ */
+function loopbackValue(view: HubView): string {
+  return view.reach.loopback
+    .map((listener) => `${listener.port} ${listener.what}`)
+    .join("   ");
+}
+
 export function dashboardLines(view: HubView, width: number, height: number): Line[] {
   const wide = width >= FIELD_WIDE_FROM;
   const { server, reach } = view;
   const disabled = view.users.filter((user) => user.disabled).length;
 
+  // No headings over these groups. "server", "at a glance", "quick" and
+  // "recent" told a reader nothing they could not see, and four rules across
+  // an eighty-column screen cost four of its twenty-four rows to say it. A
+  // blank line separates a group; the labels down the left name the facts.
   const lines: Line[] = [
-    section("server", width),
-    field("loreserver", serverValue(view, wide)),
-    field("health", healthValue(view, wide)),
+    serverLine(view, wide),
+
+    BLANK,
+    field("data", wide ? reach.data : withoutScheme(reach.data)),
+    field("sign-in", wide ? reach.signIn : withoutScheme(reach.signIn)),
+    field("authority", shortFingerprint(reach.fingerprint)),
+    field("loopback", span(loopbackValue(view), { dim: true })),
     field(
       "storage",
       wide
-        ? `${fileSize(server.storageBytes)} · ${plural(view.projects.length, "repository", "repositories")} · ${server.storageRoot}`
-        : `${fileSize(server.storageBytes)} · ${view.projects.length} repos`,
-    ),
-    field("sign-in", wide ? reach.signIn : withoutScheme(reach.signIn)),
-    field("data", wide ? reach.data : withoutScheme(reach.data)),
-    field("authority", shortFingerprint(reach.fingerprint)),
-
-    BLANK,
-    section("at a glance", width),
-    field(
-      "people",
-      wide
-        ? `${plural(view.users.length, "account")} · ${disabled} disabled · ${plural(view.invitesLive, "invite")} live`
-        : `${view.users.length} · ${disabled} disabled · ${plural(view.invitesLive, "invite")}`,
-    ),
-    field(
-      "projects",
-      wide
-        ? `${plural(view.projects.length, "project")} · ${fileSize(projectBytes(view))} · last push ${lastPush(view)}`
-        : `${view.projects.length} · last push ${lastPush(view)}`,
+        ? `${fileSize(server.storageBytes)}   ${plural(view.projects.length, "repository", "repositories")}`
+        : `${fileSize(server.storageBytes)}   ${view.projects.length} repos`,
     ),
 
     BLANK,
-    section("quick", width),
+    field(
+      "accounts",
+      wide
+        ? `${view.users.length}    ${disabled} disabled    ${plural(view.invitesLive, "invitation")} unused`
+        : `${view.users.length}    ${disabled} disabled    ${plural(view.invitesLive, "invite")} unused`,
+    ),
+    field("projects", `${view.projects.length}    last push ${lastPush(view)}`),
+
+    BLANK,
     ...quickLines(width),
 
     BLANK,
-    section("recent", width),
   ];
 
   // Whatever is left over goes to the log, and it is the only part that
-  // shrinks: an operator who cannot see the health of the server has lost the
-  // point of the screen, and one who can see two decisions instead of four has
+  // shrinks: an operator who cannot see the state of the server has lost the
+  // point of the screen, and one who can see two decisions instead of six has
   // not.
   const room = Math.max(0, height - lines.length);
-  const recent = newestFirst(view).slice(0, Math.min(room, wide ? 4 : 2));
+  const recent = newestFirst(view).slice(0, room);
   if (recent.length === 0 && room > 0) {
-    lines.push(span("  nothing yet", { dim: true }));
+    lines.push(span("  nothing has been asked of this Hub yet", { dim: true }));
     return lines;
   }
   return [...lines, ...recent.map((entry) => auditLine(entry, width))];
@@ -266,10 +289,18 @@ function userState(user: UserView): string {
   return user.disabled ? "disabled" : "active";
 }
 
+/** The columns of the account list, in one place so the header cannot drift. */
+const WHO = 19;
+const DISPLAY_NAME = 16;
+const ROLE = 8;
+const REACHES = 24;
+
 export function userListHeader(width: number): Line {
   const wide = width >= LIST_WIDE_FROM;
   return span(
-    wide ? " who      name             role     state      projects  last seen" : " who      state     seen",
+    wide
+      ? ` ${"who".padEnd(WHO, " ")} ${"name".padEnd(DISPLAY_NAME, " ")} ${"role".padEnd(ROLE, " ")} ${"can reach".padEnd(REACHES, " ")} last seen`
+      : ` ${"who".padEnd(WHO, " ")} ${"role".padEnd(ROLE, " ")} last seen`,
     { dim: true },
   );
 }
@@ -277,12 +308,23 @@ export function userListHeader(width: number): Line {
 export function userRow(user: UserView, view: HubView, width: number, selected: boolean): Line {
   const wide = width >= LIST_WIDE_FROM;
   const seen = relativeTime(user.lastSeenAt, view.now);
+  // Disabled goes beside the name rather than in a column of its own: it is
+  // the only state there is, so a column headed "state" spent its width saying
+  // "active" about almost every row.
+  const who = user.disabled ? `${user.username} (disabled)` : user.username;
+  // What they can reach, and not how many things they can reach. The number
+  // was on the screen you would go to in order to decide whether to change it,
+  // and it told you nothing you could decide with.
+  const reaches =
+    user.projects.length === 0
+      ? "—"
+      : user.projects.map((project) => project.name).join(", ");
   const text = wide
-    ? ` ${user.username.padEnd(8, " ")} ${user.displayName.padEnd(16, " ")} ${user.role.padEnd(
-        8,
+    ? ` ${who.padEnd(WHO, " ")} ${user.displayName.padEnd(DISPLAY_NAME, " ")} ${user.role.padEnd(
+        ROLE,
         " ",
-      )} ${userState(user).padEnd(10, " ")} ${String(user.projects.length).padStart(8, " ")}  ${seen}`
-    : ` ${user.username.padEnd(8, " ")} ${userState(user).padEnd(9, " ")} ${seen}`;
+      )} ${ellipsis(reaches, REACHES).padEnd(REACHES, " ")} ${seen}`
+    : ` ${who.padEnd(WHO, " ")} ${user.role.padEnd(ROLE, " ")} ${seen}`;
   return span(ellipsis(text, width).padEnd(width, " "), {
     ...(selected ? { inverse: true } : {}),
     ...(user.disabled ? { color: "red" } : {}),
@@ -359,12 +401,17 @@ function projectLast(project: ProjectView, view: HubView): string {
   return project.history.revisions === 0 ? "never" : UNKNOWN;
 }
 
+/** The columns of the project list, in one place so the header cannot drift. */
+const PROJECT_NAME = 13;
+const OWNER = 7;
+const ALSO = 22;
+
 export function projectListHeader(width: number): Line {
   const wide = width >= LIST_WIDE_FROM;
   return span(
     wide
-      ? " name          owner   people   revs   size      last activity"
-      : " name          revs   size",
+      ? ` ${"name".padEnd(PROJECT_NAME, " ")} ${"owner".padEnd(OWNER, " ")} ${"can also reach".padEnd(ALSO, " ")} ${"revs".padStart(5, " ")}   ${"size".padEnd(9, " ")} last activity`
+      : ` ${"name".padEnd(PROJECT_NAME, " ")} ${"revs".padStart(4, " ")}   size`,
     { dim: true },
   );
 }
@@ -377,14 +424,23 @@ export function projectRow(
 ): Line {
   const wide = width >= LIST_WIDE_FROM;
   const revisions = revisionCount(project);
+  // Who else, by name. A count answered "how many" when the question this
+  // screen is here to settle is "who", and the answer was one keypress and one
+  // panel away from a row that had room for it.
+  const others = project.access.filter((entry) => entry.level !== "owner");
+  const also =
+    others.length === 0
+      ? "—"
+      : others.map((entry) => `${entry.username} ${entry.level.charAt(0)}`).join(", ");
   const text = wide
-    ? ` ${project.name.padEnd(13, " ")} ${project.owner.padEnd(7, " ")} ${String(
-        project.access.length,
-      ).padStart(6, " ")}  ${revisions.padStart(5, " ")}   ${projectSize(project).padEnd(
+    ? ` ${project.name.padEnd(PROJECT_NAME, " ")} ${project.owner.padEnd(OWNER, " ")} ${ellipsis(
+        also,
+        ALSO,
+      ).padEnd(ALSO, " ")} ${revisions.padStart(5, " ")}   ${projectSize(project).padEnd(
         9,
         " ",
       )} ${projectLast(project, view)}`
-    : ` ${project.name.padEnd(13, " ")} ${revisions.padStart(4, " ")}   ${projectSize(project)}`;
+    : ` ${project.name.padEnd(PROJECT_NAME, " ")} ${revisions.padStart(4, " ")}   ${projectSize(project)}`;
   return span(ellipsis(text, width).padEnd(width, " "), selected ? { inverse: true } : {});
 }
 

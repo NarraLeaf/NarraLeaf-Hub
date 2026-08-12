@@ -15,6 +15,7 @@ import { ellipsis, plural, relativeTime, wrapText } from "./format.js";
 import type { HubView } from "./hubview.js";
 import { centred, overBody, SPLIT_FROM, WIDE_RAIL_FROM, type Rect } from "./layout.js";
 import { field, projectDetailLines, userDetailLines } from "./panels.js";
+import { choicesOf } from "./state.js";
 import type { Overlay, TuiSize } from "./state.js";
 import { BLANK, lineWidth, span, type Line } from "./text.js";
 
@@ -37,6 +38,7 @@ const PREFERRED = {
   detail: 54,
   confirm: 56,
   edit: 50,
+  pick: 46,
   connection: 66,
   help: 52,
   log: 88,
@@ -61,6 +63,50 @@ function room(size: TuiSize): number {
  * Content first and geometry second, so that a window with four short lines in
  * it is four lines tall rather than a box with a hole in the middle of it.
  */
+/** What a picker is asking, in the words somebody would use to ask it. */
+function pickerTitle(overlay: Extract<Overlay, { choice: number }>): string {
+  switch (overlay.kind) {
+    case "pick-account":
+      return `Who may reach ${overlay.project}?`;
+    case "take-access":
+      return `Take ${overlay.project} away from whom?`;
+    case "pick-project":
+      return `Which project may ${overlay.username} reach?`;
+    case "pick-level":
+      return `What may ${overlay.username} do to ${overlay.project}?`;
+    case "pick-owner":
+      return `Whose project is ${overlay.name}?`;
+  }
+}
+
+function pickerFooter(overlay: Extract<Overlay, { choice: number }>): string {
+  switch (overlay.kind) {
+    case "pick-level":
+      return "⏎ give access · esc back";
+    case "take-access":
+      return "⏎ take it away · esc cancel";
+    case "pick-owner":
+      return "⏎ create · esc cancel";
+    default:
+      return "⏎ choose · esc cancel";
+  }
+}
+
+/** Why a picker has nothing in it, which is never the same reason twice. */
+function pickerEmpty(overlay: Extract<Overlay, { choice: number }>): string {
+  switch (overlay.kind) {
+    case "take-access":
+      return "Nobody but its owner can reach this project.";
+    case "pick-account":
+    case "pick-owner":
+      return "There are no accounts on this Hub yet.";
+    case "pick-project":
+      return "There are no projects on this Hub yet.";
+    case "pick-level":
+      return "";
+  }
+}
+
 function place(
   size: TuiSize,
   title: string,
@@ -248,6 +294,37 @@ export function overlayWindow(
         lines.push(BLANK, ...wrapText(setting.caution, inner).map((text) => span(text, { dim: true })));
       }
       return place(size, setting.label, "⏎ save · esc cancel", lines, inner);
+    }
+    case "name-project": {
+      const inner = Math.min(PREFERRED.edit, room(size) - CHROME);
+      return place(
+        size,
+        "Name the new project",
+        "⏎ create · esc cancel",
+        [
+          span(`${draft ?? ""}▏`),
+          BLANK,
+          span("A repository of this name is made on loreserver.", { dim: true }),
+        ],
+        inner,
+      );
+    }
+    case "pick-account":
+    case "pick-level":
+    case "pick-project":
+    case "take-access":
+    case "pick-owner": {
+      const rows = choicesOf(overlay, view);
+      const inner = Math.min(PREFERRED.pick, room(size) - CHROME);
+      if (rows.length === 0) {
+        return place(size, pickerTitle(overlay), "esc close", [span(pickerEmpty(overlay), { dim: true })], inner);
+      }
+      const widest = Math.max(...rows.map((choice) => [...choice.name].length));
+      const lines = rows.map((choice, index): Line => [
+        { text: ` ${choice.name.padEnd(widest, " ")}  `, inverse: index === overlay.choice },
+        { text: choice.note, dim: index !== overlay.choice },
+      ]);
+      return place(size, pickerTitle(overlay), pickerFooter(overlay), lines, inner);
     }
     case "connection": {
       const inner = Math.min(PREFERRED.connection, room(size) - CHROME);
