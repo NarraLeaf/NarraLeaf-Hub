@@ -18,14 +18,16 @@ export interface IdentityConfig {
   readonly audience: string;
   /**
    * Host and optional port of the endpoint Studio authenticates against,
-   * without a scheme, for example `hub.example.com`.
+   * without a scheme, for example `hub.example.com:41402`.
    *
-   * Studio refuses to send a token whose `aud` does not name the endpoint it
-   * is talking to, so this value has to reach the token as well as the
-   * configuration. The auth endpoint itself is not part of this build; what
-   * the value does today is put the right origin in `aud` and in loreserver's
-   * `auth_url`, so that a client pointed at a real deployment is not refused
-   * by either side.
+   * Studio refuses to use a token whose `aud` does not name the endpoint it is
+   * talking to, so this value reaches the token as well as the configuration.
+   * It is also the name the endpoint's certificate has to carry, which is why
+   * `up --hostname` exists: a certificate for `127.0.0.1` proves nothing about
+   * a machine somebody reaches as `hub.example.com`.
+   *
+   * When an operator names none, it is this machine's loopback at the TLS
+   * port, so the default configuration is consistent with itself.
    */
   readonly authOrigin: string;
   /** The `env` claim. `local` is the only value that has been tested. */
@@ -42,29 +44,39 @@ export interface IdentityConfig {
   /** The port Hub's own HTTP endpoint listens on. */
   readonly hubPort: number;
   /**
-   * The port Hub's authorization service listens on.
+   * The port Hub's authorization service listens on in plain HTTP/2.
    *
-   * This is the address loreserver is given as `auth_url` and asks whether a
-   * caller may touch a repository. It is a second port rather than a second
-   * path on {@link hubPort} because the two speak different protocols: one
-   * serves documents over HTTP/1.1, the other gRPC over HTTP/2.
+   * This is where loreserver, on the same machine, asks whether a caller may
+   * touch a repository. It is a second port rather than a second path on
+   * {@link hubPort} because the two speak different protocols: one serves
+   * documents over HTTP/1.1, the other gRPC over HTTP/2.
    */
   readonly authPort: number;
+  /**
+   * The port the same service listens on over TLS.
+   *
+   * A Studio installation signs in here and will not use anything else: its
+   * client library accepts only `https` and `ucs-auth`, and refuses `http` and
+   * `grpc` by name. The two listeners serve identical methods; what differs is
+   * that one is reachable from another machine and one is not.
+   */
+  readonly authTlsPort: number;
 }
 
 /** The identity settings used when an operator names none. */
 export const DEFAULT_IDENTITY: IdentityConfig = {
   issuer: "narraleaf-hub",
   audience: "loreserver",
-  // The endpoint Hub serves is on this port of this machine, so the default
-  // configuration is consistent with itself on one machine. A deployment other
-  // people reach names its own host with --auth-origin.
-  authOrigin: "127.0.0.1:41400",
+  // The TLS listener on this machine, so the default configuration is
+  // consistent with itself. A deployment other people reach names its own host
+  // with --auth-origin, and its certificate is given that name with --hostname.
+  authOrigin: "127.0.0.1:41402",
   env: "local",
   idp: "narraleaf-hub",
   tokenLifetimeSeconds: 15 * 60,
   hubPort: 41400,
   authPort: 41401,
+  authTlsPort: 41402,
 };
 
 /**
@@ -73,9 +85,17 @@ export const DEFAULT_IDENTITY: IdentityConfig = {
  * Every command that mints a token or writes loreserver's configuration builds
  * its settings this way, so that the same options given to two commands mean
  * the same thing to both.
+ *
+ * The auth origin follows the TLS port when it is not named outright. Without
+ * that, moving the listener with `--auth-tls-port` would leave every token
+ * claiming an audience nothing listens on, and a client would refuse the token
+ * it had just been given.
  */
 export function identityConfig(overrides: Partial<IdentityConfig> = {}): IdentityConfig {
-  return { ...DEFAULT_IDENTITY, ...overrides };
+  const merged = { ...DEFAULT_IDENTITY, ...overrides };
+  return overrides.authOrigin === undefined
+    ? { ...merged, authOrigin: `127.0.0.1:${merged.authTlsPort}` }
+    : merged;
 }
 
 /**
@@ -93,15 +113,23 @@ export function authUrl(config: IdentityConfig): string {
 /**
  * The `aud` array a minted token carries.
  *
- * Both entries have to be there. loreserver refuses a token whose audience
- * does not include the one it was configured with, and Studio refuses to send
- * a token whose audience does not include the auth endpoint it is talking to.
- * The two are collapsed into one entry when they are the same string, because
- * a repeated audience says nothing extra.
+ * Every entry has to be there. loreserver refuses a token whose audience does
+ * not include the one it was configured with, and a Studio installation refuses
+ * to use a token whose audience does not name the auth endpoint it is talking
+ * to — "JWT 'aud' does not specify remote domain", which it treats as a token
+ * that might leak somewhere it does not belong.
+ *
+ * The origin is written both with and without a trailing slash because the two
+ * sides of that comparison are not known to be normalised the same way: the
+ * client's own message about it has been seen carrying the slash. An audience
+ * a verifier ignores costs a few bytes; one a client will not match costs the
+ * sign-in.
+ *
+ * Duplicates are dropped, because a repeated audience says nothing extra.
  */
 export function tokenAudience(config: IdentityConfig): string[] {
   const auth = authUrl(config);
-  return config.audience === auth ? [config.audience] : [config.audience, auth];
+  return [...new Set([config.audience, auth, `${auth}/`])];
 }
 
 /** Where Hub publishes its JWKS, as loreserver is told to fetch it. */
@@ -110,15 +138,14 @@ export function jwksUrl(hubPort: number, host = "127.0.0.1"): string {
 }
 
 /**
- * Where loreserver asks whether a caller may touch a repository, as it is
- * written into its `auth_url`.
+ * The plaintext address of the same authorization service, on the loopback.
  *
- * Plain HTTP, and deliberately not {@link authUrl}. Two different things are
- * called an auth URL here: the origin a person signs in at, which is on the
- * public side of a deployment and must be https, and this one, which is
- * loreserver on one machine calling Hub on the same machine over the loopback.
- * loreserver 0.8.6 speaks h2c to it and asks for no certificate.
+ * This is not what goes into loreserver's `auth_url`: that key is also how a
+ * client is told where to sign in, so it has to be the https origin. This
+ * address is the one loreserver can be pointed at when it cannot verify Hub's
+ * certificate itself, and it is what `nlhub project create` and the tests use,
+ * because neither of them is a client that needs telling anything.
  */
-export function loreserverAuthUrl(config: IdentityConfig, host = "127.0.0.1"): string {
+export function plaintextAuthUrl(config: IdentityConfig, host = "127.0.0.1"): string {
   return `http://${host}:${config.authPort}`;
 }

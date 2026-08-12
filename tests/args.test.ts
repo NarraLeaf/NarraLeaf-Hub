@@ -54,6 +54,9 @@ describe("parseArgs, up", () => {
       // Identity is off unless it is asked for: a loreserver that suddenly
       // demanded a token would lock out every client an operator already has.
       identity: false,
+      // The certificate always carries the loopback and localhost; a name
+      // beyond those is something only an operator can know.
+      hostnames: [],
       overrides: {},
     });
   });

@@ -4,6 +4,8 @@
  * Parsing is kept separate from anything that writes output or exits, so the
  * decision the arguments describe can be inspected on its own.
  */
+import { isIP } from "node:net";
+
 import { DEFAULT_IDENTITY } from "./identity/config.js";
 import { DEFAULT_INVITE_LIFETIME_MS, DEFAULT_ROLE } from "./identity/invites.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
@@ -26,6 +28,7 @@ export interface IdentityOverrides {
   readonly tokenLifetimeSeconds?: number;
   readonly hubPort?: number;
   readonly authPort?: number;
+  readonly authTlsPort?: number;
 }
 
 /** What a command line asked the program to do. */
@@ -40,6 +43,8 @@ export type Invocation =
       readonly healthPort: number;
       /** True when loreserver is to be told to demand a Hub token. */
       readonly identity: boolean;
+      /** Names to put in the auth endpoint's certificate, beyond the loopback. */
+      readonly hostnames: readonly string[];
       readonly overrides: IdentityOverrides;
     }
   /** Make an invitation and print its code once. */
@@ -102,6 +107,18 @@ export type Invocation =
   | { readonly kind: "key-list"; readonly root: string }
   /** Generate a key and sign with it from now on. */
   | { readonly kind: "key-rotate"; readonly root: string }
+  /**
+   * Show this Hub's certificate authority, and optionally trust it here.
+   *
+   * With neither flag, nothing is changed: printing the fingerprint is the
+   * whole of what it does, because that is what a person compares.
+   */
+  | {
+      readonly kind: "trust";
+      readonly root: string;
+      readonly install: boolean;
+      readonly remove: boolean;
+    }
   /** The command line was not understood; `message` explains why, in one line. */
   | { readonly kind: "error"; readonly message: string };
 
@@ -182,6 +199,12 @@ interface Tokens {
   readonly positionals: readonly string[];
   /** Options that took a value, by option name including the dashes. */
   readonly values: ReadonlyMap<string, string>;
+  /**
+   * Options that may be written more than once, with every value in the order
+   * they appeared. An option is one or the other, never both: a repeated
+   * `--root` is a mistake, and a `--hostname` given once is a list of one.
+   */
+  readonly lists: ReadonlyMap<string, readonly string[]>;
   /** Options that stand alone. */
   readonly flags: ReadonlySet<string>;
 }
@@ -202,9 +225,11 @@ function readTokens(
   argv: readonly string[],
   valueOptions: readonly string[],
   flagOptions: readonly string[] = [],
+  listOptions: readonly string[] = [],
 ): TokensResult {
   const positionals: string[] = [];
   const values = new Map<string, string>();
+  const lists = new Map<string, string[]>();
   const flags = new Set<string>();
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -230,7 +255,8 @@ function readTokens(
       flags.add(option);
       continue;
     }
-    if (!valueOptions.includes(option)) {
+    const repeatable = listOptions.includes(option);
+    if (!repeatable && !valueOptions.includes(option)) {
       return { kind: "error", message: `unknown argument: ${token}` };
     }
 
@@ -242,10 +268,14 @@ function readTokens(
     if (value === undefined || value === "") {
       return { kind: "error", message: `${option} needs a value` };
     }
-    values.set(option, value);
+    if (repeatable) {
+      lists.set(option, [...(lists.get(option) ?? []), value]);
+    } else {
+      values.set(option, value);
+    }
   }
 
-  return { kind: "tokens", tokens: { positionals, values, flags } };
+  return { kind: "tokens", tokens: { positionals, values, lists, flags } };
 }
 
 /** The identity options every command that mints or configures accepts. */
@@ -258,6 +288,7 @@ const IDENTITY_OPTIONS = [
   "--token-lifetime",
   "--hub-port",
   "--auth-port",
+  "--auth-tls-port",
 ] as const;
 
 /**
@@ -275,6 +306,7 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     tokenLifetimeSeconds?: number;
     hubPort?: number;
     authPort?: number;
+    authTlsPort?: number;
   } = {};
 
   const issuer = tokens.values.get("--issuer");
@@ -325,6 +357,14 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     }
     overrides.authPort = port;
   }
+  const authTlsPort = tokens.values.get("--auth-tls-port");
+  if (authTlsPort !== undefined) {
+    const port = parsePort("--auth-tls-port", authTlsPort);
+    if (typeof port === "string") {
+      return port;
+    }
+    overrides.authTlsPort = port;
+  }
 
   return overrides;
 }
@@ -335,6 +375,7 @@ function parseUp(argv: readonly string[]): Invocation {
     argv,
     ["--root", "--data-port", "--health-port", ...IDENTITY_OPTIONS],
     ["--identity"],
+    ["--hostname"],
   );
   if (result.kind !== "tokens") {
     return result.kind === "help" ? { kind: "help" } : error(result.message);
@@ -376,7 +417,7 @@ function parseUp(argv: readonly string[]): Invocation {
     return error(overrides);
   }
 
-  // Four TCP listeners come up on one machine, and two on the same port would
+  // Five TCP listeners come up on one machine, and two on the same port would
   // leave whichever lost the race silently absent. loreserver's gRPC and QUIC
   // listeners deliberately share one number, one on TCP and one on UDP, which
   // is why only one of them is in this list.
@@ -385,11 +426,22 @@ function parseUp(argv: readonly string[]): Invocation {
     ["--health-port", healthPort],
     ["--hub-port", overrides.hubPort ?? DEFAULT_IDENTITY.hubPort],
     ["--auth-port", overrides.authPort ?? DEFAULT_IDENTITY.authPort],
+    ["--auth-tls-port", overrides.authTlsPort ?? DEFAULT_IDENTITY.authTlsPort],
   ];
   for (const [index, listener] of listeners.entries()) {
     const clash = listeners.slice(index + 1).find(([, port]) => port === listener[1]);
     if (clash !== undefined) {
       return error(`${listener[0]} and ${clash[0]} cannot both be ${listener[1]}`);
+    }
+  }
+
+  const hostnames = tokens.lists.get("--hostname") ?? [];
+  for (const name of hostnames) {
+    // A scheme, a path or a port here would go into a certificate as a name no
+    // client ever asks for, and the certificate would look correct. A colon is
+    // allowed only in an address, where it is part of the address itself.
+    if (name.includes("://") || name.includes("/") || (name.includes(":") && isIP(name) === 0)) {
+      return error(`--hostname is a host on its own, without a scheme or a port, not "${name}"`);
     }
   }
 
@@ -399,6 +451,7 @@ function parseUp(argv: readonly string[]): Invocation {
     dataPort,
     healthPort,
     identity: tokens.flags.has("--identity"),
+    hostnames,
     overrides,
   };
 }
@@ -708,6 +761,31 @@ function parseKey(argv: readonly string[]): Invocation {
   return verb === "list" ? { kind: "key-list", root } : { kind: "key-rotate", root };
 }
 
+/** Parse the arguments that follow `trust`. */
+function parseTrust(argv: readonly string[]): Invocation {
+  const result = readTokens(argv, ["--root"], ["--install", "--remove"]);
+  if (result.kind !== "tokens") {
+    return result.kind === "help" ? { kind: "help" } : error(result.message);
+  }
+  const { tokens } = result;
+
+  const extra = tokens.positionals[0];
+  if (extra !== undefined) {
+    return error(`unexpected argument: ${extra}`);
+  }
+  const root = tokens.values.get("--root");
+  if (root === undefined) {
+    return missingRoot("trust");
+  }
+
+  const install = tokens.flags.has("--install");
+  const remove = tokens.flags.has("--remove");
+  if (install && remove) {
+    return error("trust takes --install or --remove, not both");
+  }
+  return { kind: "trust", root, install, remove };
+}
+
 /**
  * Interpret the arguments that follow the program name.
  *
@@ -748,6 +826,8 @@ export function parseArgs(argv: readonly string[]): Invocation {
       return parseProject(rest);
     case "key":
       return parseKey(rest);
+    case "trust":
+      return parseTrust(rest);
     default:
       return error(
         first.startsWith("-") ? `unknown argument: ${first}` : `unknown command: ${first}`,

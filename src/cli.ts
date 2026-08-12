@@ -5,6 +5,7 @@ import { keyList, keyRotate } from "./key.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
 import { projectCreate, projectGrant, projectList, projectRevoke } from "./project.js";
 import { tokenMint } from "./token.js";
+import { trust } from "./trust.js";
 import { up } from "./up.js";
 import { userCreate, userDisable, userEnable, userList } from "./user.js";
 import { VERSION } from "./version.js";
@@ -47,6 +48,8 @@ Commands:
                             Stop an account reaching a project
   key list                  Show the signing keys
   key rotate                Generate a key and sign with it from now on
+  trust                     Show this Hub's certificate authority and its
+                            fingerprint, and change nothing
 
 Every command takes --root <path>, the directory Hub keeps its files in.
 
@@ -54,6 +57,13 @@ Options for up:
       --data-port <port>    gRPC and QUIC port (default ${DEFAULT_PORTS.dataPort})
       --health-port <port>  loreserver's HTTP health check port (default ${DEFAULT_PORTS.healthPort})
       --identity            Configure loreserver to demand a Hub token
+      --hostname <host>     A name people will reach this Hub by, put into the
+                            auth endpoint's certificate. Repeatable; the
+                            loopback and localhost are always included
+
+Options for trust:
+      --install             Trust this authority in this account's trust store
+      --remove              Stop trusting it
 
 Options for invite create:
       --role <name>         Group the account joins (default member)
@@ -78,12 +88,15 @@ Options for project grant:
 
 Identity options, taken by up, token mint and project create:
       --hub-port <port>     Hub's own HTTP port (default ${DEFAULT_IDENTITY.hubPort})
-      --auth-port <port>    Port loreserver asks about permissions on
-                            (default ${DEFAULT_IDENTITY.authPort})
+      --auth-port <port>    Port loreserver asks about permissions on, in plain
+                            HTTP/2 on the loopback (default ${DEFAULT_IDENTITY.authPort})
+      --auth-tls-port <port>
+                            Port clients sign in on, over TLS
+                            (default ${DEFAULT_IDENTITY.authTlsPort})
       --issuer <name>       Token issuer (default ${DEFAULT_IDENTITY.issuer})
       --audience <name>     Audience loreserver requires (default ${DEFAULT_IDENTITY.audience})
-      --auth-origin <host>  Host clients authenticate against, without a scheme
-                            (default ${DEFAULT_IDENTITY.authOrigin})
+      --auth-origin <host>  Host and port clients authenticate against, without
+                            a scheme (default ${DEFAULT_IDENTITY.authOrigin})
       --env <name>          Environment claim (default ${DEFAULT_IDENTITY.env})
       --idp <name>          Identity provider claim (default ${DEFAULT_IDENTITY.idp})
       --token-lifetime <duration>
@@ -125,6 +138,7 @@ export async function run(
           dataPort: invocation.dataPort,
           healthPort: invocation.healthPort,
           identity: invocation.identity,
+          hostnames: invocation.hostnames,
           overrides: invocation.overrides,
           ...(options.signal === undefined ? {} : { signal: options.signal }),
         },
@@ -210,6 +224,12 @@ export async function run(
       return await keyList({ root: invocation.root }, stdout, stderr);
     case "key-rotate":
       return await keyRotate({ root: invocation.root }, stdout, stderr);
+    case "trust":
+      return await trust(
+        { root: invocation.root, install: invocation.install, remove: invocation.remove },
+        stdout,
+        stderr,
+      );
     case "error":
       // Prefix the program name the way command line tools conventionally do,
       // so the line still identifies its source in a wall of build output.

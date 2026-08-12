@@ -27,7 +27,7 @@ export const DEFAULT_CALL_TIMEOUT_MS = 30_000;
 
 /** What one call needs. */
 export interface UnaryCallOptions {
-  /** Where the service is, as `http://host:port`. */
+  /** Where the service is, as `http://host:port` or `https://host:port`. */
   readonly url: string;
   /** `/package.Service/Method`. */
   readonly path: string;
@@ -35,6 +35,14 @@ export interface UnaryCallOptions {
   readonly message: Uint8Array;
   /** The `authorization` header to present, if any. */
   readonly authorization?: string | undefined;
+  /**
+   * The certificate authority to verify an `https` service against, as PEM.
+   *
+   * Given, it replaces the host's trust store for this call rather than adding
+   * to it — which is what makes a call to a Hub whose authority nobody has
+   * installed possible without installing it.
+   */
+  readonly ca?: string | undefined;
   readonly timeoutMs?: number;
 }
 
@@ -82,7 +90,10 @@ function readStatus(headers: IncomingHttpHeaders): { status: number; message: st
 /** Make one call and return the message it answered with. */
 export async function unaryCall(options: UnaryCallOptions): Promise<Buffer> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
-  const session: ClientHttp2Session = connect(options.url);
+  const session: ClientHttp2Session = connect(
+    options.url,
+    options.ca === undefined ? {} : { ca: options.ca },
+  );
 
   try {
     return await new Promise<Buffer>((resolve, reject) => {

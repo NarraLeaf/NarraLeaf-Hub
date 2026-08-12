@@ -31,6 +31,8 @@ import {
 /** The full gRPC method paths, as they appear on an HTTP/2 `:path`. */
 export const METHOD_CHECK_USER_PERMISSION = "/epic_urc.UrcAuthApi/CheckUserPermission";
 export const METHOD_LOOKUP_USER_PERMISSIONS = "/epic_urc.UrcAuthApi/LookupUserPermissions";
+export const METHOD_EXCHANGE_EXTERNAL_TOKEN =
+  "/epic_urc.UrcAuthApi/ExchangeExternalTokenForUserToken";
 export const METHOD_HEALTH_CHECK = "/epic_urc.UrcAuthApi/HealthCheck";
 export const METHOD_CREATE_RESOURCE = "/ucs.auth.RebacApi/CreateResource";
 export const METHOD_DELETE_RESOURCE = "/ucs.auth.RebacApi/DeleteResource";
@@ -272,10 +274,16 @@ export function decodeLookupUserPermissionsResponse(
 /**
  * `epic_urc.UserToken`: what an exchange hands back.
  *
- * Hub does not serve the exchange calls — a client signs in by other means and
- * presents the token Hub minted — but the message is here because it is the one
- * `ExchangeExternalTokenForUserTokenResponse` carries, and reading a reply is
- * not optional for anything that ever makes that call.
+ * Two things about this message are worth knowing before changing it, because
+ * both were found by watching a real client fail rather than by reading the
+ * protocol file:
+ *
+ *   - `user_token` in the response is this message, not a string. A bare string
+ *     there makes the client fail decoding with "invalid wire type value: 7",
+ *     which reads like a corrupt reply rather than a mistake in the reply's
+ *     shape.
+ *   - `expires_at` is an `int64` of seconds since the epoch, and a varint on the
+ *     wire. Written as a string it breaks decoding in the same way.
  */
 export interface UserToken {
   readonly userToken: string;

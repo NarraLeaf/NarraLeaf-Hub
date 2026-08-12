@@ -70,7 +70,7 @@ describe("mintToken", () => {
     expect(header).toEqual({ alg: "RS256", typ: "JWT", kid: keys.signingKey.kid });
     expect(claims).toEqual({
       iss: "narraleaf-hub",
-      aud: ["loreserver", "https://hub.example.com"],
+      aud: ["loreserver", "https://hub.example.com", "https://hub.example.com/"],
       sub: ADA.id,
       env: "local",
       name: "Ada Lovelace",
