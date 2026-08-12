@@ -65,6 +65,15 @@ export interface GrpcServerOptions {
   readonly port: number;
   /** Interface to listen on; the loopback by default. */
   readonly host?: string;
+  /**
+   * True to listen on every interface rather than one.
+   *
+   * No address is given to `listen` in that case, so node binds the unspecified
+   * IPv6 address where IPv6 exists and falls back to the IPv4 one where it does
+   * not. Naming `0.0.0.0` here instead would be reachable over IPv4 only, and
+   * naming `::` would fail outright on a machine with IPv6 switched off.
+   */
+  readonly anyInterface?: boolean;
   /** Methods by full path. Anything else is answered `UNIMPLEMENTED`. */
   readonly methods: Readonly<Record<string, GrpcMethod>>;
   /** Present for an https listener; absent for a plaintext one. */
@@ -252,19 +261,45 @@ export class GrpcServer {
       session.on("close", () => sessions.delete(session));
       session.on("error", (error: Error) => options.onError?.(error));
     });
+    if (options.tls !== undefined) {
+      // A handshake that fails never becomes a session, and node reports it
+      // here rather than as an `error`. Unlistened it is dropped silently,
+      // which is the wrong thing for exactly the failure this endpoint is
+      // most likely to have: a client whose host has not been told to trust
+      // this Hub sees a connection error, and the server would say nothing.
+      server.on("tlsClientError", (error: Error) => {
+        options.onError?.(
+          new Error(
+            `a client could not complete a TLS handshake: ${error.message}. ` +
+              "If it says the certificate is unknown, that machine has not run nlhub trust.",
+          ),
+        );
+      });
+    }
     server.on("stream", (stream, headers) => {
       handleStream(stream, headers, options);
     });
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error): void => {
-        reject(new GrpcListenError(`${host}:${options.port}`, error, options.portOption));
+        reject(
+        new GrpcListenError(
+          `${options.anyInterface === true ? "every interface" : host}:${options.port}`,
+          error,
+          options.portOption,
+        ),
+      );
       };
       server.once("error", onError);
-      server.listen(options.port, host, () => {
+      const listening = (): void => {
         server.removeListener("error", onError);
         resolve();
-      });
+      };
+      if (options.anyInterface === true) {
+        server.listen(options.port, listening);
+      } else {
+        server.listen(options.port, host, listening);
+      }
     });
 
     // Port 0 means "any free port", and which one it landed on is only knowable

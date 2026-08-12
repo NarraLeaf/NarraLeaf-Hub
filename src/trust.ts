@@ -33,12 +33,13 @@ function renderAuthority(path: string, fingerprint: string, subject: string): st
     `  ${subject.split("\n").join(", ")}`,
     `  SHA-256  ${fingerprint}`,
     "",
+    "",
   ].join("\n");
 }
 
 /** Print a plan a person has to carry out themselves. */
 function renderPlan(plan: TrustPlan, whatFor: string): string {
-  return [`To ${whatFor}, on this machine:`, "", `  ${plan.command}`, ""].join("\n");
+  return [`To ${whatFor}, on this machine:`, "", `  ${plan.command}`, "", ""].join("\n");
 }
 
 /**

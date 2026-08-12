@@ -360,6 +360,8 @@ export interface AuthorizationServiceOptions extends AuthorizationContext {
   readonly port: number;
   /** Interface to listen on; the loopback by default. */
   readonly host?: string;
+  /** True to listen on every interface rather than the loopback. */
+  readonly anyInterface?: boolean;
   /** The certificate and key for a TLS listener; absent for a plaintext one. */
   readonly tls?: { readonly cert: string; readonly key: string };
   /** The option that moves this listener, for the message if it cannot start. */
@@ -375,6 +377,7 @@ export async function startAuthorizationService(
   return await GrpcServer.start({
     port: options.port,
     ...(options.host === undefined ? {} : { host: options.host }),
+    ...(options.anyInterface === undefined ? {} : { anyInterface: options.anyInterface }),
     methods: authorizationMethods(options),
     ...(options.tls === undefined ? {} : { tls: options.tls }),
     ...(options.portOption === undefined ? {} : { portOption: options.portOption }),

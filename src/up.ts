@@ -190,9 +190,9 @@ export async function up(
     });
     stdout(`identity endpoint on ${endpoint.url}, signing with ${keys.signingKey.kid}\n`);
 
-    // The authorization service comes up whether or not loreserver is told to
-    // use it, so that the port is proved free at the same moment the other two
-    // are, rather than on the first repository access somebody attempts.
+    // Both authorization listeners come up whether or not loreserver is told to
+    // use them, so that their ports are proved free at the same moment the
+    // others are, rather than on the first repository access somebody attempts.
     const service = {
       database,
       keys,
@@ -226,11 +226,14 @@ export async function up(
       // installation on somebody else's machine reaches, and one bound to
       // 127.0.0.1 would be reachable by nobody but this machine — which is what
       // the plaintext listener is already for.
-      host: "0.0.0.0",
+      anyInterface: true,
       portOption: "--auth-tls-port",
       tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
     });
-    stdout(`auth endpoint on https://0.0.0.0:${config.authTlsPort}, for clients signing in\n`);
+    stdout(
+      `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +
+        `reached as ${authUrl(config)}\n`,
+    );
     stdout(`its certificate authority is ${certificates.authority.fingerprint256}\n`);
     stdout(
       "a machine that has not trusted this Hub cannot connect: compare that fingerprint with\n" +

@@ -82,7 +82,7 @@ interrupted, restarting `loreserver` if it exits, and stops it on the way out.
 | 41337 | `loreserver` data        | gRPC over TCP, and QUIC over UDP | Yes — this is what Studio opens a project through |
 | 41339 | `loreserver` health      | HTTP                    | No                                 |
 | 41400 | Hub's endpoint and JWKS  | HTTP/1.1                | No                                 |
-| 41401 | Hub's authorization service | gRPC over plain HTTP/2 | **No, and it must not be** — see below |
+| 41401 | Hub's authorization service, in the clear | gRPC over plain HTTP/2 | **No, and it must not be** — see below |
 | 41402 | Hub's auth endpoint      | gRPC over TLS           | Yes — this is where people sign in |
 
 Only 41337 and 41402 belong on a network a collaborator can reach. The other
@@ -343,11 +343,12 @@ ucs.auth.RebacApi/CreateResource            a repository now exists
 ucs.auth.RebacApi/DeleteResource            a repository is gone
 ```
 
-The same methods are served twice: on 41402 over TLS, which is what a client
-reaches, and on 41401 in plain HTTP/2 on the loopback, which is where `nlhub`'s
-own commands and anything else on the machine can reach them without a
-certificate. Neither listener is given anything the other is not — every method
-decides from the token it was presented, not from where the connection came.
+The same methods are served twice: on 41402 over TLS, which is what a client and
+a Hub-supervised `loreserver` both reach, and on 41401 in plain HTTP/2 on the
+loopback, which is what a `loreserver` that cannot be given Hub's authority can
+be pointed at instead. Neither listener is given anything the other is not —
+every method decides from the token it was presented, not from where the
+connection came.
 
 Hub identifies the caller by verifying the token against its own signing keys,
 and answers with the projects that caller has a grant on. A token that is
