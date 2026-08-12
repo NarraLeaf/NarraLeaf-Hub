@@ -120,6 +120,61 @@ describe("renderConfig", () => {
   });
 });
 
+describe("renderConfig, with identity switched on", () => {
+  const layout = instanceLayout("/srv/hub", "loreserver");
+  const auth = {
+    issuer: "narraleaf-hub",
+    audience: ["loreserver"],
+    jwksUrl: "http://127.0.0.1:41400/.well-known/jwks.json",
+    authUrl: "https://hub.example.com",
+  };
+
+  it("writes both blocks, because one on its own fails as a client bug", () => {
+    const toml = renderConfig(layout, DEFAULT_PORTS, auth);
+
+    // [server.auth] alone makes the server demand a token while the client is
+    // never told there is anywhere to get one.
+    expect(toml).toContain(
+      [
+        "[server.auth]",
+        'jwt_issuer = "narraleaf-hub"',
+        'jwt_audience = ["loreserver"]',
+        "[server.auth.jwk]",
+        'endpoint = "http://127.0.0.1:41400/.well-known/jwks.json"',
+      ].join("\n"),
+    );
+    expect(toml).toContain(
+      ["[environment.endpoint]", 'auth_url = "https://hub.example.com"'].join("\n"),
+    );
+  });
+
+  it("writes jwt_audience as an array, which is the only form that starts", () => {
+    const toml = renderConfig(layout, DEFAULT_PORTS, { ...auth, audience: ["one", "two"] });
+
+    expect(toml).toContain('jwt_audience = ["one", "two"]');
+    // A bare string there makes loreserver refuse to start.
+    expect(toml).not.toMatch(/jwt_audience = "/);
+  });
+
+  it("keeps the stores and the ports where they were", () => {
+    const withAuth = renderConfig(layout, DEFAULT_PORTS, auth);
+
+    expect(withAuth.startsWith(renderConfig(layout, DEFAULT_PORTS).trimEnd())).toBe(true);
+  });
+
+  it("writes the file it always did when identity is off", () => {
+    // The no-identity path is what every existing installation runs.
+    expect(renderConfig(layout, DEFAULT_PORTS)).not.toContain("[server.auth]");
+    expect(renderConfig(layout, DEFAULT_PORTS)).not.toContain("[environment.endpoint]");
+  });
+
+  it("escapes a value rather than letting it end the string early", () => {
+    const toml = renderConfig(layout, DEFAULT_PORTS, { ...auth, issuer: 'a"b\\c' });
+
+    expect(toml).toContain('jwt_issuer = "a\\"b\\\\c"');
+  });
+});
+
 describe("writeInstance", () => {
   it("creates the directories loreserver needs and writes its config", async () => {
     const root = await temporaryRoot();
@@ -138,6 +193,22 @@ describe("writeInstance", () => {
     expect(await readFile(layout.configPath, "utf8")).toBe(
       renderConfig(layout, DEFAULT_PORTS),
     );
+  });
+
+  it("writes the auth blocks it is given, and none when it is given none", async () => {
+    const root = await temporaryRoot();
+    const layout = instanceLayout(root, "loreserver");
+
+    await writeInstance(layout, DEFAULT_PORTS, {
+      issuer: "narraleaf-hub",
+      audience: ["loreserver"],
+      jwksUrl: "http://127.0.0.1:41400/.well-known/jwks.json",
+      authUrl: "https://hub.example.com",
+    });
+    expect(await readFile(layout.configPath, "utf8")).toContain('jwt_audience = ["loreserver"]');
+
+    await writeInstance(layout, DEFAULT_PORTS);
+    expect(await readFile(layout.configPath, "utf8")).not.toContain("[server.auth]");
   });
 
   it("replaces a config left over from a run with different ports", async () => {

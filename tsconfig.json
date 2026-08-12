@@ -3,7 +3,7 @@
     "target": "ES2023",
     "lib": ["ES2023"],
 
-    // Node 22 runs this package as native ESM ("type": "module"), so relative
+    // Node runs this package as native ESM ("type": "module"), so relative
     // imports are written with the .js extension the runtime actually resolves.
     "module": "NodeNext",
     "moduleResolution": "NodeNext",

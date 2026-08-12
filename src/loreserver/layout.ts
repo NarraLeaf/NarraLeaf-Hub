@@ -86,6 +86,26 @@ export function instanceLayout(
 }
 
 /**
+ * What loreserver has to be told before it will demand a token from a client.
+ *
+ * Every value here has a counterpart in the tokens Hub mints; src/identity's
+ * configuration is where both come from, so that the two copies cannot drift.
+ */
+export interface LoreserverAuth {
+  /** Compared with a token's `iss`, exactly. */
+  readonly issuer: string;
+  /**
+   * The audiences loreserver accepts. A token is accepted when its `aud` array
+   * holds one of these.
+   */
+  readonly audience: readonly string[];
+  /** Where loreserver fetches Hub's public keys. */
+  readonly jwksUrl: string;
+  /** Where a client is told to go and authenticate. */
+  readonly authUrl: string;
+}
+
+/**
  * Render a path for a TOML basic string.
  *
  * Backslash begins an escape sequence inside TOML's double-quoted strings, so
@@ -98,14 +118,57 @@ function tomlPath(path: string): string {
 }
 
 /**
+ * Render an arbitrary value as a TOML basic string.
+ *
+ * Unlike a path, an issuer or an audience is a value an operator typed, so the
+ * two characters TOML gives meaning to inside quotes are escaped rather than
+ * substituted.
+ */
+function tomlString(value: string): string {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+/**
+ * The `[server.auth]` and `[environment.endpoint]` blocks.
+ *
+ * Both are needed, and the second is the one that is easy to leave out.
+ * `[server.auth]` alone makes the server demand a token while the client is
+ * never told there is anywhere to get one, and the failure that follows looks
+ * like a broken client rather than a missing setting.
+ *
+ * `jwt_audience` is an array. A bare string there makes loreserver refuse to
+ * start.
+ */
+function renderAuth(auth: LoreserverAuth): string[] {
+  return [
+    "",
+    "[server.auth]",
+    `jwt_issuer = ${tomlString(auth.issuer)}`,
+    `jwt_audience = [${auth.audience.map(tomlString).join(", ")}]`,
+    "[server.auth.jwk]",
+    `endpoint = ${tomlString(auth.jwksUrl)}`,
+    "",
+    "[environment.endpoint]",
+    `auth_url = ${tomlString(auth.authUrl)}`,
+  ];
+}
+
+/**
  * The contents of `local.toml`.
  *
  * The table and key names come from the settings loreserver actually reads;
  * an unrecognised key is ignored silently rather than reported, so a mistake
  * here surfaces as a server that listens somewhere unexpected or stores data
  * somewhere unexpected.
+ *
+ * Without `auth`, the file is the one Hub has always written: a server that
+ * asks nobody who they are.
  */
-export function renderConfig(layout: InstanceLayout, ports: LoreserverPorts): string {
+export function renderConfig(
+  layout: InstanceLayout,
+  ports: LoreserverPorts,
+  auth?: LoreserverAuth,
+): string {
   return [
     "[immutable_store.local]",
     `path = "${tomlPath(layout.immutableStoreDir)}"`,
@@ -117,6 +180,7 @@ export function renderConfig(layout: InstanceLayout, ports: LoreserverPorts): st
     `port = ${ports.dataPort}`,
     "[server.http]",
     `port = ${ports.healthPort}`,
+    ...(auth === undefined ? [] : renderAuth(auth)),
     "",
   ].join("\n");
 }
@@ -131,6 +195,7 @@ export function renderConfig(layout: InstanceLayout, ports: LoreserverPorts): st
 export async function writeInstance(
   layout: InstanceLayout,
   ports: LoreserverPorts,
+  auth?: LoreserverAuth,
 ): Promise<void> {
   for (const directory of [
     layout.configDir,
@@ -140,5 +205,5 @@ export async function writeInstance(
   ]) {
     await mkdir(directory, { recursive: true });
   }
-  await writeFile(layout.configPath, renderConfig(layout, ports), "utf8");
+  await writeFile(layout.configPath, renderConfig(layout, ports, auth), "utf8");
 }

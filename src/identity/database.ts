@@ -1,0 +1,303 @@
+/**
+ * The file that holds the accounts: `<root>/hub.db`.
+ *
+ * Storage is node's built-in SQLite, which is why Hub can keep a database
+ * without gaining a dependency. There is exactly one writer — the Hub process
+ * — so nothing here worries about connection pools.
+ *
+ * The schema is versioned and only ever moves forward. Every change is a new
+ * migration appended to the list below; an already-released migration is never
+ * edited, because the file it has already run against is the one holding the
+ * user accounts, and rewriting history here means two installations disagreeing
+ * about what version 1 means.
+ */
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+// Type-only, and therefore erased: the module itself is loaded on demand, for
+// the reason set out above `loadSqlite`.
+import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
+
+/** One row as node:sqlite hands it over. */
+export type Row = Record<string, SQLOutputValue>;
+
+/** Raised when a value in the database is not of the type its column implies. */
+export class ColumnTypeError extends Error {
+  constructor(
+    readonly column: string,
+    readonly expected: string,
+  ) {
+    super(
+      `hub.db holds a ${column} that is not ${expected}. The file was written by ` +
+        "something other than this version of Hub.",
+    );
+    this.name = "ColumnTypeError";
+  }
+}
+
+/** Read a text column, insisting that it really is text. */
+export function textColumn(row: Row, column: string): string {
+  const value = row[column];
+  if (typeof value !== "string") {
+    throw new ColumnTypeError(column, "text");
+  }
+  return value;
+}
+
+/** Read a text column that is allowed to be NULL. */
+export function optionalTextColumn(row: Row, column: string): string | undefined {
+  const value = row[column];
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new ColumnTypeError(column, "text or null");
+  }
+  return value;
+}
+
+/**
+ * Read an integer column.
+ *
+ * node:sqlite hands back a `bigint` only for values outside the range a double
+ * represents exactly. Nothing Hub stores is that large — the biggest numbers
+ * here are millisecond timestamps — so one is narrowed rather than propagated.
+ */
+export function integerColumn(row: Row, column: string): number {
+  const value = row[column];
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value !== "number") {
+    throw new ColumnTypeError(column, "an integer");
+  }
+  return value;
+}
+
+/** Read an integer column that is allowed to be NULL. */
+export function optionalIntegerColumn(row: Row, column: string): number | undefined {
+  const value = row[column];
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  return integerColumn(row, column);
+}
+
+/** Read an integer column that stands for a boolean, SQLite's 0 or 1. */
+export function booleanColumn(row: Row, column: string): boolean {
+  return integerColumn(row, column) !== 0;
+}
+
+/** One step forward from the previous schema version. */
+interface Migration {
+  readonly version: number;
+  /** What this migration is for, in one line. */
+  readonly description: string;
+  readonly statements: readonly string[];
+}
+
+/**
+ * Every migration, in order, oldest first.
+ *
+ * Appending is the only edit this list ever takes.
+ */
+const MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    description: "users, their groups, and invite codes",
+    statements: [
+      // `id` is a random identifier rather than a row number: it becomes the
+      // `sub` claim of every token, and a rename or a re-import must not turn
+      // one person into another. `disabled_at` NULL means the account may sign
+      // in. `token_epoch` is the counter that invalidates outstanding tokens —
+      // src/identity/tokens.ts states exactly what that does and does not do.
+      `CREATE TABLE users (
+         id                 TEXT    NOT NULL PRIMARY KEY,
+         username           TEXT    NOT NULL UNIQUE,
+         display_name       TEXT    NOT NULL,
+         email              TEXT,
+         password_hash      TEXT    NOT NULL,
+         is_service_account INTEGER NOT NULL DEFAULT 0,
+         created_at         INTEGER NOT NULL,
+         disabled_at        INTEGER,
+         token_epoch        INTEGER NOT NULL DEFAULT 1
+       ) STRICT`,
+      // Group membership is a table rather than a column so that a person can
+      // be in none, one or several; the `groups` claim is read straight from
+      // it. Deleting a user takes their memberships with them.
+      `CREATE TABLE user_groups (
+         user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         group_name TEXT NOT NULL,
+         PRIMARY KEY (user_id, group_name)
+       ) STRICT`,
+      // Only the hash of an invite code is kept, for the same reason only the
+      // hash of a password is: whoever reads this file must not come away able
+      // to redeem an invite. `is_bootstrap` marks the code `up` prints when no
+      // account exists yet, so that a later run can withdraw an unused one
+      // instead of leaving a second live code behind.
+      `CREATE TABLE invites (
+         code_hash    TEXT    NOT NULL PRIMARY KEY,
+         role         TEXT    NOT NULL,
+         is_bootstrap INTEGER NOT NULL DEFAULT 0,
+         created_at   INTEGER NOT NULL,
+         expires_at   INTEGER NOT NULL,
+         used_at      INTEGER,
+         used_by      TEXT REFERENCES users(id)
+       ) STRICT`,
+    ],
+  },
+];
+
+/** The schema version this build of Hub writes and expects. */
+export const SCHEMA_VERSION: number = MIGRATIONS.reduce(
+  (highest, migration) => Math.max(highest, migration.version),
+  0,
+);
+
+/** Raised when the database on disk is newer than this build understands. */
+export class SchemaTooNewError extends Error {
+  constructor(
+    readonly path: string,
+    readonly found: number,
+    readonly supported: number,
+  ) {
+    super(
+      `${path} is at schema version ${found}, and this version of Hub understands ${supported}. ` +
+        "It was written by a newer Hub. Upgrade Hub rather than downgrading the file.",
+    );
+    this.name = "SchemaTooNewError";
+  }
+}
+
+/**
+ * node:sqlite announces itself as experimental the first time it is used, on
+ * stderr, through the ordinary process warning channel. Hub is a program an
+ * operator leaves running, and a line about node internals on every start is
+ * noise they cannot act on.
+ *
+ * Only that one warning is dropped. Every other warning — a deprecation, an
+ * unhandled rejection, a `MaxListenersExceededWarning` — is handed to the
+ * listeners that were already there, so nothing else is hidden by this.
+ */
+let warningFilterInstalled = false;
+
+function suppressSqliteExperimentalWarning(): void {
+  if (warningFilterInstalled) {
+    return;
+  }
+  warningFilterInstalled = true;
+
+  type WarningListener = (warning: Error) => void;
+  const existing = process.listeners("warning") as WarningListener[];
+  process.removeAllListeners("warning");
+  process.on("warning", (warning: Error) => {
+    if (warning.name === "ExperimentalWarning" && warning.message.includes("SQLite")) {
+      return;
+    }
+    for (const listener of existing) {
+      listener(warning);
+    }
+  });
+}
+
+let sqlite: Promise<typeof import("node:sqlite")> | undefined;
+
+/**
+ * Load `node:sqlite`, with the filter above in place first.
+ *
+ * The warning is emitted as the module loads, not as it is used, and a static
+ * import is evaluated before any code in this file could install a filter. So
+ * the module is imported on demand instead — which is also why opening a
+ * database is asynchronous, and why running `nlhub --version` neither loads
+ * SQLite nor says anything about it.
+ */
+function loadSqlite(): Promise<typeof import("node:sqlite")> {
+  suppressSqliteExperimentalWarning();
+  sqlite ??= import("node:sqlite");
+  return sqlite;
+}
+
+/**
+ * Open `path`, creating it and its directory if they are not there.
+ *
+ * Foreign keys are switched on per connection — SQLite's default is off, and a
+ * `REFERENCES` clause that nothing enforces is a comment. The write-ahead log
+ * is what lets a reader run while the Hub process writes.
+ */
+export async function openDatabase(path: string): Promise<DatabaseSync> {
+  const { DatabaseSync } = await loadSqlite();
+  mkdirSync(dirname(path), { recursive: true });
+
+  const database = new DatabaseSync(path);
+  database.exec("PRAGMA journal_mode = WAL");
+  database.exec("PRAGMA foreign_keys = ON");
+  database.exec("PRAGMA busy_timeout = 5000");
+  return database;
+}
+
+/** The version an open database is at; 0 for one nothing has been applied to. */
+export function schemaVersion(database: DatabaseSync): number {
+  database.exec(
+    `CREATE TABLE IF NOT EXISTS schema_version (
+       version    INTEGER NOT NULL PRIMARY KEY,
+       applied_at INTEGER NOT NULL
+     ) STRICT`,
+  );
+  const row = database.prepare("SELECT MAX(version) AS version FROM schema_version").get();
+  if (row === undefined || row["version"] === null || row["version"] === undefined) {
+    return 0;
+  }
+  return integerColumn(row, "version");
+}
+
+/**
+ * Bring an open database up to {@link SCHEMA_VERSION}, and return the version
+ * it is now at.
+ *
+ * Applying nothing is a normal outcome: this runs on every start, and a
+ * database already at the current version is left alone. Each migration is one
+ * transaction, so a failure part-way leaves the file at the version before it
+ * rather than half-way through.
+ *
+ * One row is recorded per migration rather than one row overwritten, so the
+ * file says when each step was applied.
+ */
+export function migrate(database: DatabaseSync, path = "hub.db"): number {
+  let current = schemaVersion(database);
+  if (current > SCHEMA_VERSION) {
+    throw new SchemaTooNewError(path, current, SCHEMA_VERSION);
+  }
+
+  for (const migration of MIGRATIONS) {
+    if (migration.version <= current) {
+      continue;
+    }
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const statement of migration.statements) {
+        database.exec(statement);
+      }
+      database
+        .prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)")
+        .run(migration.version, Date.now());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+    current = migration.version;
+  }
+
+  return current;
+}
+
+/** Open the database at `path` and migrate it in one step. */
+export async function openMigratedDatabase(path: string): Promise<DatabaseSync> {
+  const database = await openDatabase(path);
+  try {
+    migrate(database, path);
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+  return database;
+}
