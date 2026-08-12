@@ -248,7 +248,7 @@ export function Interface({ state, size, view, draft, status }: InterfaceProps):
       <Block
         lines={[
           status === undefined
-            ? footerLine(state.surface, size.columns)
+            ? footerLine(state, view, size.columns)
             : [{ text: ` ${ellipsis(status, size.columns - 1)}` }],
         ]}
         width={size.columns}
