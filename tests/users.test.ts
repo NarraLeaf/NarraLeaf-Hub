@@ -14,6 +14,7 @@ import {
   findUser,
   InvalidUsernameError,
   listUsers,
+  revokeUserTokens,
   UnknownUserError,
   UsernameTakenError,
   WeakPasswordError,
@@ -136,6 +137,41 @@ describe("disableUser and enableUser", () => {
     const connection = await database();
 
     expect(() => disableUser(connection, "nobody")).toThrow(UnknownUserError);
+  });
+});
+
+describe("revokeUserTokens", () => {
+  it("bumps the epoch and leaves the account able to sign in", async () => {
+    const connection = await database();
+    await createUser(connection, hasher, { username: "ada", password: PASSWORD });
+
+    const revoked = revokeUserTokens(connection, "ada");
+
+    // The whole of the difference from disabling: the tokens are refused and
+    // the person is not shut out, so a token that got out costs them one sign
+    // in rather than an operator's attention twice.
+    expect(revoked.tokenEpoch).toBe(2);
+    expect(revoked.disabledAt).toBeUndefined();
+    await expect(authenticate(connection, hasher, "ada", PASSWORD)).resolves.toMatchObject({
+      kind: "signed-in",
+    });
+  });
+
+  it("leaves a disabled account disabled", async () => {
+    const connection = await database();
+    await createUser(connection, hasher, { username: "ada", password: PASSWORD });
+    disableUser(connection, "ada");
+
+    const revoked = revokeUserTokens(connection, "ada");
+
+    expect(revoked.disabledAt).toBeTypeOf("number");
+    expect(revoked.tokenEpoch).toBe(3);
+  });
+
+  it("names an account that is not there rather than doing nothing", async () => {
+    const connection = await database();
+
+    expect(() => revokeUserTokens(connection, "nobody")).toThrow(UnknownUserError);
   });
 });
 

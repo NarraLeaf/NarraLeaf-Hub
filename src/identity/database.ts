@@ -185,6 +185,29 @@ const MIGRATIONS: readonly Migration[] = [
       "CREATE INDEX project_grants_by_user ON project_grants (user_id)",
     ],
   },
+  {
+    version: 3,
+    description: "settings an operator can change without a new build of Hub",
+    statements: [
+      // One row per setting somebody has chosen, and no row for one left alone.
+      // An absent row is not a missing value: it means the default in
+      // src/identity/config.ts answers for that setting, so a later version of
+      // Hub that changes a default reaches every installation that never
+      // touched it. Writing the defaults in here as the migration ran would
+      // freeze them at whatever this build thinks, and nothing would say so.
+      //
+      // `value` is text whatever the setting means, because a column per type
+      // is a schema change every time a setting of a new type appears.
+      // src/identity/settings.ts is where each key is turned back into the
+      // thing it stands for, and where a value that will not turn back is
+      // refused rather than quietly defaulted around.
+      `CREATE TABLE settings (
+         key        TEXT    NOT NULL PRIMARY KEY,
+         value      TEXT    NOT NULL,
+         updated_at INTEGER NOT NULL
+       ) STRICT`,
+    ],
+  },
 ];
 
 /** The schema version this build of Hub writes and expects. */

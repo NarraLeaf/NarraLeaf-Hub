@@ -19,6 +19,7 @@ import { openMigratedDatabase } from "./identity/database.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
 import { defaultPasswordHasher } from "./identity/passwords.js";
+import { storedTokenLifetimes } from "./identity/settings.js";
 import { mintToken } from "./identity/tokens.js";
 import { authenticate, SIGN_IN_REFUSED_MESSAGE } from "./identity/users.js";
 import { readPassword } from "./stdin.js";
@@ -36,7 +37,6 @@ export async function tokenMint(
   stderr: WriteText,
 ): Promise<number> {
   const layout = identityLayout(options.root);
-  const config = identityConfig(options.overrides);
 
   let password: string;
   try {
@@ -48,6 +48,10 @@ export async function tokenMint(
 
   const database = await openMigratedDatabase(layout.databasePath);
   try {
+    // Defaults, then what this Hub has stored, then what the command line
+    // named. That order is what makes --token-lifetime an override for the run
+    // rather than a value a stored setting could quietly beat.
+    const config = identityConfig({ ...storedTokenLifetimes(database), ...options.overrides });
     const result = await authenticate(
       database,
       defaultPasswordHasher(),

@@ -19,12 +19,14 @@ import { openMigratedDatabase } from "../src/identity/database.js";
 import { KeyStore } from "../src/identity/keys.js";
 import { identityLayout } from "../src/identity/layout.js";
 import { ScryptPasswordHasher, type ScryptParameters } from "../src/identity/passwords.js";
+import { setTokenLifetimes } from "../src/identity/settings.js";
 import { mintToken, verifyToken } from "../src/identity/tokens.js";
 import {
   createUser,
   disableUser,
   enableUser,
   requireUser,
+  revokeUserTokens,
   type UserRecord,
 } from "../src/identity/users.js";
 import { createProject, newProjectId, resourceIdOf } from "../src/projects/registry.js";
@@ -184,8 +186,10 @@ describe("ExchangeExternalTokenForUserToken", () => {
     expect(issued?.userId).toBe(ada.id);
     expect(issued?.userName).toBe("Ada Lovelace");
     // Seconds since the epoch, as an int64 — not milliseconds, and not text.
+    // Milliseconds would be past this bound by three orders of magnitude even
+    // with the sign-in token's thirty days allowed for.
     expect(issued?.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
-    expect(issued?.expiresAt).toBeLessThan(Math.floor(Date.now() / 1000) + 3600);
+    expect(issued?.expiresAt).toBeLessThan(Math.floor(Date.now() / 1000) + 31 * 24 * 60 * 60);
   });
 
   it("refuses a token for an account that has been disabled", async () => {
@@ -246,6 +250,28 @@ describe("ExchangeExternalTokenForUserToken", () => {
     expect(hub.log.some((line) => line.includes("before the account's access was revoked"))).toBe(
       true,
     );
+  });
+
+  it("refuses a token that revoking made stale, and takes a fresh one from that account", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const presented = hub.tokenFor(ada);
+
+    revokeUserTokens(hub.database, ada.username);
+
+    await expect(hub.exchange(presented)).rejects.toMatchObject({
+      status: GRPC_UNAUTHENTICATED,
+    });
+    expect(hub.log.some((line) => line.includes("before the account's access was revoked"))).toBe(
+      true,
+    );
+
+    // Nothing about the account changed but the epoch, so a token minted after
+    // it is taken. That is what makes revoking cost the person one sign-in
+    // rather than costing an operator two commands and a decision in between.
+    const issued = await hub.exchange(hub.tokenFor(requireUser(hub.database, ada.username)));
+
+    expect(verifyToken(issued?.userToken ?? "", hub.keys, identityConfig()).kind).toBe("verified");
   });
 
   it("refuses a request carrying no token at all", async () => {
@@ -413,6 +439,49 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
     await expect(multiresource(hub, "not a token", ["urc-whatever"])).rejects.toMatchObject({
       status: GRPC_UNAUTHENTICATED,
     });
+  });
+
+  it("lasts minutes, where the token signed in with lasts a month", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const project = createProject(hub.database, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada.id,
+    });
+
+    const signIn = await hub.exchange(hub.tokenFor(ada));
+    const repository = await multiresource(hub, hub.tokenFor(ada), [resourceIdOf(project.id)]);
+
+    // Two lifetimes and not one number used twice. Hub is asked about the
+    // sign-in token every time it matters, so revoking reaches it; this one
+    // goes to loreserver's data plane, which checks it for itself, and its
+    // expiry is the only thing that ends it.
+    const now = Math.floor(Date.now() / 1000);
+    expect((signIn?.expiresAt ?? 0) - now).toBeGreaterThan(29 * 24 * 60 * 60);
+    expect((repository?.expiresAt ?? 0) - now).toBeGreaterThan(14 * 60);
+    expect((repository?.expiresAt ?? 0) - now).toBeLessThanOrEqual(15 * 60);
+  });
+
+  it("takes the lifetime from the database as it mints, not from when Hub started", async () => {
+    const hub = await harness();
+    const ada = await hub.user("ada");
+    const project = createProject(hub.database, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada.id,
+    });
+
+    // The service is already running and has already answered a call. A Hub
+    // that read the setting once would go on issuing quarter-hour tokens here,
+    // and the only way to find out would be to restart it and watch.
+    await multiresource(hub, hub.tokenFor(ada), [resourceIdOf(project.id)]);
+    setTokenLifetimes(hub.database, { repositoryTokenLifetimeSeconds: 120 });
+    const issued = await multiresource(hub, hub.tokenFor(ada), [resourceIdOf(project.id)]);
+
+    const now = Math.floor(Date.now() / 1000);
+    expect((issued?.expiresAt ?? 0) - now).toBeGreaterThan(60);
+    expect((issued?.expiresAt ?? 0) - now).toBeLessThanOrEqual(120);
   });
 
   it("covers every resource asked for at once", async () => {

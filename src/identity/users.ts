@@ -307,6 +307,22 @@ export function enableUser(database: DatabaseSync, username: string): UserRecord
   return requireUser(database, user.username);
 }
 
+/**
+ * Refuse every token already issued to an account, and change nothing else.
+ *
+ * The same bump {@link disableUser} makes, without the `disabled_at` that goes
+ * with it: the person may sign in a second later and be given a token that
+ * works, while everything issued before this moment is refused wherever Hub is
+ * the one asked. That is the operation for a token that has got out, as
+ * against an account that should not have one — ./tokens.ts sets out how far
+ * either of them reaches, and where neither does.
+ */
+export function revokeUserTokens(database: DatabaseSync, username: string): UserRecord {
+  const user = requireUser(database, username);
+  database.prepare("UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?").run(user.id);
+  return requireUser(database, user.username);
+}
+
 /** Read the stored password hash of one account. */
 function passwordHashOf(database: DatabaseSync, id: string): string | undefined {
   const row = database.prepare("SELECT password_hash FROM users WHERE id = ?").get(id);

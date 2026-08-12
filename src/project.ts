@@ -15,6 +15,7 @@ import { identityConfig, type IdentityConfig } from "./identity/config.js";
 import { openMigratedDatabase } from "./identity/database.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
+import { storedTokenLifetimes } from "./identity/settings.js";
 import { mintToken } from "./identity/tokens.js";
 import { countUsers, listUsers, requireUser, type UserRecord } from "./identity/users.js";
 import { loreserverUrl, repositoryCreate } from "./projects/repository.js";
@@ -104,16 +105,23 @@ export async function projectCreate(
   stderr: WriteText,
 ): Promise<number> {
   const layout = identityLayout(options.root);
-  const config = identityConfig(options.overrides);
   const database = await openMigratedDatabase(layout.databasePath);
 
   try {
+    // Defaults, then what this Hub has stored, then what the command line
+    // named. That order is what makes --token-lifetime an override for the run
+    // rather than a value a stored setting could quietly beat.
+    const config = identityConfig({ ...storedTokenLifetimes(database), ...options.overrides });
     const owner = resolveOperator(database, options.as);
     const keys = await KeyStore.open(layout.keysDir);
     // Minted without a password, unlike `token mint`. Whoever runs this already
     // has the storage root and could sign anything they liked with the key in
     // it; a prompt here would be a formality, not a check.
-    const minted = mintToken(owner, keys.signingKey, config);
+    //
+    // The repository lifetime and not the sign-in one: this token is handed
+    // straight to loreserver for a single create call and then dropped, and a
+    // token that outlives its one use by a month is one to be found later.
+    const minted = mintToken(owner, keys.signingKey, config, { purpose: "repository" });
 
     const id = newProjectId();
     const project = createProject(database, {

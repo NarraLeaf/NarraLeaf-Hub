@@ -83,7 +83,7 @@ describe("parseArgs, up", () => {
         audience: "lore",
         authOrigin: "hub.example.com",
         hubPort: 41500,
-        tokenLifetimeSeconds: 300,
+        signInTokenLifetimeSeconds: 300,
       },
     });
   });
@@ -196,7 +196,15 @@ describe("parseArgs, the identity commands", () => {
       root: "/srv/hub",
       username: "ada",
     });
+    expect(parseArgs(["user", "revoke-tokens", "ada", "--root", "/srv/hub"])).toEqual({
+      kind: "user-revoke-tokens",
+      root: "/srv/hub",
+      username: "ada",
+    });
     expect(messageFor(["user", "disable", "--root", "/srv/hub"])).toContain("needs a username");
+    expect(messageFor(["user", "revoke-tokens", "--root", "/srv/hub"])).toContain(
+      "needs a username",
+    );
   });
 
   it("insists that an account comes from an invitation", () => {
@@ -255,7 +263,7 @@ describe("parseArgs, the identity commands", () => {
 
   it("names the verb it did not recognise, and the ones it has", () => {
     expect(messageFor(["user", "invent", "--root", "/srv/hub"])).toBe("unknown user command: invent");
-    expect(messageFor(["user"])).toContain("list, create, disable or enable");
+    expect(messageFor(["user"])).toContain("list, create, disable, enable or revoke-tokens");
     expect(messageFor(["key", "melt", "--root", "/srv/hub"])).toBe("unknown key command: melt");
   });
 
@@ -264,6 +272,7 @@ describe("parseArgs, the identity commands", () => {
       ["invite", "create"],
       ["user", "list"],
       ["user", "disable", "ada"],
+      ["user", "revoke-tokens", "ada"],
       ["token", "mint", "ada"],
       ["project", "list"],
       ["project", "create", "harbour"],

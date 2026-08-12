@@ -36,12 +36,23 @@ export interface IdentityConfig {
   /** The `idp` claim: which identity provider vouched for the user. */
   readonly idp: string;
   /**
-   * How long a minted token is good for.
+   * How long a token minted to sign in with is good for.
    *
-   * This is also the revocation window; src/identity/tokens.ts says why, and
-   * why the number is minutes rather than hours.
+   * Hub is asked about this one every time it matters: it is presented back to
+   * Hub to be exchanged, and every repository access loreserver serves goes on
+   * to ask Hub about the account behind it. Revoking an account's access
+   * therefore refuses it at once, and its expiry is not what bounds it.
    */
-  readonly tokenLifetimeSeconds: number;
+  readonly signInTokenLifetimeSeconds: number;
+  /**
+   * How long a token minted for a repository's data connection is good for.
+   *
+   * Much shorter than the one above, and src/identity/tokens.ts sets out why
+   * the pair is not one number: this is the token presented to loreserver's
+   * data plane, which Hub is not necessarily asked about again before it
+   * expires, so the lifetime is the only bound it has.
+   */
+  readonly repositoryTokenLifetimeSeconds: number;
   /** The port Hub's own HTTP endpoint listens on. */
   readonly hubPort: number;
   /**
@@ -94,7 +105,11 @@ export const DEFAULT_IDENTITY: IdentityConfig = {
   authOrigin: "127.0.0.1:41402",
   env: "local",
   idp: "narraleaf-hub",
-  tokenLifetimeSeconds: 15 * 60,
+  // Both are defaults, and a Hub reads what it mints with out of its database
+  // — src/identity/settings.ts. These are what answer for a setting nobody has
+  // stored, which is every Hub until somebody changes one.
+  signInTokenLifetimeSeconds: 30 * 24 * 60 * 60,
+  repositoryTokenLifetimeSeconds: 15 * 60,
   hubPort: 41400,
   authPort: 41401,
   authTlsPort: 41402,

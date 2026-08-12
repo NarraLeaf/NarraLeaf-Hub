@@ -116,10 +116,28 @@ function encodeSegment(value: unknown): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
 
+/**
+ * What a token is for, which is the whole of what decides how long it lasts.
+ *
+ * The two are set out under {@link mintToken}. They are a closed pair rather
+ * than a number a caller passes, so that the reasoning about which one is safe
+ * to lengthen lives in one place instead of at every mint site.
+ */
+export type TokenPurpose = "sign-in" | "repository";
+
 /** Options a caller may vary per token. */
 export interface MintOptions {
   /** When the token is issued. Supplied by tests; defaults to the clock. */
   readonly now?: Date;
+  /**
+   * Which lifetime this token gets, defaulting to the sign-in one.
+   *
+   * That default is what nearly every mint wants — `nlhub token mint`, the
+   * sign-in exchange, and the token `project create` presents to loreserver.
+   * The one place that must say otherwise is the multiresource exchange in
+   * src/projects/service.ts, and it does.
+   */
+  readonly purpose?: TokenPurpose;
   /**
    * The resources this token is being issued for, written as the `resources`
    * claim. Given by the two exchanges a client makes; a token minted for
@@ -143,19 +161,32 @@ export interface MintOptions {
  *     exchanges a token. This function refuses outright, and so does the sign-in
  *     path; the account cannot obtain anything new from the moment it is
  *     disabled.
- *   - A token already in someone's hands keeps working against loreserver until
- *     `exp`. Nothing in this system can stop that, short of rotating and
- *     retiring the signing key, which invalidates everybody's tokens at once.
  *   - Bumping the user's `token_epoch` refuses that token everywhere Hub is the
  *     one checking it: the epoch is written into the token, and {@link
  *     verifyToken}'s caller compares it with the account's epoch as it stands
- *     now. What loreserver lets through on its own — the signature and the
- *     expiry — is unaffected, but every repository access goes on to ask Hub.
+ *     now. Since every repository access goes on to ask Hub, that is nearly
+ *     everywhere.
+ *   - Against whatever does not ask Hub, a token already in someone's hands
+ *     keeps working until `exp`. Nothing in this system can stop that, short of
+ *     rotating and retiring the signing key, which invalidates everybody's
+ *     tokens at once.
  *
- * So the lifetime is the revocation window for anything Hub is not asked about.
- * That is why it is fifteen minutes and not a day: the number is how long a
- * disabled account keeps working, and every extra hour of convenience is an
- * extra hour of exactly that.
+ * Why there are two lifetimes and not one
+ * ---------------------------------------
+ * That last point is the whole of the difference between them.
+ *
+ * A sign-in token is one Hub is asked about every time it matters. It comes
+ * back to Hub to be exchanged, and the exchange refuses a disabled account or a
+ * stale epoch on the spot; so does the permission question loreserver asks on
+ * every repository access. Its expiry is not what bounds it, so it lasts thirty
+ * days rather than making somebody sign in again every quarter of an hour.
+ *
+ * A repository token is presented on the data connection, to loreserver's data
+ * plane, and Hub is not necessarily consulted again before it expires. Nothing
+ * done here reaches a connection that is already open. The lifetime is that
+ * token's only bound, which is why it is fifteen minutes however inconvenient
+ * that is, and why lengthening it is not the same kind of decision as
+ * lengthening the other one.
  */
 export function mintToken(
   user: UserRecord,
@@ -168,6 +199,10 @@ export function mintToken(
   }
 
   const issuedAt = Math.floor((options.now?.getTime() ?? Date.now()) / 1000);
+  const lifetimeSeconds =
+    options.purpose === "repository"
+      ? config.repositoryTokenLifetimeSeconds
+      : config.signInTokenLifetimeSeconds;
   const header: TokenHeader = { alg: "RS256", typ: "JWT", kid: key.kid };
   const claims: TokenClaims = {
     iss: config.issuer,
@@ -183,7 +218,7 @@ export function mintToken(
     is_service_account: user.isServiceAccount,
     idp: config.idp,
     iat: issuedAt,
-    exp: issuedAt + config.tokenLifetimeSeconds,
+    exp: issuedAt + lifetimeSeconds,
     token_epoch: user.tokenEpoch,
     // Written only when there are resources to name. An empty array is not the
     // same as an absent claim to a reader that treats the field as optional,

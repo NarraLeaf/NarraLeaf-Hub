@@ -267,9 +267,11 @@ describe("CheckUserPermission", () => {
       name: "harbour",
       createdBy: ada.id,
     });
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    // Last year, not an hour ago: a token minted to sign in with lasts thirty
+    // days, and the sentence being checked is about a token past its `exp`.
+    const lastYear = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
 
-    expect(await hub.check(hub.bearer(ada, { now: hourAgo }), [resourceIdOf(project.id)])).toEqual(
+    expect(await hub.check(hub.bearer(ada, { now: lastYear }), [resourceIdOf(project.id)])).toEqual(
       [],
     );
     expect(hub.log.at(-1)).toContain("the token has expired");

@@ -1,4 +1,5 @@
 import { parseArgs } from "./args.js";
+import { describeDuration } from "./duration.js";
 import { DEFAULT_IDENTITY } from "./identity/config.js";
 import { inviteCreate } from "./invite.js";
 import { keyList, keyRotate } from "./key.js";
@@ -7,7 +8,13 @@ import { projectCreate, projectGrant, projectList, projectRevoke } from "./proje
 import { tokenMint } from "./token.js";
 import { trust } from "./trust.js";
 import { up } from "./up.js";
-import { userCreate, userDisable, userEnable, userList } from "./user.js";
+import {
+  userCreate,
+  userDisable,
+  userEnable,
+  userList,
+  userRevokeTokens,
+} from "./user.js";
 import { VERSION } from "./version.js";
 
 /**
@@ -27,6 +34,14 @@ export interface RunOptions {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * The default sign-in lifetime, written the way the help text says it.
+ *
+ * Through {@link describeDuration} rather than divided by sixty: the number is
+ * thirty days, and "43200m" is the same duration in a form nobody reads.
+ */
+const DEFAULT_SIGN_IN_LIFETIME = describeDuration(DEFAULT_IDENTITY.signInTokenLifetimeSeconds);
+
 /** The text `--help` prints. */
 export const USAGE = `Usage: nlhub <command> [options]
 
@@ -39,6 +54,9 @@ Commands:
   user create <username>    Redeem an invite code into an account
   user disable <username>   Stop an account being issued anything new
   user enable <username>    Let an account sign in again
+  user revoke-tokens <username>
+                            Refuse every token already issued to an account,
+                            leaving it able to sign in again
   token mint <username>     Sign a token for an account
   project create <name>     Create a repository and record who owns it
   project list              List the projects
@@ -103,7 +121,9 @@ up was given mints a token that will not be accepted:
       --env <name>          Environment claim (default ${DEFAULT_IDENTITY.env})
       --idp <name>          Identity provider claim (default ${DEFAULT_IDENTITY.idp})
       --token-lifetime <duration>
-                            How long a token lasts (default ${DEFAULT_IDENTITY.tokenLifetimeSeconds / 60}m)
+                            How long a sign-in token lasts, overriding this
+                            Hub's stored setting for this run
+                            (default ${DEFAULT_SIGN_IN_LIFETIME})
 
 Options:
   -v, --version    Print the version and exit
@@ -176,6 +196,12 @@ export async function run(
       );
     case "user-enable":
       return await userEnable(
+        { root: invocation.root, username: invocation.username },
+        stdout,
+        stderr,
+      );
+    case "user-revoke-tokens":
+      return await userRevokeTokens(
         { root: invocation.root, username: invocation.username },
         stdout,
         stderr,
