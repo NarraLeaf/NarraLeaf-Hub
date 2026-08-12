@@ -158,6 +158,17 @@ export async function up(
       stdout("loreserver will accept any client: pass --identity to make it demand a token\n");
     } else {
       stdout(`loreserver will demand a token from ${auth.issuer} for ${auth.audience[0]}\n`);
+      // The configuration written above also tells loreserver where to reach an
+      // authorization service, and Hub does not answer on that address yet. Until
+      // it does, a NarraLeaf Studio installation has no way to sign in, and every
+      // request that reaches a repository is refused with "Failed to connect to
+      // lore auth service". Saying so here is cheaper than letting an operator
+      // discover it from that message.
+      stdout(
+        "note: signing in is not finished yet — Hub issues tokens, but the service\n" +
+          "      loreserver asks about them is not implemented, so clients cannot\n" +
+          "      connect and repository access is refused\n",
+      );
     }
 
     // Only a failure that ends supervision should cut the health wait short; a
