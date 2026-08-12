@@ -1,5 +1,5 @@
 /**
- * The file that holds the accounts: `<root>/hub.db`.
+ * The file that holds the accounts and the projects: `<root>/hub.db`.
  *
  * Storage is node's built-in SQLite, which is why Hub can keep a database
  * without gaining a dependency. There is exactly one writer — the Hub process
@@ -143,6 +143,46 @@ const MIGRATIONS: readonly Migration[] = [
          used_at      INTEGER,
          used_by      TEXT REFERENCES users(id)
        ) STRICT`,
+    ],
+  },
+  {
+    version: 2,
+    description: "projects, and who may reach them",
+    statements: [
+      // `id` is the repository's own id as loreserver holds it: sixteen bytes,
+      // written here as thirty-two lower-case hex characters. It is not a
+      // second identifier that has to be mapped to that one — a resource id in
+      // a permission question is this string with `urc-` in front of it, and
+      // src/projects/registry.ts is where that is spelled out.
+      //
+      // `created_by` is the account that asked for the repository. It survives
+      // that account being deleted only in the sense that the row does not:
+      // there is no such thing as a project nobody made.
+      `CREATE TABLE projects (
+         id          TEXT    NOT NULL PRIMARY KEY,
+         name        TEXT    NOT NULL UNIQUE,
+         description TEXT    NOT NULL,
+         created_by  TEXT    NOT NULL REFERENCES users(id),
+         created_at  INTEGER NOT NULL
+       ) STRICT`,
+      // One row per person per project, and no row for somebody with no access:
+      // this table is the whole of the answer to "may this caller touch this
+      // repository", so an absent row is a refusal rather than a default.
+      //
+      // `level` is `read`, `write` or `owner`. Three words, ordered, with no
+      // table of verbs behind them — loreserver does not read the verbs, and a
+      // permission system nobody consults is a place for bugs to hide.
+      `CREATE TABLE project_grants (
+         project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         user_id    TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         level      TEXT    NOT NULL,
+         granted_by TEXT    REFERENCES users(id),
+         granted_at INTEGER NOT NULL,
+         PRIMARY KEY (project_id, user_id)
+       ) STRICT`,
+      // Every permission question names a person and asks about their projects,
+      // so that is the direction the index runs in.
+      "CREATE INDEX project_grants_by_user ON project_grants (user_id)",
     ],
   },
 ];

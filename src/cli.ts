@@ -3,6 +3,7 @@ import { DEFAULT_IDENTITY } from "./identity/config.js";
 import { inviteCreate } from "./invite.js";
 import { keyList, keyRotate } from "./key.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
+import { projectCreate, projectGrant, projectList, projectRevoke } from "./project.js";
 import { tokenMint } from "./token.js";
 import { up } from "./up.js";
 import { userCreate, userDisable, userEnable, userList } from "./user.js";
@@ -38,6 +39,12 @@ Commands:
   user disable <username>   Stop an account being issued anything new
   user enable <username>    Let an account sign in again
   token mint <username>     Sign a token for an account
+  project create <name>     Create a repository and record who owns it
+  project list              List the projects
+  project grant <project> <username>
+                            Let an account reach a project
+  project revoke <project> <username>
+                            Stop an account reaching a project
   key list                  Show the signing keys
   key rotate                Generate a key and sign with it from now on
 
@@ -57,8 +64,22 @@ Options for user create:
       --email <address>
       --service-account     Mark the account as one no person signs in to
 
-Identity options, taken by up and token mint:
+Options for project create:
+      --description <text>
+      --as <username>       The account it belongs to, when the Hub has more
+                            than one
+      --data-port <port>    Where loreserver is (default ${DEFAULT_PORTS.dataPort})
+
+Options for project list:
+      --as <username>       List what that account can reach, rather than all
+
+Options for project grant:
+      --level read|write    How far the account may go (default read)
+
+Identity options, taken by up, token mint and project create:
       --hub-port <port>     Hub's own HTTP port (default ${DEFAULT_IDENTITY.hubPort})
+      --auth-port <port>    Port loreserver asks about permissions on
+                            (default ${DEFAULT_IDENTITY.authPort})
       --issuer <name>       Token issuer (default ${DEFAULT_IDENTITY.issuer})
       --audience <name>     Audience loreserver requires (default ${DEFAULT_IDENTITY.audience})
       --auth-origin <host>  Host clients authenticate against, without a scheme
@@ -150,6 +171,38 @@ export async function run(
           username: invocation.username,
           overrides: invocation.overrides,
         },
+        stdout,
+        stderr,
+      );
+    case "project-create":
+      return await projectCreate(
+        {
+          root: invocation.root,
+          name: invocation.name,
+          description: invocation.description,
+          as: invocation.as,
+          dataPort: invocation.dataPort,
+          overrides: invocation.overrides,
+        },
+        stdout,
+        stderr,
+      );
+    case "project-list":
+      return await projectList({ root: invocation.root, as: invocation.as }, stdout, stderr);
+    case "project-grant":
+      return await projectGrant(
+        {
+          root: invocation.root,
+          project: invocation.project,
+          username: invocation.username,
+          level: invocation.level,
+        },
+        stdout,
+        stderr,
+      );
+    case "project-revoke":
+      return await projectRevoke(
+        { root: invocation.root, project: invocation.project, username: invocation.username },
         stdout,
         stderr,
       );

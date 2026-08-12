@@ -80,6 +80,10 @@ describe("mintToken", () => {
       idp: "narraleaf-hub",
       iat: 1_786_438_800,
       exp: 1_786_438_800 + 15 * 60,
+      // Hub's own claim, and the only one loreserver does not read: it is what
+      // lets Hub refuse a token that was signed before this account's access
+      // was revoked.
+      token_epoch: ADA.tokenEpoch,
     });
   });
 
