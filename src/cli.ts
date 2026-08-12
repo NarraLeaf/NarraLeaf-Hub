@@ -1,6 +1,7 @@
 import { parseArgs } from "./args.js";
 import { describeDuration } from "./duration.js";
-import { DEFAULT_IDENTITY } from "./identity/config.js";
+import { DEFAULT_IDENTITY, identityConfig } from "./identity/config.js";
+import { terminalInterface } from "./interface.js";
 import { inviteCreate } from "./invite.js";
 import { keyList, keyRotate } from "./key.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
@@ -46,6 +47,10 @@ const DEFAULT_SIGN_IN_LIFETIME = describeDuration(DEFAULT_IDENTITY.signInTokenLi
 export const USAGE = `Usage: nlhub <command> [options]
 
 NarraLeaf Hub is a self-hosted project server for teams using NarraLeaf Studio.
+
+With no command it opens the terminal interface on the Hub at --root. A bare
+nlhub, at a terminal, opens it on NLHUB_ROOT or on the working directory when
+that is a Hub already.
 
 Commands:
   up                        Install and run loreserver, and serve Hub's endpoint
@@ -154,6 +159,16 @@ export async function run(
     case "help":
       stdout(`${USAGE}\n`);
       return 0;
+    case "interface":
+      return await terminalInterface(
+        {
+          root: invocation.root,
+          healthPort: invocation.healthPort,
+          config: identityConfig(invocation.overrides),
+        },
+        stdout,
+        stderr,
+      );
     case "up":
       return await up(
         {

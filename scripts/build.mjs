@@ -21,10 +21,27 @@ const options = {
   format: "esm",
   target: "node24",
   sourcemap: true,
-  // A shell needs this first line to run the file directly. It is added here
-  // rather than in the TypeScript source so that the checker and the test
-  // runner never have to make sense of a line that is not JavaScript.
-  banner: { js: "#!/usr/bin/env node" },
+  // Both of these are needed by the terminal interface, and both of them fail
+  // when the finished file is run rather than when it is built:
+  //
+  //   - Ink imports react-devtools-core at the top of a module, so an external
+  //     import of a package nobody installed reaches the executable and it
+  //     dies with ERR_MODULE_NOT_FOUND before drawing anything.
+  //   - One of Ink's dependencies calls require("assert"), which an ESM bundle
+  //     refuses with "Dynamic require of assert is not supported" unless there
+  //     is a require to call.
+  //
+  // The first line is the one a shell needs to run the file directly; it is
+  // added here rather than in the TypeScript source so that the checker and
+  // the test runner never have to make sense of a line that is not JavaScript.
+  alias: { "react-devtools-core": join(root, "scripts", "devtools-stub.js") },
+  banner: {
+    js: [
+      "#!/usr/bin/env node",
+      'import { createRequire as __nlhubCreateRequire } from "node:module";',
+      "const require = __nlhubCreateRequire(import.meta.url);",
+    ].join("\n"),
+  },
   // Replaces the identifier throughout the bundle with a literal, so the
   // finished executable carries its own version number. src/version.ts explains
   // why the number is not read from disk at startup.
