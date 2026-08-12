@@ -25,6 +25,7 @@ import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { dataRemoteUrl } from "../src/identity/config.js";
+import { CACHE_DIRECTORY_ENV } from "../src/loreserver/cache.js";
 import { checkHealth, waitForHealth } from "../src/loreserver/health.js";
 import { ensureInstalled } from "../src/loreserver/install.js";
 import { instanceLayout, writeInstance } from "../src/loreserver/layout.js";
@@ -41,6 +42,14 @@ const execFileAsync = promisify(execFile);
 
 const configuredRoot = process.env["NLHUB_TEST_LORESERVER_ROOT"] ?? "";
 const loreCli = process.env["NLHUB_TEST_LORE_CLI"] ?? "";
+
+// Downloads go under the directory this test was given rather than into the
+// per-user cache a real Hub on this machine would be running from. Outside the
+// per-run roots, so that a server started for the second test reuses the binary
+// the first one fetched instead of downloading tens of megabytes again.
+if (configuredRoot !== "") {
+  process.env[CACHE_DIRECTORY_ENV] = join(configuredRoot, "cache");
+}
 
 /** Away from the defaults, and away from the other integration test's pair. */
 const PORTS = { dataPort: 41447, healthPort: 41449 };

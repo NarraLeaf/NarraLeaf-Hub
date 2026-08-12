@@ -57,6 +57,17 @@ describe("run", () => {
     expect(out).not.toContain("43200");
   });
 
+  it("documents changing a setting from a command line, and names the keys", async () => {
+    const { out } = await invoke(["--help"]);
+
+    // The lifetimes were editable from the terminal interface and nowhere else,
+    // which left them unreachable over ssh and from a script.
+    expect(out).toContain("settings list");
+    expect(out).toContain("settings set <key> <value>");
+    expect(out).toContain("token.sign_in_lifetime_seconds");
+    expect(out).toContain("token.repository_lifetime_seconds");
+  });
+
   it("documents the up command and its options", async () => {
     const { out } = await invoke(["--help"]);
 

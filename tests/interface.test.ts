@@ -6,6 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { parseArgs } from "../src/args.js";
+import { recordDecision } from "../src/identity/audit.js";
 import { identityConfig } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
 import { createInvite } from "../src/identity/invites.js";
@@ -138,6 +139,62 @@ describe("the view a real Hub gathers", () => {
     const view = await gatherHubView(await hub());
     expect(view.now).toBeLessThanOrEqual(Date.now());
     expect(view.server.healthCheckedAt).toBe(view.now);
+  });
+
+  it("says when an account's tokens were last refused, where anything did that", async () => {
+    // bob was disabled while this Hub was being built; ada has never had a
+    // token refused, and absent is what the interface draws as unknown.
+    const view = await gatherHubView(await hub());
+
+    expect(view.users.find((user) => user.username === "bob")?.tokensInvalidatedAt).toBeTypeOf(
+      "number",
+    );
+    expect(view.users.find((user) => user.username === "ada")?.tokensInvalidatedAt).toBeUndefined();
+  });
+
+  it("carries the decisions Hub has made, newest first", async () => {
+    const context = await hub();
+    recordDecision(context.database, {
+      at: Date.parse("2026-08-11T09:00:00Z"),
+      username: "ada",
+      resource: "harbour",
+      allowed: true,
+      detail: "owner",
+    });
+    recordDecision(context.database, {
+      at: Date.parse("2026-08-11T10:00:00Z"),
+      username: "bob",
+      resource: "harbour",
+      allowed: false,
+      detail: "no grant",
+    });
+
+    const view = await gatherHubView(context);
+
+    // The screen that shows the last few decisions used to be blank on every
+    // real Hub, because this list was written as empty whatever had happened.
+    expect(view.audit).toEqual([
+      {
+        at: Date.parse("2026-08-11T10:00:00Z"),
+        username: "bob",
+        resource: "harbour",
+        allowed: false,
+        detail: "no grant",
+      },
+      {
+        at: Date.parse("2026-08-11T09:00:00Z"),
+        username: "ada",
+        resource: "harbour",
+        allowed: true,
+        detail: "owner",
+      },
+    ]);
+  });
+
+  it("says nothing has been asked of a Hub nothing has been asked of", async () => {
+    const view = await gatherHubView(await hub());
+
+    expect(view.audit).toEqual([]);
   });
 });
 

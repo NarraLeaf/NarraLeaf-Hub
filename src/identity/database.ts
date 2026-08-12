@@ -208,6 +208,53 @@ const MIGRATIONS: readonly Migration[] = [
        ) STRICT`,
     ],
   },
+  {
+    version: 4,
+    description: "when an account's tokens were last made unrenewable",
+    statements: [
+      // Beside `token_epoch` rather than instead of it. The counter is what a
+      // token is checked against; this is only the moment it last moved, and
+      // nothing decides anything from it.
+      //
+      // Rows that already exist keep NULL, and that is deliberate. There is no
+      // honest timestamp for a bump that happened before this column existed,
+      // and the obvious invention — the moment this migration ran — would read
+      // as every account on the Hub having had its tokens refused on the day
+      // Hub was upgraded. Absent is drawn as "unknown", which is true.
+      "ALTER TABLE users ADD COLUMN tokens_invalidated_at INTEGER",
+    ],
+  },
+  {
+    version: 5,
+    description: "the authorization decisions Hub has made",
+    statements: [
+      // One row per decision. Before this table there was none: every decision
+      // went to the log of the `up` process that made it and nowhere else, so a
+      // Hub that had been running for a month could not say who had reached
+      // what, and the screen that shows the last few decisions had nothing to
+      // show.
+      //
+      // `username` is text rather than a reference to `users`, and it is the
+      // one column that must not be a foreign key. A row that cascaded away
+      // with the account would delete exactly the record somebody deleted an
+      // account over. The same goes for `resource`: it holds the project's name
+      // as it stood when the decision was made, so the row still says which
+      // project it was about after that project has been forgotten.
+      //
+      // There is no index. src/identity/audit.ts keeps the table to a bounded
+      // number of rows, and an index would be a write on the path that answers
+      // every repository access in order to speed up a query a person makes
+      // when they open a screen.
+      `CREATE TABLE decisions (
+         id       INTEGER NOT NULL PRIMARY KEY,
+         at       INTEGER NOT NULL,
+         username TEXT    NOT NULL,
+         resource TEXT    NOT NULL,
+         allowed  INTEGER NOT NULL,
+         detail   TEXT    NOT NULL
+       ) STRICT`,
+    ],
+  },
 ];
 
 /** The schema version this build of Hub writes and expects. */

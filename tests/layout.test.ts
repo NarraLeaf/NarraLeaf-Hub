@@ -31,12 +31,14 @@ afterEach(async () => {
 });
 
 describe("instanceLayout", () => {
-  it("puts everything under the one directory it is given", async () => {
+  it("puts everything about one Hub under the one directory it is given", async () => {
     const root = await temporaryRoot();
     const layout = instanceLayout(root, "loreserver");
 
     expect(layout.root).toBe(resolve(root));
-    expect(layout.binDir).toBe(join(layout.root, "bin", `loreserver-${LORESERVER_VERSION}`));
+    // The executable is the exception, and the only one: it belongs to a
+    // version rather than to this Hub, and lives in the per-user cache.
+    expect(layout.binDir.startsWith(layout.root)).toBe(false);
     expect(layout.binaryPath).toBe(join(layout.binDir, "loreserver"));
     expect(layout.licensePath).toBe(join(layout.binDir, "LICENSE.txt"));
     expect(layout.noticesPath).toBe(join(layout.binDir, "THIRD-PARTY-NOTICES.txt"));
@@ -71,10 +73,17 @@ describe("renderConfig", () => {
   /** A layout with fixed paths, so the rendering can be checked exactly. */
   const layout: InstanceLayout = {
     root: "C:\\srv\\hub",
-    binDir: "C:\\srv\\hub\\bin\\loreserver-0.8.6",
-    binaryPath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\loreserver.exe",
-    licensePath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\LICENSE.txt",
-    noticesPath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\THIRD-PARTY-NOTICES.txt",
+    binDir: "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6",
+    binaryPath: "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6\\loreserver.exe",
+    licensePath: "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6\\LICENSE.txt",
+    noticesPath:
+      "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6\\THIRD-PARTY-NOTICES.txt",
+    stored: {
+      binDir: "C:\\srv\\hub\\bin\\loreserver-0.8.6",
+      binaryPath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\loreserver.exe",
+      licensePath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\LICENSE.txt",
+      noticesPath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\THIRD-PARTY-NOTICES.txt",
+    },
     configDir: "C:\\srv\\hub\\loreserver\\config",
     configPath: "C:\\srv\\hub\\loreserver\\config\\local.toml",
     immutableStoreDir: "C:\\srv\\hub\\loreserver\\store\\immutable",

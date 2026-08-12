@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { WriteText } from "../src/cli.js";
 import { DEFAULT_IDENTITY } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
 import { identityLayout } from "../src/identity/layout.js";
@@ -15,9 +16,27 @@ import {
   SIGN_IN_LIFETIME_KEY,
   storedTokenLifetimes,
 } from "../src/identity/settings.js";
+import { settingsList, settingsSet } from "../src/settings.js";
 import { useTemporaryRoots } from "./temporary.js";
 
 const temporaryRoot = useTemporaryRoots("nlhub-settings-");
+
+/** Run one of the commands and collect both its streams. */
+async function invoke(
+  command: (stdout: WriteText, stderr: WriteText) => Promise<number>,
+): Promise<{ code: number; out: string; err: string }> {
+  let out = "";
+  let err = "";
+  const code = await command(
+    (text) => {
+      out += text;
+    },
+    (text) => {
+      err += text;
+    },
+  );
+  return { code, out, err };
+}
 
 const open: DatabaseSync[] = [];
 
@@ -151,6 +170,108 @@ describe("setTokenLifetimes", () => {
       signInTokenLifetimeSeconds: DEFAULT_IDENTITY.signInTokenLifetimeSeconds,
       repositoryTokenLifetimeSeconds: 120,
     });
+  });
+});
+
+describe("nlhub settings list", () => {
+  it("says what each setting is, and whether anybody chose it", async () => {
+    const root = await temporaryRoot();
+
+    const { code, out, err } = await invoke((stdout, stderr) =>
+      settingsList({ root }, stdout, stderr),
+    );
+
+    expect(code).toBe(0);
+    expect(err).toBe("");
+    // Pinned in full. The durations are in the words somebody would have typed
+    // rather than the seconds the keys are named for, and the last column is
+    // the difference between a value that was chosen and one that has never
+    // been touched — which is the difference between a Hub that keeps this
+    // number through an upgrade and one that follows the default.
+    expect(out).toBe(
+      "token.sign_in_lifetime_seconds     30 days       default\n" +
+        "token.repository_lifetime_seconds  15 minutes    default\n",
+    );
+  });
+
+  it("says a value was set here once somebody has set it", async () => {
+    const root = await temporaryRoot();
+    const connection = await openMigratedDatabase(identityLayout(root).databasePath);
+    setTokenLifetimes(connection, { repositoryTokenLifetimeSeconds: 5 * 60 });
+    connection.close();
+
+    const { out } = await invoke((stdout, stderr) => settingsList({ root }, stdout, stderr));
+
+    expect(out).toContain("token.repository_lifetime_seconds  5 minutes     set here");
+    expect(out).toContain("token.sign_in_lifetime_seconds     30 days       default");
+  });
+});
+
+describe("nlhub settings set", () => {
+  it("says what the setting now is, what it was, and what the change does not reach", async () => {
+    const root = await temporaryRoot();
+
+    const { code, out, err } = await invoke((stdout, stderr) =>
+      settingsSet({ root, key: SIGN_IN_LIFETIME_KEY, seconds: 7 * 24 * 60 * 60 }, stdout, stderr),
+    );
+
+    expect(code).toBe(0);
+    expect(err).toBe("");
+    expect(out).toBe(
+      "token.sign_in_lifetime_seconds is 7 days, and was 30 days\n" +
+        "Tokens already minted keep the lifetime they were given.\n",
+    );
+  });
+
+  it("adds the one thing about the repository lifetime that is not obvious", async () => {
+    const root = await temporaryRoot();
+
+    const { out } = await invoke((stdout, stderr) =>
+      settingsSet({ root, key: REPOSITORY_LIFETIME_KEY, seconds: 5 * 60 }, stdout, stderr),
+    );
+
+    expect(out).toBe(
+      "token.repository_lifetime_seconds is 5 minutes, and was 15 minutes\n" +
+        "Tokens already minted keep the lifetime they were given.\n" +
+        "loreserver accepts this one without asking Hub, so revoking access cannot cut it " +
+        "short.\n",
+    );
+  });
+
+  it("writes the value where a running Hub reads it from", async () => {
+    const root = await temporaryRoot();
+
+    await invoke((stdout, stderr) =>
+      settingsSet({ root, key: SIGN_IN_LIFETIME_KEY, seconds: 3600 }, stdout, stderr),
+    );
+
+    const connection = await openMigratedDatabase(identityLayout(root).databasePath);
+    try {
+      expect(storedTokenLifetimes(connection).signInTokenLifetimeSeconds).toBe(3600);
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("refuses a lifetime outside the range, and changes nothing", async () => {
+    const root = await temporaryRoot();
+
+    const { code, out, err } = await invoke((stdout, stderr) =>
+      settingsSet({ root, key: SIGN_IN_LIFETIME_KEY, seconds: 1 }, stdout, stderr),
+    );
+
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    expect(err).toContain(SIGN_IN_LIFETIME_KEY);
+
+    const connection = await openMigratedDatabase(identityLayout(root).databasePath);
+    try {
+      expect(storedTokenLifetimes(connection).signInTokenLifetimeSeconds).toBe(
+        DEFAULT_IDENTITY.signInTokenLifetimeSeconds,
+      );
+    } finally {
+      connection.close();
+    }
   });
 });
 

@@ -1,11 +1,13 @@
 import { parseArgs } from "./args.js";
 import { describeDuration } from "./duration.js";
 import { DEFAULT_IDENTITY, identityConfig } from "./identity/config.js";
+import { SETTING_KEYS } from "./identity/settings.js";
 import { terminalInterface } from "./interface.js";
 import { inviteCreate } from "./invite.js";
 import { keyList, keyRotate } from "./key.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
 import { projectCreate, projectGrant, projectList, projectRevoke } from "./project.js";
+import { settingsList, settingsSet } from "./settings.js";
 import { tokenMint } from "./token.js";
 import { trust } from "./trust.js";
 import { up } from "./up.js";
@@ -69,6 +71,10 @@ Commands:
                             Let an account reach a project
   project revoke <project> <username>
                             Stop an account reaching a project
+  settings list             Show the settings this Hub keeps, and whether each
+                            is the default or was set here
+  settings set <key> <value>
+                            Change one of them
   key list                  Show the signing keys
   key rotate                Generate a key and sign with it from now on
   trust                     Show this Hub's certificate authority and its
@@ -133,6 +139,10 @@ up was given mints a token that will not be accepted:
 Options:
   -v, --version    Print the version and exit
   -h, --help       Print this message and exit
+
+settings set takes a duration written the way --token-lifetime is: 30m, 48h,
+7d, or a bare number of seconds. The keys are
+${SETTING_KEYS.map((key) => `  ${key}`).join("\n")}
 
 user create and token mint read the password from standard input.
 
@@ -260,6 +270,14 @@ export async function run(
     case "project-revoke":
       return await projectRevoke(
         { root: invocation.root, project: invocation.project, username: invocation.username },
+        stdout,
+        stderr,
+      );
+    case "settings-list":
+      return await settingsList({ root: invocation.root }, stdout, stderr);
+    case "settings-set":
+      return await settingsSet(
+        { root: invocation.root, key: invocation.key, seconds: invocation.seconds },
         stdout,
         stderr,
       );

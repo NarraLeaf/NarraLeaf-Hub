@@ -38,6 +38,7 @@ describe("migrate", () => {
       expect(migrate(database, path)).toBe(SCHEMA_VERSION);
       expect(tableNames(database)).toEqual(
         expect.arrayContaining([
+          "decisions",
           "invites",
           "schema_version",
           "settings",
@@ -64,16 +65,17 @@ describe("migrate", () => {
         )
         .run("9a1c0e2e", "ada", "Ada Lovelace", "scrypt$N=16384,r=8,p=1$c2FsdA==$aGFzaA==", 1);
 
-      // Put the file back to the version before the settings table, rather than
-      // writing out that older schema again here: a second copy of it in this
-      // file would be one more thing to keep in step with the migration list.
-      database.exec("DROP TABLE settings");
+      // Put the file back to the version before the newest migration, rather
+      // than writing out that older schema again here: a second copy of it in
+      // this file would be one more thing to keep in step with the migration
+      // list.
+      database.exec("DROP TABLE decisions");
       database.prepare("DELETE FROM schema_version WHERE version = ?").run(SCHEMA_VERSION);
       expect(schemaVersion(database)).toBe(SCHEMA_VERSION - 1);
 
       expect(migrate(database, path)).toBe(SCHEMA_VERSION);
 
-      expect(tableNames(database)).toContain("settings");
+      expect(tableNames(database)).toContain("decisions");
       // The account is still there. A migration that took the file back to
       // something empty would pass every check about tables and lose a Hub.
       expect(database.prepare("SELECT username FROM users").all()).toEqual([{ username: "ada" }]);

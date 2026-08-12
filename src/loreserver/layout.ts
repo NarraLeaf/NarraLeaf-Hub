@@ -5,11 +5,37 @@
  * An operator supplies one path — the storage root — and every other location
  * is derived from it, so that a Hub instance can be moved, backed up or
  * deleted by acting on a single directory.
+ *
+ * The executable is the one thing that is not under it. A downloaded release is
+ * about a version rather than about this Hub, and ./cache.ts sets out what
+ * having a copy per storage root cost.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { cachedInstallDir, storedInstallDir } from "./cache.js";
 import { LORESERVER_VERSION, LICENSE_FILE_NAME, NOTICES_FILE_NAME } from "./pin.js";
+
+/** The name of the program whose releases these paths are for. */
+const PROGRAM = "loreserver";
+
+/** One place a release can be unpacked, and the three files it leaves there. */
+export interface InstallLocation {
+  readonly binDir: string;
+  readonly binaryPath: string;
+  readonly licensePath: string;
+  readonly noticesPath: string;
+}
+
+/** The three paths a release leaves inside `binDir`. */
+function installLocation(binDir: string, binaryName: string): InstallLocation {
+  return {
+    binDir,
+    binaryPath: join(binDir, binaryName),
+    licensePath: join(binDir, LICENSE_FILE_NAME),
+    noticesPath: join(binDir, NOTICES_FILE_NAME),
+  };
+}
 
 /** Port numbers loreserver listens on. */
 export interface LoreserverPorts {
@@ -29,18 +55,19 @@ export const DEFAULT_PORTS: LoreserverPorts = {
 };
 
 /** Absolute paths belonging to one storage root. */
-export interface InstanceLayout {
+export interface InstanceLayout extends InstallLocation {
   /** The storage root itself, absolute. */
   readonly root: string;
   /**
-   * Directory holding the unpacked release. The version is in its name, so
-   * installing a different pin adds a directory rather than overwriting the
-   * binary a running server was started from.
+   * The same three paths under the storage root, where a Hub from before the
+   * binaries moved into the per-user cache put them.
+   *
+   * Derived for every layout whether or not anything is there, because it is
+   * the first place an install looks: a Hub that has already run must not
+   * download a second copy of a binary it has, and must not be made to move one
+   * it may be running.
    */
-  readonly binDir: string;
-  readonly binaryPath: string;
-  readonly licensePath: string;
-  readonly noticesPath: string;
+  readonly stored: InstallLocation;
   /** Directory loreserver is pointed at with `--config`. */
   readonly configDir: string;
   /** The file Hub generates inside `configDir`. */
@@ -65,17 +92,17 @@ export function instanceLayout(
   version: string = LORESERVER_VERSION,
 ): InstanceLayout {
   const absoluteRoot = resolve(root);
-  const binDir = join(absoluteRoot, "bin", `loreserver-${version}`);
   const instanceDir = join(absoluteRoot, "loreserver");
   const configDir = join(instanceDir, "config");
   const logDir = join(absoluteRoot, "logs");
 
   return {
     root: absoluteRoot,
-    binDir,
-    binaryPath: join(binDir, binaryName),
-    licensePath: join(binDir, LICENSE_FILE_NAME),
-    noticesPath: join(binDir, NOTICES_FILE_NAME),
+    // Read as the layout is built rather than held from the start of the
+    // process, so that a container setting NLHUB_CACHE_DIR is obeyed by
+    // whatever is running now, not by whatever loaded this module first.
+    ...installLocation(cachedInstallDir(PROGRAM, version), binaryName),
+    stored: installLocation(storedInstallDir(absoluteRoot, PROGRAM, version), binaryName),
     configDir,
     configPath: join(configDir, "local.toml"),
     immutableStoreDir: join(instanceDir, "store", "immutable"),

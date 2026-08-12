@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { parseArgs } from "../src/args.js";
+import {
+  REPOSITORY_LIFETIME_KEY,
+  SETTING_KEYS,
+  SIGN_IN_LIFETIME_KEY,
+} from "../src/identity/settings.js";
 import { DEFAULT_PORTS } from "../src/loreserver/layout.js";
 
 /** The error message from a command line that was not understood. */
@@ -277,9 +282,60 @@ describe("parseArgs, the identity commands", () => {
       ["project", "list"],
       ["project", "create", "harbour"],
       ["key", "rotate"],
+      ["settings", "list"],
+      ["settings", "set", SIGN_IN_LIFETIME_KEY, "7d"],
     ]) {
       expect(messageFor(argv)).toContain("--root");
     }
+  });
+});
+
+describe("parseArgs, the settings commands", () => {
+  it("lists them", () => {
+    expect(parseArgs(["settings", "list", "--root", "/srv/hub"])).toEqual({
+      kind: "settings-list",
+      root: "/srv/hub",
+    });
+  });
+
+  it("reads a value in every duration a command line here takes", () => {
+    expect(parseArgs(["settings", "set", SIGN_IN_LIFETIME_KEY, "7d", "--root", "/srv/hub"])).toEqual(
+      {
+        kind: "settings-set",
+        root: "/srv/hub",
+        key: SIGN_IN_LIFETIME_KEY,
+        seconds: 7 * 24 * 60 * 60,
+      },
+    );
+    // The same spellings --token-lifetime takes, because somebody who knows one
+    // of them should not have to discover a second.
+    expect(
+      parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "30m", "--root", "/srv/hub"]),
+    ).toMatchObject({ key: REPOSITORY_LIFETIME_KEY, seconds: 30 * 60 });
+    expect(
+      parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "900", "--root", "/srv/hub"]),
+    ).toMatchObject({ seconds: 900 });
+  });
+
+  it("names the settings there are when it is given one there is not", () => {
+    const message = messageFor(["settings", "set", "token.lifetime", "7d", "--root", "/srv/hub"]);
+
+    expect(message).toContain("there is no setting called token.lifetime");
+    for (const key of SETTING_KEYS) {
+      expect(message).toContain(key);
+    }
+  });
+
+  it("names the key in what it says about a value it could not read", () => {
+    expect(
+      messageFor(["settings", "set", SIGN_IN_LIFETIME_KEY, "a while", "--root", "/srv/hub"]),
+    ).toContain(SIGN_IN_LIFETIME_KEY);
+  });
+
+  it("says what is missing, and names the verb it did not recognise", () => {
+    expect(messageFor(["settings", "set", "--root", "/srv/hub"])).toContain("a key and a value");
+    expect(messageFor(["settings", "invent"])).toBe("unknown settings command: invent");
+    expect(messageFor(["settings"])).toContain("list or set");
   });
 });
 

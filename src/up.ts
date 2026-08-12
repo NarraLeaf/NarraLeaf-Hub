@@ -255,7 +255,10 @@ export async function up(
         `      and then run ${trustCommandFor(certificates.authority.layout.caCertPath)}\n`,
     );
 
-    await ensureInstalled(layout, artifact, {
+    // Where the binary is decides nothing else: it is the one thing not under
+    // the storage root, and src/loreserver/install.ts answers with the path
+    // that was actually used rather than the one a layout would predict.
+    const install = await ensureInstalled(layout, artifact, {
       onAlreadyInstalled: (path) => stdout(`already installed at ${path}\n`),
       onFetching: (url) => stdout(`fetching ${url}\n`),
       onVerifying: (bytes) =>
@@ -283,9 +286,11 @@ export async function up(
     // Both checks run on every start, including one that installed nothing:
     // the archive digest says what was downloaded, which is not the same as
     // what is on disk now.
-    await verifyBinaryDigest(layout.binaryPath, artifact.binarySha256);
-    const reported = await verifyBinaryVersion(layout.binaryPath, LORESERVER_VERSION);
-    stdout(`verified ${layout.binaryPath} is loreserver ${reported}, matching its pinned checksum\n`);
+    await verifyBinaryDigest(install.binaryPath, artifact.binarySha256);
+    const reported = await verifyBinaryVersion(install.binaryPath, LORESERVER_VERSION);
+    stdout(
+      `verified ${install.binaryPath} is loreserver ${reported}, matching its pinned checksum\n`,
+    );
 
     const auth = options.identity === true ? loreserverAuth(config) : undefined;
     await writeInstance(layout, ports, auth);
@@ -317,7 +322,7 @@ export async function up(
 
     supervisor = new Supervisor({
       name: "loreserver",
-      command: layout.binaryPath,
+      command: install.binaryPath,
       args: ["--config", layout.configDir],
       logPath: layout.logPath,
       // See the note on loreserverTrustAnchor: without this, loreserver cannot
