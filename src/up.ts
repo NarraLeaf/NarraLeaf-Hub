@@ -25,6 +25,11 @@ import { identityLayout } from "./identity/layout.js";
 import { namedTokenLifetimes } from "./identity/settings.js";
 import { countUsers } from "./identity/users.js";
 import { renderInvite } from "./invite.js";
+import {
+  ensureLorelibNotices,
+  LORELIB_VERSION,
+  resolveLorelibArtifact,
+} from "./lore/pin.js";
 import { waitForHealth, healthCheckUrl } from "./loreserver/health.js";
 import { verifyBinaryDigest, verifyBinaryVersion } from "./loreserver/identify.js";
 import { ensureInstalled } from "./loreserver/install.js";
@@ -257,6 +262,23 @@ export async function up(
         stdout(`verifying ${bytes.toLocaleString("en-US")} bytes against the pinned checksum\n`),
       onExtracting: (binDir) => stdout(`extracting into ${binDir}\n`),
     });
+
+    // The version control library arrives through npm, which does not carry
+    // the two files it is redistributed under; they come from the release
+    // instead. Nothing depends on this having worked — it is an obligation of
+    // shipping somebody else's library, not a precondition of running — so a
+    // machine that cannot reach GitHub says so once and carries on.
+    const lorelib = resolveLorelibArtifact();
+    if (lorelib !== undefined) {
+      try {
+        const notices = await ensureLorelibNotices(options.root, lorelib);
+        if (!notices.alreadyPresent) {
+          stdout(`kept lorelib ${LORELIB_VERSION}'s license and notices in ${notices.directory}\n`);
+        }
+      } catch (error) {
+        stderr(`nlhub: could not fetch lorelib's license and notices: ${describeError(error)}\n`);
+      }
+    }
 
     // Both checks run on every start, including one that installed nothing:
     // the archive digest says what was downloaded, which is not the same as

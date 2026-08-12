@@ -34,6 +34,13 @@
   },
   "dependencies": {
     "ink": "^7.1.1",
+    "koffi": "2.16.2",
     "react": "^19.2.8"
+  },
+  "optionalDependencies": {
+    "@lore-vcs/sdk-amd64-unknown-linux": "0.8.6",
+    "@lore-vcs/sdk-amd64-unknown-windows": "0.8.6",
+    "@lore-vcs/sdk-arm64-apple-darwin": "0.8.6",
+    "@lore-vcs/sdk-arm64-graviton-linux": "0.8.6"
   }
 }

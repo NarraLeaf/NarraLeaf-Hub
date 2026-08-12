@@ -26,6 +26,15 @@ export interface Operations {
   readonly refresh: () => Promise<HubView>;
   /** Carry one action out, and say in one line what it did. */
   readonly perform: (action: Action) => Promise<string>;
+  /**
+   * Watch for a view that arrived without anybody asking, and stop watching.
+   *
+   * Some of what is drawn is not in the database and cannot be gathered
+   * without waiting on a network: it turns up later, and when it does, this is
+   * how the screen is told. The interface still fetches nothing — it is handed
+   * a finished view here exactly as it is everywhere else.
+   */
+  readonly subscribe?: (listen: (view: HubView) => void) => () => void;
 }
 
 /** A terminal that has not said how big it is is assumed to be the smallest one. */
@@ -73,6 +82,8 @@ function App({ first, operations }: { first: HubView; operations: Operations }):
   const [view, setView] = useState<HubView>(first);
   const [session, setSession] = useState<Session>({ state: INITIAL_STATE, draft: "" });
   const [status, setStatus] = useState<string | undefined>(undefined);
+
+  useEffect(() => operations.subscribe?.(setView), [operations]);
 
   useInput((input, key) => {
     const step = reduce(session, pressOf(input, key), view);

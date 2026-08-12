@@ -32,7 +32,8 @@ and `loreserver` asks Hub, on every access, whether the caller may have it.
 
 The fourth is done: `nlhub` with no command opens a terminal interface over the
 accounts, the projects and the settings, and over the same operations the
-commands carry out.
+commands carry out. It reads what is inside each project too — the revision
+history, and as much of the project file as Hub understands.
 
 Not yet implemented:
 
@@ -49,7 +50,14 @@ own.
 
 The version floor is 24 because Hub stores its accounts in SQLite through
 node's built-in `node:sqlite`, which is unflagged from 24 onwards. That is what
-lets a program with a database have no dependencies.
+lets a program with a database carry no database.
+
+Reading what is inside a project also needs a build of Epic's `lorelib` for the
+machine, which is published for x86-64 Windows, x86-64 Linux, 64-bit ARM macOS
+and Neoverse ARM Linux, and installs with Hub's dependencies. Everything else
+works without one: a machine Epic publishes no build for runs the server, hands
+out identity and tracks access, and says of each project that it could not read
+its repository.
 
 ## Running loreserver
 
@@ -407,13 +415,54 @@ nlhub project revoke harbour bob --root /srv/hub
 `project create` generates the repository id, asks `loreserver` to create the
 repository over gRPC with a token Hub mints for the owner, and records the
 project with a grant making that person its owner. `--as` can be left out on a
-Hub with one account. Hub never opens a repository's store itself: `loreserver`
-holds an exclusive lock on one it is serving, and a second process opening the
-same directory does not fail, it waits for ever.
+Hub with one account. Hub never opens the store `loreserver` is serving:
+`loreserver` holds an exclusive lock on it, and a second process opening the
+same directory does not fail, it waits for ever. What Hub reads instead is a
+checkout of its own — see below.
 
 The levels are `read` and `write`, plus the owner, who comes from creating the
 project. A grant or a revocation takes effect on the next thing the person does
 — nothing is cached, and nobody has to be issued a new token.
+
+### Reading what is inside a project
+
+The interface shows a project's revision history and what its project file says.
+Neither is in Hub's database: both are inside the repository, and Hub reads them
+the same way a Studio installation on somebody else's machine does — as a client,
+over the network, against its own `loreserver`.
+
+That is not a preference. `loreserver` holds an exclusive lock on the store it
+is serving, and opening it a second time does not fail: it waits, at no CPU,
+with nothing logged and no timeout to reach. So Hub clones each project into
+`<root>/cache/projects/<repository id>/` and reads that instead.
+
+A checkout there holds no files at all. The clone is bare, which costs nothing
+on the wire and a couple of kilobytes on disk; the branch, the history and each
+revision's metadata are then answered from disk, and the revision tree — every
+directory, every file and every size — and the contents of any file in it are
+read through the store, which fetches what it needs on demand. Measured against
+a project whose latest revision runs to 12 MB: 240 ms to clone and read the
+first time, 90 ms to refresh, and 5.7 KB of cache.
+
+**The cache is disposable.** Deleting `<root>/cache` at any moment, in whole or
+in part, costs the time of the next read and nothing else. Nothing is kept there
+that is not also in the repository it came from.
+
+Reading happens beside the interface rather than in front of it. The screen is
+drawn from the database at once and each project's history and file replace the
+word unknown as they arrive, so a slow or stopped `loreserver` costs freshness
+and nothing else.
+
+What Hub takes from a project file is its title, its stage size, how many scenes
+there are, and how many assets of each kind and how large. It reads no further:
+what a scene means belongs to Studio, and a Hub that had to know it would be a
+Hub that had to be upgraded whenever Studio was.
+
+Anything Hub cannot make sense of becomes a sentence rather than an error. A
+project file from a newer Studio, one that was only half written, one that is
+not the shape its name claims, a project nobody has pushed to, a repository that
+cannot be reached — each of them leaves the parts Hub did understand on screen
+and says in words what it could not read.
 
 ### The authorization service
 
@@ -470,7 +519,9 @@ Four surfaces, reached with `1` to `4` or `tab`:
 - **Users.** Every account with its role, its state and what it can reach.
   `⏎` opens one, `d` disables or enables it, `x` refuses the tokens it already
   holds, `i` makes an invitation and prints the code once.
-- **Projects.** Every project with its owner, who may reach it and how far.
+- **Projects.** Every project with its owner, who may reach it and how far, how
+  many revisions it has and how big it is. `⏎` opens one, which adds what its
+  project file says.
 - **Settings.** Four groups: the two token lifetimes, the identity settings,
   `loreserver`'s, and the authority. A row Hub has nowhere to write is marked
   with `·` and pressing `⏎` on it does nothing — an editor over a value that
@@ -502,11 +553,14 @@ interface has no way to ask for. Opening a window that pretended to do it would
 not be honest.
 
 Everything drawn arrives in one read-only structure, `src/tui/hubview.ts`,
-gathered by `src/view.ts`. Nothing under `src/tui/` opens the database, and
-there is an assertion that says so. What Hub cannot work out arrives absent and
-is drawn as "unknown" rather than as an error or a zero — a project written by
-a newer Studio shows the parts Hub understands and the word unknown for the
-rest, which is what keeps Hub from having to be upgraded in step with Studio.
+gathered by `src/view.ts`. Nothing under `src/tui/` opens the database or a
+repository, and there are assertions that say so. What Hub cannot work out
+arrives absent and is drawn as "unknown" rather than as an error or a zero — a
+project written by a newer Studio shows the parts Hub understands and the word
+unknown for the rest, which is what keeps Hub from having to be upgraded in step
+with Studio. Absent and zero are different facts and are drawn differently: a
+project with no revisions reads `0`, `—` and `never`, one nobody has counted
+reads `?` and `unknown`.
 
 ## Building and running
 
@@ -516,13 +570,39 @@ npm run build
 node dist/nlhub.js --help
 ```
 
-`npm run build` bundles `src/nlhub.ts` into `dist/nlhub.js`, a single executable
-file with a `#!/usr/bin/env node` line. The version number is written into the
-bundle as it is built, so the finished file does not depend on a `package.json`
-sitting beside it.
+`npm run build` bundles `src/nlhub.ts` into `dist/nlhub.js`, an executable file
+with a `#!/usr/bin/env node` line. The version number is written into the bundle
+as it is built, so the finished file does not depend on a `package.json` sitting
+beside it.
+
+It is no longer a self-contained file, and it cannot be one. Reading a
+repository needs `koffi`, a native addon, and `lorelib`, a 29.5 MB shared
+library that arrives as one of four platform packages — Epic publish one per
+platform, each declaring the `os` and `cpu` it is for, so installing puts
+exactly one of them on disk. Neither can live inside a JavaScript bundle, so
+both are left external and found at runtime in `node_modules`. That is there for
+`npm i -g`, for a checkout, and inside a container; what stops being possible is
+copying `dist/nlhub.js` somewhere on its own and running it. Everything except
+reading a repository still works without them, and Hub says which projects it
+could not read rather than refusing to start.
+
+`LORE_LIB_PATH` names a `lorelib` to load instead, and skips the platform check
+on purpose: it is there for a machine Epic publishes no build for, where
+somebody who built the library themselves should be able to point Hub at it.
 
 The `bin` entry names the executable `nlhub`, so `npm link` puts a working
 `nlhub` command on the path during development.
+
+### What Hub redistributes, and under what terms
+
+`up` keeps Epic Games' `LICENSE.txt` and `THIRD-PARTY-NOTICES.txt` beside every
+binary it installs: `loreserver`'s come out of the release archive it was
+unpacked from, and `lorelib`'s are fetched from its own release archive into
+`<root>/bin/lorelib-<version>/`. The library itself comes from npm, and its
+package lists both files among its `files` while shipping neither — checked
+against 0.8.6, where the published tarball holds the library, two entry points
+and a README. Fetching them is not a precondition of anything: a machine that
+cannot reach GitHub says so once and carries on.
 
 ## Development
 
@@ -533,11 +613,15 @@ The `bin` entry names the executable `nlhub`, so `npm link` puts a working
 | `npm run typecheck` | Check types without emitting anything                 |
 | `npm test`          | Run the test suite once                               |
 
-The runtime dependencies are Ink and React, and they are there for the terminal
-interface alone; nothing else in Hub imports either. Everything else is written
-here. That includes gRPC, which Hub both serves and calls: `src/grpc/` is the
-protocol buffer codec, the framing, a server and a client, on `node:http2`, for
-the dozen small messages `loreserver` and Hub exchange. It also includes X.509:
+The runtime dependencies are Ink and React for the terminal interface, and
+`koffi` with one `@lore-vcs/sdk-*` platform package for reading a repository.
+Everything else is written here. That includes the binding to `lorelib`:
+`src/lore/` is the slice of Epic's C ABI Hub uses, a loader, an event decoder
+and a dozen verbs, none of which writes anything. It includes gRPC, which Hub
+both serves and calls: `src/grpc/` is the protocol buffer codec, the framing, a
+server and a client, on `node:http2`, for the dozen small messages `loreserver`
+and Hub exchange. It includes reading MessagePack, which is what a Studio
+project file is written in. And it includes X.509:
 `src/tls/` writes the DER of a certificate a byte at a time, and `node:crypto`
 signs it.
 
@@ -561,10 +645,20 @@ allows for them, and complete a real TLS handshake between a server holding the
 generated pair and a client holding the authority. A certificate that only looks
 right is worth nothing.
 
-`npm test` downloads nothing and contacts nothing outside the machine. The test
-of the whole lifecycle against a real `loreserver` is skipped unless
-`NLHUB_TEST_LORESERVER_ROOT` names a directory it may install into:
+`npm test` downloads nothing and contacts nothing outside the machine. The tests
+that need a real `loreserver` — the whole lifecycle, and reading a project while
+the server holds its store — are skipped unless `NLHUB_TEST_LORESERVER_ROOT`
+names a directory they may install into:
 
 ```sh
 NLHUB_TEST_LORESERVER_ROOT=/tmp/nlhub-it npm test
+```
+
+Reading covers more when `NLHUB_TEST_LORE_CLI` also names Epic's `lore`
+executable: with it the test puts a project into a repository and reads it back,
+which is the half of it a repository nobody has pushed to cannot reach. Hub
+binds no verb that writes a revision and is not going to grow one for a test.
+
+```sh
+NLHUB_TEST_LORESERVER_ROOT=/tmp/nlhub-it NLHUB_TEST_LORE_CLI=/opt/lore/lore npm test
 ```
