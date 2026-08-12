@@ -77,9 +77,13 @@ export function installPlan(caCertPath: string): TrustPlan {
         support: "runs-here",
         command: `certutil -user -addstore Root ${quote(caCertPath)}`,
         argv: ["certutil", "-user", "-addstore", "Root", caCertPath],
+        // Measured on Windows 11: adding to the current user's Root store goes
+        // through without a dialog. Whether it does is a matter of policy, so
+        // the possibility is still mentioned — a modal window that opened
+        // behind this one is indistinguishable from a program that has hung.
         interaction:
-          "Windows will ask you to confirm installing a root certificate, in a dialog of " +
-          "its own. It may open behind this window.",
+          "Windows may ask you to confirm installing a root certificate, in a dialog of " +
+          "its own. If this seems to have stopped, look for a window behind this one.",
       };
     case "darwin":
       // Without -d this is the login keychain, which is the current user's.
@@ -122,7 +126,15 @@ export function removePlan(caCertPath: string, certificate: X509Certificate): Tr
         support: "runs-here",
         command: `certutil -user -delstore Root ${thumbprint}`,
         argv: ["certutil", "-user", "-delstore", "Root", thumbprint],
-        interaction: undefined,
+        // Measured, and the opposite way round from what one would guess:
+        // adding to the Root store is silent and *removing* raises a
+        // confirmation dialog. Windows guards the removal wherever it is asked
+        // for — `certutil -f` does not suppress it, and neither does the
+        // X509Store API. Without this warning the command sits there having
+        // printed the certificate it is about to delete, apparently stuck.
+        interaction:
+          "Windows will ask you to confirm removing a root certificate, in a dialog of its " +
+          "own. It may open behind this window, and nothing happens until you answer it.",
       };
     }
     case "darwin":

@@ -158,7 +158,11 @@ describe("what each platform is asked to do", () => {
           "Root",
           certificates.authority.certificate.fingerprint.replaceAll(":", ""),
         ]);
+        // Both are warned about before the command starts. Removing is the one
+        // that certainly opens a dialog on Windows — adding was measured not to
+        // — and a command waiting on a window behind this one looks hung.
         expect(install.interaction).toContain("confirm");
+        expect(remove.interaction).toContain("confirm");
         break;
       case "darwin":
         // No -d: that is the admin store, and it needs root.

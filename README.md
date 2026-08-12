@@ -199,12 +199,14 @@ connection you are about to trust. Nothing is ever installed as a side effect of
 `up`.
 
 `--install` puts the authority into the **current user's** trust store: the
-`Root` store on Windows, the login keychain on macOS. Both operating systems
-raise a window of their own — a confirmation on Windows, a password prompt on
-macOS — and Hub says so before starting the command, because a dialog that
-opened behind another window looks exactly like a program that has hung. Linux
-has no per-user store that other programs read, so nothing is run there and the
-two commands to run under `sudo` are printed instead.
+`Root` store on Windows, the login keychain on macOS. Both operating systems may
+raise a window of their own, and Hub says so before starting the command,
+because a dialog that opened behind another window looks exactly like a program
+that has hung. On Windows it is the opposite way round from what you would
+expect: adding is silent, and **removing** raises a confirmation dialog that
+nothing suppresses. Linux has no per-user store that other programs read, so
+nothing is run there and the two commands to run under `sudo` are printed
+instead.
 
 ### The certificates
 
