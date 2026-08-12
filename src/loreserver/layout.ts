@@ -102,12 +102,14 @@ export interface LoreserverAuth {
   /** Where loreserver fetches Hub's public keys. */
   readonly jwksUrl: string;
   /**
-   * Where loreserver asks who a caller is.
+   * Where a caller signs in, and where loreserver asks who a caller is.
    *
-   * It connects there over gRPC, forwarding the caller's own `authorization`
-   * header, before it lets anybody near a repository. Plain HTTP/2 is enough —
-   * loreserver 0.8.6 asks for no certificate on this leg — and the address is
-   * Hub on the same machine.
+   * One setting, two readers. A client is handed this address and will not use
+   * anything but https, so this is Hub's TLS listener. loreserver connects to
+   * the same address over gRPC, forwarding the caller's own `authorization`
+   * header, before it lets anybody near a repository — and it verifies the
+   * certificate, refusing an unknown authority with `tlsv1 alert unknown ca`.
+   * src/up.ts records what was measured about that and what is done about it.
    */
   readonly authUrl: string;
 }

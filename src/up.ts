@@ -34,7 +34,7 @@ import {
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { Supervisor, describeExit } from "./loreserver/supervisor.js";
 import { startAuthorizationService } from "./projects/service.js";
-import { ensureCertificates } from "./tls/authority.js";
+import { ensureCertificates, type HubAuthority } from "./tls/authority.js";
 import { trustCommandFor } from "./tls/trust.js";
 import { VERSION } from "./version.js";
 
@@ -89,6 +89,40 @@ function whenAborted(signal: AbortSignal | undefined): Promise<void> {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The environment that lets loreserver reach Hub's https auth endpoint.
+ *
+ * `auth_url` serves two callers at once. It is where a client is told to sign
+ * in, so it has to be the https origin — and it is also where loreserver itself
+ * asks whether a caller may touch a repository. Measured against loreserver
+ * 0.8.6 on Windows, with the endpoint on https and nothing else done:
+ *
+ *   - loreserver does connect, and does start a TLS handshake.
+ *   - It refuses the certificate with `tlsv1 alert unknown ca` (alert 48), and
+ *     the call fails with "Failed to connect to rebac service". A repository
+ *     cannot be created, and no repository can be opened.
+ *   - Its TLS client is rustls with `rustls-native-certs`, which reads
+ *     `SSL_CERT_FILE` before it reads the platform's own store.
+ *   - With `SSL_CERT_FILE` naming Hub's authority, the handshake completes and
+ *     the whole flow works: `nlhub project create` succeeds and Hub logs the
+ *     `CreateResource` call arriving on the TLS listener.
+ *
+ * So the authority is handed to loreserver directly rather than by asking an
+ * operator to install it on the server machine as well. It is narrower than a
+ * trust store change in both directions: only this process is affected, and
+ * only for as long as Hub is running it.
+ *
+ * The one thing it costs is that loreserver, while Hub supervises it, trusts
+ * Hub's authority and no other. Everything a Hub-configured loreserver reaches
+ * is on this machine — the JWKS over the loopback in plain HTTP, and this
+ * endpoint — so there is nothing else for it to verify. A configuration that
+ * gave it a remote store or a telemetry endpoint over https would need the
+ * public roots back, and this is the line that would have to change.
+ */
+function loreserverTrustAnchor(authority: HubAuthority): Record<string, string> {
+  return { SSL_CERT_FILE: authority.layout.caCertPath };
 }
 
 /** What loreserver has to be told when identity is switched on. */
@@ -227,6 +261,11 @@ export async function up(
     } else {
       stdout(`loreserver will demand a token from ${auth.issuer} for ${auth.audience[0]}\n`);
       stdout(`clients are told to sign in at ${auth.authUrl}\n`);
+      stdout(
+        `loreserver reaches that endpoint too, and is given ${
+          certificates.authority.layout.caCertPath
+        }\n      as the only authority it trusts while Hub runs it\n`,
+      );
     }
 
     // Only a failure that ends supervision should cut the health wait short; a
@@ -238,6 +277,10 @@ export async function up(
       command: layout.binaryPath,
       args: ["--config", layout.configDir],
       logPath: layout.logPath,
+      // See the note on loreserverTrustAnchor: without this, loreserver cannot
+      // reach the https `auth_url` it was configured with, and every repository
+      // access fails.
+      ...(auth === undefined ? {} : { env: loreserverTrustAnchor(certificates.authority) }),
       onEvent: (event) => {
         switch (event.kind) {
           case "started":

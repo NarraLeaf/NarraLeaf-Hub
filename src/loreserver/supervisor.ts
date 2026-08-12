@@ -103,6 +103,11 @@ export interface SupervisorOptions {
   readonly logPath: string;
   readonly cwd?: string;
   /**
+   * Environment variables set on top of this process's own, on every start
+   * including a restart.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+  /**
    * A run lasting at least this long is taken as a success, and clears the
    * count of consecutive failures. Shorter runs are what "failing rapidly"
    * means.
@@ -224,11 +229,15 @@ export class Supervisor {
 
   /** Spawn one child and, once it is running, watch it. */
   async #launch(attempt: number): Promise<void> {
-    const { command, args, cwd } = this.#options;
+    const { command, args, cwd, env } = this.#options;
     const child = spawn(command, [...args], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       ...(cwd === undefined ? {} : { cwd }),
+      // On top of this process's environment rather than instead of it: a
+      // child started with only what is named here would lose PATH, TEMP and
+      // everything else it needs to run at all.
+      ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
     });
     this.#child = child;
 
