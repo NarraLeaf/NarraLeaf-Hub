@@ -138,6 +138,18 @@ export function findUser(database: DatabaseSync, username: string): UserRecord |
   return row === undefined ? undefined : toUser(database, row);
 }
 
+/**
+ * The account with this id, or undefined.
+ *
+ * The id is what a token's `sub` claim holds, so this is how a caller who
+ * presented one is turned back into an account. It is separate from lookup by
+ * name because a name can be typed and an id cannot: nothing normalises here.
+ */
+export function findUserById(database: DatabaseSync, id: string): UserRecord | undefined {
+  const row = database.prepare(`${SELECT_USER} WHERE id = ?`).get(id);
+  return row === undefined ? undefined : toUser(database, row);
+}
+
 /** The account with this name, or a failure naming it. */
 export function requireUser(database: DatabaseSync, username: string): UserRecord {
   const user = findUser(database, username);

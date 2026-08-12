@@ -17,13 +17,22 @@
  *     idp                 which identity provider vouched for the user
  *     iat, exp
  *
- * Nothing else is added. An extra claim is not refused, but it would be
- * something no verifier reads and every token carries.
+ * One claim is Hub's own:
+ *
+ *     token_epoch         the account's `token_epoch` when this was signed
+ *
+ * It is there because Hub is a verifier too — it is the service loreserver asks
+ * about a caller — and the epoch is what makes tokens minted before a
+ * revocation refusable without keeping a list of every token ever issued.
+ * loreserver ignores a claim it does not know.
+ *
+ * Nothing else is added. An extra claim is not refused, but one no verifier
+ * reads would be something every token carries for nobody.
  */
-import { createSign } from "node:crypto";
+import { createPublicKey, createSign, createVerify } from "node:crypto";
 
-import { tokenAudience, type IdentityConfig } from "./config.js";
-import type { HubKey } from "./keys.js";
+import { authUrl, tokenAudience, type IdentityConfig } from "./config.js";
+import type { HubKey, KeyStore } from "./keys.js";
 import type { UserRecord } from "./users.js";
 
 /** The claims of one token, in the shape they are signed in. */
@@ -40,6 +49,8 @@ export interface TokenClaims {
   /** Seconds since the epoch, as JWT counts time. */
   readonly iat: number;
   readonly exp: number;
+  /** The account's `token_epoch` at the moment this was signed. */
+  readonly token_epoch: number;
 }
 
 /** The JOSE header of one token. */
@@ -100,16 +111,19 @@ export interface MintOptions {
  *     exchanges a token. This function refuses outright, and so does the sign-in
  *     path; the account cannot obtain anything new from the moment it is
  *     disabled.
- *   - A token already in someone's hands keeps working until `exp`. Nothing in
- *     this system can stop that, short of rotating and retiring the signing key,
- *     which invalidates everybody's tokens at once.
- *   - Bumping the user's `token_epoch` is what makes their outstanding tokens
- *     unrenewable: the epoch is recorded when a token is minted, and an exchange
- *     compares it with the user's epoch as it stands then.
+ *   - A token already in someone's hands keeps working against loreserver until
+ *     `exp`. Nothing in this system can stop that, short of rotating and
+ *     retiring the signing key, which invalidates everybody's tokens at once.
+ *   - Bumping the user's `token_epoch` refuses that token everywhere Hub is the
+ *     one checking it: the epoch is written into the token, and {@link
+ *     verifyToken}'s caller compares it with the account's epoch as it stands
+ *     now. What loreserver lets through on its own — the signature and the
+ *     expiry — is unaffected, but every repository access goes on to ask Hub.
  *
- * So the lifetime is the revocation window. That is why it is fifteen minutes
- * and not a day: the number is how long a disabled account keeps working, and
- * every extra hour of convenience is an extra hour of exactly that.
+ * So the lifetime is the revocation window for anything Hub is not asked about.
+ * That is why it is fifteen minutes and not a day: the number is how long a
+ * disabled account keeps working, and every extra hour of convenience is an
+ * extra hour of exactly that.
  */
 export function mintToken(
   user: UserRecord,
@@ -138,6 +152,7 @@ export function mintToken(
     idp: config.idp,
     iat: issuedAt,
     exp: issuedAt + config.tokenLifetimeSeconds,
+    token_epoch: user.tokenEpoch,
   };
 
   const signingInput = `${encodeSegment(header)}.${encodeSegment(claims)}`;
@@ -164,4 +179,186 @@ export function decodeToken(token: string): { header: unknown; claims: unknown }
     header: JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as unknown,
     claims: JSON.parse(Buffer.from(claims, "base64url").toString("utf8")) as unknown,
   };
+}
+
+/** Why a token was not accepted. */
+export type TokenRefusal =
+  | "malformed"
+  | "unsupported-algorithm"
+  /** No published key has that `kid`, so nothing here signed it, or it was retired. */
+  | "unknown-key"
+  | "bad-signature"
+  | "wrong-issuer"
+  | "wrong-audience"
+  | "expired";
+
+/** What checking a token came to. */
+export type TokenVerification =
+  | { readonly kind: "verified"; readonly claims: TokenClaims; readonly kid: string }
+  | { readonly kind: "refused"; readonly reason: TokenRefusal };
+
+/** One sentence for each way a token can be refused. */
+export const TOKEN_REFUSAL_REASONS: Readonly<Record<TokenRefusal, string>> = {
+  malformed: "the token is not a JWT this Hub could take apart",
+  "unsupported-algorithm": "the token is not signed with RS256",
+  "unknown-key": "no published key of this Hub signed the token",
+  "bad-signature": "the token's signature does not match its contents",
+  "wrong-issuer": "the token was issued by somebody else",
+  "wrong-audience": "the token was not meant for this Hub",
+  expired: "the token has expired",
+};
+
+/** Read the JSON of a token's parts, or say it is not a token. */
+function segments(
+  token: string,
+): { header: unknown; claims: unknown; signingInput: string; signature: Buffer } | undefined {
+  const parts = token.split(".");
+  const [header, claims, signature] = parts;
+  if (parts.length !== 3) {
+    return undefined;
+  }
+  if (header === undefined || claims === undefined || signature === undefined) {
+    return undefined;
+  }
+  try {
+    return {
+      header: JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as unknown,
+      claims: JSON.parse(Buffer.from(claims, "base64url").toString("utf8")) as unknown,
+      signingInput: `${header}.${claims}`,
+      signature: Buffer.from(signature, "base64url"),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+/**
+ * Read a decoded claim set, insisting on every claim Hub writes.
+ *
+ * A token missing one is refused rather than defaulted: everything here comes
+ * out of {@link mintToken}, so an absent claim means the token came from
+ * something else that happened to have the key.
+ */
+function readClaims(value: unknown): TokenClaims | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const claims = value as Record<string, unknown>;
+  const { iss, sub, env, name, preferred_username, idp, aud, groups } = claims;
+  const { is_service_account, iat, exp, token_epoch } = claims;
+  if (
+    typeof iss !== "string" ||
+    typeof sub !== "string" ||
+    typeof env !== "string" ||
+    typeof name !== "string" ||
+    typeof preferred_username !== "string" ||
+    typeof idp !== "string" ||
+    typeof is_service_account !== "boolean" ||
+    typeof iat !== "number" ||
+    typeof exp !== "number" ||
+    typeof token_epoch !== "number" ||
+    !isStringArray(aud) ||
+    !isStringArray(groups)
+  ) {
+    return undefined;
+  }
+  return {
+    iss,
+    aud,
+    sub,
+    env,
+    name,
+    preferred_username,
+    groups,
+    is_service_account: is_service_account,
+    idp,
+    iat,
+    exp,
+    token_epoch,
+  };
+}
+
+/** Options a caller may vary per verification. */
+export interface VerifyOptions {
+  /** The moment to judge expiry against. Supplied by tests; defaults to now. */
+  readonly now?: Date;
+}
+
+/**
+ * Check a token Hub signed.
+ *
+ * This is the same check loreserver makes of the same token, done again by the
+ * side that has the private keys, because loreserver's answer is not something
+ * Hub can see: loreserver forwards the caller's `authorization` header to Hub
+ * and asks what that caller may reach, and an unreadable header has to mean the
+ * caller may reach nothing.
+ *
+ * Only a published key verifies. A retired key stays on disk so that its
+ * `kid` can be recognised, and a token it signed is refused here for the same
+ * reason it is refused by anything holding the JWKS: retiring is how a key
+ * stops being trusted.
+ *
+ * Nothing in the database is consulted — this settles what the token says, not
+ * whether the account it names may still do anything. src/identity/bearer.ts is
+ * where those two are put together.
+ */
+export function verifyToken(
+  token: string,
+  keys: KeyStore,
+  config: IdentityConfig,
+  options: VerifyOptions = {},
+): TokenVerification {
+  const parts = segments(token);
+  if (parts === undefined) {
+    return { kind: "refused", reason: "malformed" };
+  }
+
+  const header = parts.header as { alg?: unknown; kid?: unknown } | null;
+  if (header === null || typeof header !== "object" || typeof header.kid !== "string") {
+    return { kind: "refused", reason: "malformed" };
+  }
+  if (header.alg !== "RS256") {
+    return { kind: "refused", reason: "unsupported-algorithm" };
+  }
+
+  const key = keys.published.find((published) => published.kid === header.kid);
+  if (key === undefined) {
+    return { kind: "refused", reason: "unknown-key" };
+  }
+
+  // The signature is checked before anything the token claims is read, so that
+  // no decision downstream can be made from a value nobody signed. The public
+  // half is derived from the key on disk rather than taken from the JWKS, which
+  // is the same key by a longer route.
+  const signed = createVerify("RSA-SHA256")
+    .update(parts.signingInput)
+    .verify(createPublicKey(key.privateKey), parts.signature);
+  if (!signed) {
+    return { kind: "refused", reason: "bad-signature" };
+  }
+
+  const claims = readClaims(parts.claims);
+  if (claims === undefined) {
+    return { kind: "refused", reason: "malformed" };
+  }
+  if (claims.iss !== config.issuer) {
+    return { kind: "refused", reason: "wrong-issuer" };
+  }
+  // The audience carries loreserver's audience and this Hub's own origin. The
+  // second is what says the token was meant to be presented here, rather than
+  // to some other service that happens to accept the same issuer.
+  if (!claims.aud.includes(authUrl(config)) && !claims.aud.includes(config.audience)) {
+    return { kind: "refused", reason: "wrong-audience" };
+  }
+
+  const now = Math.floor((options.now?.getTime() ?? Date.now()) / 1000);
+  if (claims.exp <= now) {
+    return { kind: "refused", reason: "expired" };
+  }
+
+  return { kind: "verified", claims, kid: key.kid };
 }

@@ -139,6 +139,14 @@ describe("parseArgs, up", () => {
     expect(
       messageFor(["up", "--root", "/srv/hub", "--data-port", "9000", "--health-port", "9000"]),
     ).toContain("cannot both be 9000");
+    // Four listeners come up on one machine, so the check covers Hub's two as
+    // well: whichever lost the race would be silently absent.
+    expect(
+      messageFor(["up", "--root", "/srv/hub", "--hub-port", "9000", "--auth-port", "9000"]),
+    ).toContain("cannot both be 9000");
+    expect(
+      messageFor(["up", "--root", "/srv/hub", "--auth-port", String(DEFAULT_PORTS.dataPort)]),
+    ).toContain("cannot both be");
   });
 
   it("reports an option with nothing after it", () => {
@@ -257,9 +265,99 @@ describe("parseArgs, the identity commands", () => {
       ["user", "list"],
       ["user", "disable", "ada"],
       ["token", "mint", "ada"],
+      ["project", "list"],
+      ["project", "create", "harbour"],
       ["key", "rotate"],
     ]) {
       expect(messageFor(argv)).toContain("--root");
     }
+  });
+});
+
+describe("parseArgs, the project commands", () => {
+  it("creates a project, with the default loreserver port and no owner named", () => {
+    expect(parseArgs(["project", "create", "harbour", "--root", "/srv/hub"])).toEqual({
+      kind: "project-create",
+      root: "/srv/hub",
+      name: "harbour",
+      description: undefined,
+      // Absent means the account is worked out from the Hub, which only has an
+      // answer when there is exactly one.
+      as: undefined,
+      dataPort: DEFAULT_PORTS.dataPort,
+      overrides: {},
+    });
+  });
+
+  it("takes a description, an owner, a port and the identity settings", () => {
+    expect(
+      parseArgs([
+        "project",
+        "create",
+        "harbour",
+        "--root",
+        "/srv/hub",
+        "--description",
+        "a game about a port at night",
+        "--as",
+        "ada",
+        "--data-port",
+        "9000",
+        "--issuer",
+        "hub.example.com",
+      ]),
+    ).toMatchObject({
+      description: "a game about a port at night",
+      as: "ada",
+      dataPort: 9000,
+      overrides: { issuer: "hub.example.com" },
+    });
+  });
+
+  it("lists everything, or what one account can reach", () => {
+    expect(parseArgs(["project", "list", "--root", "/srv/hub"])).toEqual({
+      kind: "project-list",
+      root: "/srv/hub",
+      as: undefined,
+    });
+    expect(parseArgs(["project", "list", "--root", "/srv/hub", "--as", "ada"])).toMatchObject({
+      as: "ada",
+    });
+  });
+
+  it("grants read unless another level is named, and revokes", () => {
+    expect(parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/hub"])).toEqual({
+      kind: "project-grant",
+      root: "/srv/hub",
+      project: "harbour",
+      username: "ada",
+      level: "read",
+    });
+    expect(
+      parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/hub", "--level", "write"]),
+    ).toMatchObject({ level: "write" });
+    expect(parseArgs(["project", "revoke", "harbour", "ada", "--root", "/srv/hub"])).toEqual({
+      kind: "project-revoke",
+      root: "/srv/hub",
+      project: "harbour",
+      username: "ada",
+    });
+  });
+
+  it("refuses a level that is not one of the two that can be given", () => {
+    // Ownership comes from creating a project, so it is not something --level
+    // hands out.
+    expect(
+      messageFor(["project", "grant", "harbour", "ada", "--root", "/srv/hub", "--level", "owner"]),
+    ).toContain("read or write");
+  });
+
+  it("says what is missing, and names the verb it did not recognise", () => {
+    expect(messageFor(["project", "create", "--root", "/srv/hub"])).toContain("needs a name");
+    expect(messageFor(["project", "grant", "harbour", "--root", "/srv/hub"])).toContain(
+      "a project and a username",
+    );
+    expect(messageFor(["project", "invent"])).toBe("unknown project command: invent");
+    expect(messageFor(["project"])).toContain("create, list, grant or revoke");
   });
 });

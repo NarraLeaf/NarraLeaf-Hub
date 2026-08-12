@@ -101,7 +101,14 @@ export interface LoreserverAuth {
   readonly audience: readonly string[];
   /** Where loreserver fetches Hub's public keys. */
   readonly jwksUrl: string;
-  /** Where a client is told to go and authenticate. */
+  /**
+   * Where loreserver asks who a caller is.
+   *
+   * It connects there over gRPC, forwarding the caller's own `authorization`
+   * header, before it lets anybody near a repository. Plain HTTP/2 is enough —
+   * loreserver 0.8.6 asks for no certificate on this leg — and the address is
+   * Hub on the same machine.
+   */
   readonly authUrl: string;
 }
 
@@ -132,9 +139,10 @@ function tomlString(value: string): string {
  * The `[server.auth]` and `[environment.endpoint]` blocks.
  *
  * Both are needed, and the second is the one that is easy to leave out.
- * `[server.auth]` alone makes the server demand a token while the client is
- * never told there is anywhere to get one, and the failure that follows looks
- * like a broken client rather than a missing setting.
+ * `[server.auth]` alone makes the server demand a token while it has nowhere to
+ * ask about one, and every repository access is then refused with "Failed to
+ * connect to lore auth service" — which looks like a broken client rather than
+ * a missing setting.
  *
  * `jwt_audience` is an array. A bare string there makes loreserver refuse to
  * start.

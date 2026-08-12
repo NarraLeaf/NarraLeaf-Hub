@@ -4,8 +4,10 @@
  * Parsing is kept separate from anything that writes output or exits, so the
  * decision the arguments describe can be inspected on its own.
  */
+import { DEFAULT_IDENTITY } from "./identity/config.js";
 import { DEFAULT_INVITE_LIFETIME_MS, DEFAULT_ROLE } from "./identity/invites.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
+import { GRANTABLE_LEVELS, type AccessLevel } from "./projects/registry.js";
 
 /**
  * Identity settings named on a command line. Anything absent keeps the default
@@ -23,6 +25,7 @@ export interface IdentityOverrides {
   readonly idp?: string;
   readonly tokenLifetimeSeconds?: number;
   readonly hubPort?: number;
+  readonly authPort?: number;
 }
 
 /** What a command line asked the program to do. */
@@ -66,6 +69,34 @@ export type Invocation =
       readonly root: string;
       readonly username: string;
       readonly overrides: IdentityOverrides;
+    }
+  /** Create a repository on loreserver and record who owns it. */
+  | {
+      readonly kind: "project-create";
+      readonly root: string;
+      readonly name: string;
+      readonly description: string | undefined;
+      /** The account it is created for; absent when the Hub has only one. */
+      readonly as: string | undefined;
+      readonly dataPort: number;
+      readonly overrides: IdentityOverrides;
+    }
+  /** List the projects: all of them, or the ones one account can reach. */
+  | { readonly kind: "project-list"; readonly root: string; readonly as: string | undefined }
+  /** Let an account reach a project. */
+  | {
+      readonly kind: "project-grant";
+      readonly root: string;
+      readonly project: string;
+      readonly username: string;
+      readonly level: AccessLevel;
+    }
+  /** Stop an account reaching a project. */
+  | {
+      readonly kind: "project-revoke";
+      readonly root: string;
+      readonly project: string;
+      readonly username: string;
     }
   /** Show the signing keys. */
   | { readonly kind: "key-list"; readonly root: string }
@@ -226,6 +257,7 @@ const IDENTITY_OPTIONS = [
   "--idp",
   "--token-lifetime",
   "--hub-port",
+  "--auth-port",
 ] as const;
 
 /**
@@ -242,6 +274,7 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     idp?: string;
     tokenLifetimeSeconds?: number;
     hubPort?: number;
+    authPort?: number;
   } = {};
 
   const issuer = tokens.values.get("--issuer");
@@ -283,6 +316,14 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
       return port;
     }
     overrides.hubPort = port;
+  }
+  const authPort = tokens.values.get("--auth-port");
+  if (authPort !== undefined) {
+    const port = parsePort("--auth-port", authPort);
+    if (typeof port === "string") {
+      return port;
+    }
+    overrides.authPort = port;
   }
 
   return overrides;
@@ -330,16 +371,26 @@ function parseUp(argv: readonly string[]): Invocation {
     healthPort = port;
   }
 
-  // loreserver's gRPC and QUIC listeners deliberately share one number, one on
-  // TCP and one on UDP. Its HTTP listener does not: two listeners on the same
-  // TCP port would leave whichever lost the race silently absent.
-  if (dataPort === healthPort) {
-    return error(`--data-port and --health-port cannot both be ${dataPort}`);
-  }
-
   const overrides = readIdentityOverrides(tokens);
   if (typeof overrides === "string") {
     return error(overrides);
+  }
+
+  // Four TCP listeners come up on one machine, and two on the same port would
+  // leave whichever lost the race silently absent. loreserver's gRPC and QUIC
+  // listeners deliberately share one number, one on TCP and one on UDP, which
+  // is why only one of them is in this list.
+  const listeners: readonly (readonly [string, number])[] = [
+    ["--data-port", dataPort],
+    ["--health-port", healthPort],
+    ["--hub-port", overrides.hubPort ?? DEFAULT_IDENTITY.hubPort],
+    ["--auth-port", overrides.authPort ?? DEFAULT_IDENTITY.authPort],
+  ];
+  for (const [index, listener] of listeners.entries()) {
+    const clash = listeners.slice(index + 1).find(([, port]) => port === listener[1]);
+    if (clash !== undefined) {
+      return error(`${listener[0]} and ${clash[0]} cannot both be ${listener[1]}`);
+    }
   }
 
   return {
@@ -516,6 +567,119 @@ function parseToken(argv: readonly string[]): Invocation {
   return { kind: "token-mint", root, username, overrides };
 }
 
+/** Parse the arguments that follow `project`. */
+function parseProject(argv: readonly string[]): Invocation {
+  const [verb, ...rest] = argv;
+  if (verb === undefined) {
+    return error("project needs a verb: create, list, grant or revoke");
+  }
+  if (verb === "-h" || verb === "--help") {
+    return { kind: "help" };
+  }
+
+  if (verb === "create") {
+    const result = readTokens(rest, [
+      "--root",
+      "--description",
+      "--as",
+      "--data-port",
+      ...IDENTITY_OPTIONS,
+    ]);
+    if (result.kind !== "tokens") {
+      return result.kind === "help" ? { kind: "help" } : error(result.message);
+    }
+    const { tokens } = result;
+
+    const name = tokens.positionals[0];
+    if (name === undefined) {
+      return error("project create needs a name");
+    }
+    if (tokens.positionals[1] !== undefined) {
+      return error(`unexpected argument: ${tokens.positionals[1]}`);
+    }
+    const root = tokens.values.get("--root");
+    if (root === undefined) {
+      return missingRoot("project create");
+    }
+
+    let dataPort = DEFAULT_PORTS.dataPort;
+    const dataPortText = tokens.values.get("--data-port");
+    if (dataPortText !== undefined) {
+      const port = parsePort("--data-port", dataPortText);
+      if (typeof port === "string") {
+        return error(port);
+      }
+      dataPort = port;
+    }
+
+    const overrides = readIdentityOverrides(tokens);
+    if (typeof overrides === "string") {
+      return error(overrides);
+    }
+
+    return {
+      kind: "project-create",
+      root,
+      name,
+      description: tokens.values.get("--description"),
+      as: tokens.values.get("--as"),
+      dataPort,
+      overrides,
+    };
+  }
+
+  if (verb === "list") {
+    const result = readTokens(rest, ["--root", "--as"]);
+    if (result.kind !== "tokens") {
+      return result.kind === "help" ? { kind: "help" } : error(result.message);
+    }
+    const { tokens } = result;
+    const extra = tokens.positionals[0];
+    if (extra !== undefined) {
+      return error(`unexpected argument: ${extra}`);
+    }
+    const root = tokens.values.get("--root");
+    if (root === undefined) {
+      return missingRoot("project list");
+    }
+    return { kind: "project-list", root, as: tokens.values.get("--as") };
+  }
+
+  if (verb === "grant" || verb === "revoke") {
+    const result = readTokens(rest, verb === "grant" ? ["--root", "--level"] : ["--root"]);
+    if (result.kind !== "tokens") {
+      return result.kind === "help" ? { kind: "help" } : error(result.message);
+    }
+    const { tokens } = result;
+
+    const [project, username, extra] = tokens.positionals;
+    if (project === undefined || username === undefined) {
+      return error(`project ${verb} needs a project and a username`);
+    }
+    if (extra !== undefined) {
+      return error(`unexpected argument: ${extra}`);
+    }
+    const root = tokens.values.get("--root");
+    if (root === undefined) {
+      return missingRoot(`project ${verb}`);
+    }
+    if (verb === "revoke") {
+      return { kind: "project-revoke", root, project, username };
+    }
+
+    // Read and write are the levels that can be given. Ownership is not one of
+    // them: it comes from creating the project, and a project has one owner.
+    const level = tokens.values.get("--level") ?? "read";
+    const granted = GRANTABLE_LEVELS.find((known) => known === level);
+    if (granted === undefined) {
+      return error(`--level is ${GRANTABLE_LEVELS.join(" or ")}, not "${level}"`);
+    }
+    return { kind: "project-grant", root, project, username, level: granted };
+  }
+
+  return error(`unknown project command: ${verb}`);
+}
+
 /** Parse the arguments that follow `key`. */
 function parseKey(argv: readonly string[]): Invocation {
   const [verb, ...rest] = argv;
@@ -580,6 +744,8 @@ export function parseArgs(argv: readonly string[]): Invocation {
       return parseUser(rest);
     case "token":
       return parseToken(rest);
+    case "project":
+      return parseProject(rest);
     case "key":
       return parseKey(rest);
     default:

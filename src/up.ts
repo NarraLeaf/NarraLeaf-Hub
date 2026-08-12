@@ -8,7 +8,13 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import type { WriteText } from "./cli.js";
-import { authUrl, identityConfig, jwksUrl, type IdentityConfig } from "./identity/config.js";
+import type { GrpcServer } from "./grpc/server.js";
+import {
+  identityConfig,
+  jwksUrl,
+  loreserverAuthUrl,
+  type IdentityConfig,
+} from "./identity/config.js";
 import { openMigratedDatabase } from "./identity/database.js";
 import { IdentityEndpoint } from "./identity/endpoint.js";
 import { createInvite, withdrawUnusedBootstrapInvites } from "./identity/invites.js";
@@ -27,6 +33,7 @@ import {
 } from "./loreserver/layout.js";
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { Supervisor, describeExit } from "./loreserver/supervisor.js";
+import { startAuthorizationService } from "./projects/service.js";
 import { VERSION } from "./version.js";
 
 export interface UpOptions extends LoreserverPorts {
@@ -84,7 +91,10 @@ function loreserverAuth(config: IdentityConfig): LoreserverAuth {
     // what a token carries. A token is accepted when its `aud` array holds it.
     audience: [config.audience],
     jwksUrl: jwksUrl(config.hubPort),
-    authUrl: authUrl(config),
+    // Hub's authorization service, on the loopback and in plain HTTP/2. Not
+    // the https origin in the `aud` claim: that is where a person signs in, and
+    // this is where loreserver asks about the token they signed in with.
+    authUrl: loreserverAuthUrl(config),
   };
 }
 
@@ -107,6 +117,7 @@ export async function up(
 
   let supervisor: Supervisor | undefined;
   let endpoint: IdentityEndpoint | undefined;
+  let authorization: GrpcServer | undefined;
   let database: DatabaseSync | undefined;
 
   try {
@@ -136,6 +147,19 @@ export async function up(
     });
     stdout(`identity endpoint on ${endpoint.url}, signing with ${keys.signingKey.kid}\n`);
 
+    // The authorization service comes up whether or not loreserver is told to
+    // use it, so that the port is proved free at the same moment the other two
+    // are, rather than on the first repository access somebody attempts.
+    authorization = await startAuthorizationService({
+      port: config.authPort,
+      database,
+      keys,
+      config,
+      log: (line) => stdout(`${line}\n`),
+      onError: (error) => stderr(`nlhub: authorization service: ${error.message}\n`),
+    });
+    stdout(`authorization service on ${authorization.url}\n`);
+
     await ensureInstalled(layout, artifact, {
       onAlreadyInstalled: (path) => stdout(`already installed at ${path}\n`),
       onFetching: (url) => stdout(`fetching ${url}\n`),
@@ -158,16 +182,15 @@ export async function up(
       stdout("loreserver will accept any client: pass --identity to make it demand a token\n");
     } else {
       stdout(`loreserver will demand a token from ${auth.issuer} for ${auth.audience[0]}\n`);
-      // The configuration written above also tells loreserver where to reach an
-      // authorization service, and Hub does not answer on that address yet. Until
-      // it does, a NarraLeaf Studio installation has no way to sign in, and every
-      // request that reaches a repository is refused with "Failed to connect to
-      // lore auth service". Saying so here is cheaper than letting an operator
-      // discover it from that message.
+      stdout(`loreserver will ask ${auth.authUrl} who a caller is\n`);
+      // A Studio installation still has no way to obtain a token: it would sign
+      // in at the https origin in the `aud` claim, and nothing serves that yet.
+      // Tokens from `nlhub token mint` work, which is what `nlhub project
+      // create` uses. Saying so here is cheaper than letting an operator find
+      // out from a client that cannot connect.
       stdout(
-        "note: signing in is not finished yet — Hub issues tokens, but the service\n" +
-          "      loreserver asks about them is not implemented, so clients cannot\n" +
-          "      connect and repository access is refused\n",
+        "note: signing in from Studio is not finished yet — a token has to come from\n" +
+          "      nlhub token mint, and there is no endpoint for a client to sign in at\n",
       );
     }
 
@@ -244,10 +267,13 @@ export async function up(
     stderr(`nlhub: ${describeError(error)}\n`);
     return 1;
   } finally {
-    // The endpoint holds a listening socket and the database a file handle;
-    // either would keep the process alive after the work is over.
+    // Both servers hold a listening socket and the database a file handle; any
+    // of them would keep the process alive after the work is over.
     if (endpoint !== undefined) {
       await endpoint.close();
+    }
+    if (authorization !== undefined) {
+      await authorization.close();
     }
     database?.close();
   }

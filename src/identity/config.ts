@@ -41,6 +41,15 @@ export interface IdentityConfig {
   readonly tokenLifetimeSeconds: number;
   /** The port Hub's own HTTP endpoint listens on. */
   readonly hubPort: number;
+  /**
+   * The port Hub's authorization service listens on.
+   *
+   * This is the address loreserver is given as `auth_url` and asks whether a
+   * caller may touch a repository. It is a second port rather than a second
+   * path on {@link hubPort} because the two speak different protocols: one
+   * serves documents over HTTP/1.1, the other gRPC over HTTP/2.
+   */
+  readonly authPort: number;
 }
 
 /** The identity settings used when an operator names none. */
@@ -55,6 +64,7 @@ export const DEFAULT_IDENTITY: IdentityConfig = {
   idp: "narraleaf-hub",
   tokenLifetimeSeconds: 15 * 60,
   hubPort: 41400,
+  authPort: 41401,
 };
 
 /**
@@ -97,4 +107,18 @@ export function tokenAudience(config: IdentityConfig): string[] {
 /** Where Hub publishes its JWKS, as loreserver is told to fetch it. */
 export function jwksUrl(hubPort: number, host = "127.0.0.1"): string {
   return `http://${host}:${hubPort}/.well-known/jwks.json`;
+}
+
+/**
+ * Where loreserver asks whether a caller may touch a repository, as it is
+ * written into its `auth_url`.
+ *
+ * Plain HTTP, and deliberately not {@link authUrl}. Two different things are
+ * called an auth URL here: the origin a person signs in at, which is on the
+ * public side of a deployment and must be https, and this one, which is
+ * loreserver on one machine calling Hub on the same machine over the loopback.
+ * loreserver 0.8.6 speaks h2c to it and asks for no certificate.
+ */
+export function loreserverAuthUrl(config: IdentityConfig, host = "127.0.0.1"): string {
+  return `http://${host}:${config.authPort}`;
 }
