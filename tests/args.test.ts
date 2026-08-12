@@ -51,7 +51,46 @@ describe("parseArgs, up", () => {
       root: "/srv/hub",
       dataPort: DEFAULT_PORTS.dataPort,
       healthPort: DEFAULT_PORTS.healthPort,
+      // Identity is off unless it is asked for: a loreserver that suddenly
+      // demanded a token would lock out every client an operator already has.
+      identity: false,
+      overrides: {},
     });
+  });
+
+  it("switches identity on, and carries the settings that go with it", () => {
+    expect(
+      parseArgs([
+        "up",
+        "--root",
+        "/srv/hub",
+        "--identity",
+        "--issuer",
+        "hub.example.com",
+        "--audience",
+        "lore",
+        "--auth-origin",
+        "hub.example.com",
+        "--hub-port",
+        "41500",
+        "--token-lifetime",
+        "5m",
+      ]),
+    ).toMatchObject({
+      identity: true,
+      overrides: {
+        issuer: "hub.example.com",
+        audience: "lore",
+        authOrigin: "hub.example.com",
+        hubPort: 41500,
+        tokenLifetimeSeconds: 300,
+      },
+    });
+  });
+
+  it("refuses an auth origin written as a URL, which would be doubled", () => {
+    expect(messageFor(["up", "--root", "/srv/hub", "--auth-origin", "https://hub.example.com"]))
+      .toContain("without a scheme");
   });
 
   it("accepts ports on the command line", () => {
@@ -113,5 +152,114 @@ describe("parseArgs, up", () => {
   it("answers --help after the command with help", () => {
     expect(parseArgs(["up", "--help"])).toEqual({ kind: "help" });
     expect(parseArgs(["up", "--root", "/srv/hub", "-h"])).toEqual({ kind: "help" });
+  });
+});
+
+describe("parseArgs, the identity commands", () => {
+  it("makes an invite with a default role and expiry", () => {
+    expect(parseArgs(["invite", "create", "--root", "/srv/hub"])).toEqual({
+      kind: "invite-create",
+      root: "/srv/hub",
+      role: "member",
+      lifetimeMs: 7 * 24 * 60 * 60 * 1000,
+    });
+  });
+
+  it("reads a duration in the units people write them in", () => {
+    expect(parseArgs(["invite", "create", "--root", "/srv/hub", "--expires", "48h"])).toMatchObject(
+      { lifetimeMs: 48 * 60 * 60 * 1000 },
+    );
+    expect(parseArgs(["invite", "create", "--root", "/srv/hub", "--expires", "90"])).toMatchObject({
+      lifetimeMs: 90 * 1000,
+    });
+    expect(messageFor(["invite", "create", "--root", "/srv/hub", "--expires", "soon"])).toContain(
+      "duration",
+    );
+  });
+
+  it("takes a username as the word after the verb", () => {
+    expect(parseArgs(["user", "disable", "ada", "--root", "/srv/hub"])).toEqual({
+      kind: "user-disable",
+      root: "/srv/hub",
+      username: "ada",
+    });
+    expect(parseArgs(["user", "enable", "--root", "/srv/hub", "ada"])).toEqual({
+      kind: "user-enable",
+      root: "/srv/hub",
+      username: "ada",
+    });
+    expect(messageFor(["user", "disable", "--root", "/srv/hub"])).toContain("needs a username");
+  });
+
+  it("insists that an account comes from an invitation", () => {
+    expect(
+      parseArgs(["user", "create", "ada", "--root", "/srv/hub", "--invite", "CODE"]),
+    ).toEqual({
+      kind: "user-create",
+      root: "/srv/hub",
+      username: "ada",
+      code: "CODE",
+      displayName: undefined,
+      email: undefined,
+      isServiceAccount: false,
+    });
+    expect(messageFor(["user", "create", "ada", "--root", "/srv/hub"])).toContain("--invite");
+  });
+
+  it("marks a service account when it is told to", () => {
+    expect(
+      parseArgs([
+        "user",
+        "create",
+        "builder",
+        "--root",
+        "/srv/hub",
+        "--invite",
+        "CODE",
+        "--service-account",
+        "--display-name",
+        "Build robot",
+      ]),
+    ).toMatchObject({ isServiceAccount: true, displayName: "Build robot" });
+  });
+
+  it("mints for one named account, with the identity settings it is given", () => {
+    expect(
+      parseArgs(["token", "mint", "ada", "--root", "/srv/hub", "--env", "staging"]),
+    ).toEqual({
+      kind: "token-mint",
+      root: "/srv/hub",
+      username: "ada",
+      overrides: { env: "staging" },
+    });
+  });
+
+  it("rotates and lists keys", () => {
+    expect(parseArgs(["key", "rotate", "--root", "/srv/hub"])).toEqual({
+      kind: "key-rotate",
+      root: "/srv/hub",
+    });
+    expect(parseArgs(["key", "list", "--root", "/srv/hub"])).toEqual({
+      kind: "key-list",
+      root: "/srv/hub",
+    });
+  });
+
+  it("names the verb it did not recognise, and the ones it has", () => {
+    expect(messageFor(["user", "invent", "--root", "/srv/hub"])).toBe("unknown user command: invent");
+    expect(messageFor(["user"])).toContain("list, create, disable or enable");
+    expect(messageFor(["key", "melt", "--root", "/srv/hub"])).toBe("unknown key command: melt");
+  });
+
+  it("wants a root for every command that keeps state", () => {
+    for (const argv of [
+      ["invite", "create"],
+      ["user", "list"],
+      ["user", "disable", "ada"],
+      ["token", "mint", "ada"],
+      ["key", "rotate"],
+    ]) {
+      expect(messageFor(argv)).toContain("--root");
+    }
   });
 });

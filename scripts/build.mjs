@@ -19,7 +19,7 @@ const options = {
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node22",
+  target: "node24",
   sourcemap: true,
   // A shell needs this first line to run the file directly. It is added here
   // rather than in the TypeScript source so that the checker and the test
