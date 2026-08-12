@@ -30,10 +30,15 @@ by hand.
 The third is done: `nlhub project create` creates a repository on `loreserver`,
 and `loreserver` asks Hub, on every access, whether the caller may have it.
 
+The fourth is done: `nlhub` with no command opens a terminal interface over the
+accounts, the projects and the settings, and over the same operations the
+commands carry out.
+
 Not yet implemented:
 
 - upgrading between pinned `loreserver` versions
-- the terminal interface and the project overview
+- a record of the decisions Hub has made, which today go only to the log of the
+  `up` process that made them
 
 ## Requirements
 
@@ -444,6 +449,65 @@ This is also what makes revocation immediate, and it is the part `loreserver`
 alone cannot do: it checks a token's signature and its expiry, and asks nothing
 else, but every repository access goes on to ask Hub.
 
+## The terminal interface
+
+```sh
+nlhub --root /srv/hub
+```
+
+A bare `nlhub` at a terminal opens the same thing on `NLHUB_ROOT`, or on the
+working directory when that already holds a Hub. Piped or redirected it prints
+the usage instead: `nlhub > notes` is asking for text, and an interface would
+give it a screenful of escape sequences. It draws on the alternate screen, so
+leaving it gives back the scrollback that was there before.
+
+Four surfaces, reached with `1` to `4` or `tab`:
+
+- **Dashboard.** Whether `loreserver` is up, whether its health check answers,
+  what the store holds, and the two addresses and the fingerprint a new machine
+  has to be told. Then the counts, the quick actions, and the last few
+  decisions.
+- **Users.** Every account with its role, its state and what it can reach.
+  `⏎` opens one, `d` disables or enables it, `x` refuses the tokens it already
+  holds, `i` makes an invitation and prints the code once.
+- **Projects.** Every project with its owner, who may reach it and how far.
+- **Settings.** Four groups: the two token lifetimes, the identity settings,
+  `loreserver`'s, and the authority. A row Hub has nowhere to write is marked
+  with `·` and pressing `⏎` on it does nothing — an editor over a value that
+  would be thrown away is worse than no editor, because it looks like it
+  worked.
+
+The log is not a fifth surface. `l` opens it over whatever is on screen,
+because it is read while something else is being looked at. `c` shows the
+connection details, `?` shows every key, `esc` closes the window on top, and
+`q` leaves.
+
+A detail panel changes shape with the width, and nothing is dropped as it
+narrows: from 150 columns it sits beside its list, between 100 and 149 it is a
+window over the middle, and below 100 it takes the body.
+
+### It is a second host, not a second implementation
+
+The interface carries nothing out itself. A key that changes something names
+what it wants, and that is met by calling exactly what the command of the same
+name calls: `d` reaches `disableUser`, `x` reaches `revokeUserTokens`, `i`
+reaches `createInvite`. What each one answers with says the same thing the
+command prints, including how far it reaches — `x` says that a connection
+already open may last until its repository token expires, because "every token"
+is otherwise read as including a session somebody has open.
+
+Three keys name a command instead of doing anything, and that is deliberate:
+`n`, `g` and `r` need a project's name or an account to grant to, which the
+interface has no way to ask for. Opening a window that pretended to do it would
+not be honest.
+
+Everything drawn arrives in one read-only structure, `src/tui/hubview.ts`,
+gathered by `src/view.ts`. Nothing under `src/tui/` opens the database, and
+there is an assertion that says so. What Hub cannot work out arrives absent and
+is drawn as "unknown" rather than as an error or a zero — a project written by
+a newer Studio shows the parts Hub understands and the word unknown for the
+rest, which is what keeps Hub from having to be upgraded in step with Studio.
+
 ## Building and running
 
 ```sh
@@ -469,11 +533,26 @@ The `bin` entry names the executable `nlhub`, so `npm link` puts a working
 | `npm run typecheck` | Check types without emitting anything                 |
 | `npm test`          | Run the test suite once                               |
 
-There are no runtime dependencies, and the intention is to keep it that way.
-That includes gRPC, which Hub both serves and calls: `src/grpc/` is the protocol
-buffer codec, the framing, a server and a client, on `node:http2`, for the dozen
-small messages `loreserver` and Hub exchange. It also includes X.509: `src/tls/`
-writes the DER of a certificate a byte at a time, and `node:crypto` signs it.
+The runtime dependencies are Ink and React, and they are there for the terminal
+interface alone; nothing else in Hub imports either. Everything else is written
+here. That includes gRPC, which Hub both serves and calls: `src/grpc/` is the
+protocol buffer codec, the framing, a server and a client, on `node:http2`, for
+the dozen small messages `loreserver` and Hub exchange. It also includes X.509:
+`src/tls/` writes the DER of a certificate a byte at a time, and `node:crypto`
+signs it.
+
+`scripts/tui-drive.mjs` runs the built executable's interface through a real
+pseudo-terminal and prints the grid a person would be looking at, one frame per
+key. It is a mechanical driver: it captures, it does not judge. It needs
+`node-pty` and `@xterm/headless`, which are not dependencies of this package —
+install them for a checkout with
+`npm install --no-save --no-package-lock node-pty @xterm/headless`, and it says
+so if they are missing.
+
+```sh
+node scripts/build.mjs
+node scripts/tui-drive.mjs --root /srv/hub --columns 120 --rows 40 --keys 2,down,x
+```
 
 The certificate tests are worth knowing about before changing anything under
 `src/tls/`. They read what the writer produced back with

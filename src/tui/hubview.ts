@@ -48,7 +48,15 @@ export interface UserView {
 
 /** What a revision history tells us, which does not depend on Studio at all. */
 export interface RevisionView {
-  readonly revisions: number;
+  /**
+   * How many revisions there are, absent when Hub has not counted them.
+   *
+   * Optional for the same reason everything else here is: a required number
+   * has to be given a value even when nobody knows it, and the value that
+   * gets given is zero — which reads as a project nobody has ever pushed to
+   * rather than as a question Hub did not ask.
+   */
+  readonly revisions?: number;
   readonly branch?: string;
   readonly bytes?: number;
   readonly lastAt?: number;

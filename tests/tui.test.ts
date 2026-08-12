@@ -274,12 +274,23 @@ describe("the dashboard is the first thing anybody sees", () => {
     expect(all).toMatch(/SHA256:/);
   });
 
-  it("offers the quick actions", () => {
+  it("offers the quick actions, all of them, at every size", () => {
+    // Naming three of the six was not enough. A layout that laid its lines
+    // out at one width and then put them in a box of another lost the last
+    // column, and both actions that went missing were ones this assertion
+    // did not name.
+    const ACTIONS = [
+      "invite somebody",
+      "new project",
+      "connection details",
+      "follow the log",
+      "rotate signing key",
+      "restart loreserver",
+    ];
     for (const size of SIZES) {
-      const all = snapshot(state, size, FIXTURE_VIEW).rows.join("\n");
-      for (const action of ["invite", "new project", "log"]) {
-        expect(all.toLowerCase()).toContain(action);
-      }
+      const all = snapshot(state, size, FIXTURE_VIEW).rows.join("\n").toLowerCase();
+      const missing = ACTIONS.filter((action) => !all.includes(action));
+      expect(missing).toEqual([]);
     }
   });
 });
