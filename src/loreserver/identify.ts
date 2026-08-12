@@ -1,15 +1,70 @@
 /**
- * Asking a loreserver binary which version it is, before running it.
+ * Establishing that the file about to be run really is the pinned loreserver.
  *
  * A file at the expected path is not proof of anything: it may have been
- * replaced by hand, left behind by an older Hub, or restored from a backup
- * taken when a different version was pinned. Starting the wrong server would
- * be discovered later, obscurely, as a protocol or store mismatch.
+ * replaced by hand, left behind by an older Hub, restored from a backup taken
+ * when a different version was pinned, or damaged since it was installed.
+ *
+ * Two questions are asked, in this order. What are its bytes, and what does it
+ * say it is. The digest is the stronger statement and comes first — a binary
+ * whose contents are unrecognised is worth reporting as that, whatever it goes
+ * on to claim about its version.
  */
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
+/** Raised when the installed binary's bytes are not the pinned ones. */
+export class BinaryContentsError extends Error {
+  constructor(
+    readonly binaryPath: string,
+    readonly expected: string,
+    readonly actual: string,
+  ) {
+    super(
+      `${binaryPath} is not the loreserver build Hub pins.\n` +
+        `  expected sha256 ${expected}\n` +
+        `  actual   sha256 ${actual}\n` +
+        "Its contents have changed since it was installed, or it was never the " +
+        "pinned build. Hub will not run it. Remove the file and run this again " +
+        "to reinstall it.",
+    );
+    this.name = "BinaryContentsError";
+  }
+}
+
+/** The SHA-256 of a file, as a lower-case hex string. */
+export async function fileSha256(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  // Streamed rather than read whole: the binary is tens of megabytes, and
+  // there is no reason to hold all of it at once.
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk as Uint8Array);
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Check the installed binary against the digest pinned for it.
+ *
+ * This runs on every start, cold install and warm start alike, and is not
+ * skipped on the strength of anything recorded on disk. A marker file saying
+ * the check once passed could be written by whatever wrote the binary, so it
+ * would prove nothing that needed proving. Hashing costs on the order of a
+ * tenth of a second, which is a small part of starting a server.
+ */
+export async function verifyBinaryDigest(
+  binaryPath: string,
+  expectedSha256: string,
+): Promise<void> {
+  const actual = await fileSha256(binaryPath);
+  if (actual !== expectedSha256) {
+    throw new BinaryContentsError(binaryPath, expectedSha256, actual);
+  }
+}
 
 /** Raised when the binary is not the pinned version, or would not say. */
 export class VersionMismatchError extends Error {

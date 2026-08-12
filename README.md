@@ -63,10 +63,16 @@ listens on TCP and QUIC on UDP. `--health-port` (default 41339) carries HTTP.
 ### The pinned build
 
 Hub installs one `loreserver` version, from the GitHub releases of
-[EpicGames/lore](https://github.com/EpicGames/lore), and checks the download
-against a SHA-256 recorded in `src/loreserver/pin.ts`. Those digests are Hub's
-own, taken by hashing the assets: upstream publishes no checksums and no
-signatures. A download that does not match is discarded rather than installed.
+[EpicGames/lore](https://github.com/EpicGames/lore). `src/loreserver/pin.ts`
+records two SHA-256 digests per platform: one for the release archive, checked
+as it downloads, and one for the executable inside it, checked every time Hub
+is about to run it. A download that does not match is discarded rather than
+installed, and an installed binary that does not match is refused rather than
+run — a file that has changed since it was installed is worth a person looking
+at, so Hub says so and stops instead of quietly replacing it.
+
+Those digests are Hub's own, taken by hashing the files: upstream publishes no
+checksums and no signatures.
 
 Builds exist for 64-bit Linux, Windows and Apple silicon. There is a 64-bit ARM
 Linux build, but the only one published targets Neoverse cores with 512-bit SVE

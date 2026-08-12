@@ -6,11 +6,11 @@
  */
 import type { WriteText } from "./cli.js";
 import { waitForHealth, healthCheckUrl } from "./loreserver/health.js";
-import { verifyBinaryVersion } from "./loreserver/identify.js";
+import { verifyBinaryDigest, verifyBinaryVersion } from "./loreserver/identify.js";
 import { ensureInstalled } from "./loreserver/install.js";
 import { instanceLayout, writeInstance, type LoreserverPorts } from "./loreserver/layout.js";
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
-import { Supervisor } from "./loreserver/supervisor.js";
+import { Supervisor, describeExit } from "./loreserver/supervisor.js";
 
 export interface UpOptions extends LoreserverPorts {
   /** The storage root; everything Hub writes goes underneath it. */
@@ -72,8 +72,12 @@ export async function up(
       onExtracting: (binDir) => stdout(`extracting into ${binDir}\n`),
     });
 
+    // Both checks run on every start, including one that installed nothing:
+    // the archive digest says what was downloaded, which is not the same as
+    // what is on disk now.
+    await verifyBinaryDigest(layout.binaryPath, artifact.binarySha256);
     const reported = await verifyBinaryVersion(layout.binaryPath, LORESERVER_VERSION);
-    stdout(`verified ${layout.binaryPath} is loreserver ${reported}\n`);
+    stdout(`verified ${layout.binaryPath} is loreserver ${reported}, matching its pinned checksum\n`);
 
     await writeInstance(layout, ports);
     stdout(`wrote ${layout.configPath}\n`);
@@ -94,11 +98,7 @@ export async function up(
             break;
           case "exited":
             if (!event.deliberate) {
-              stderr(
-                `nlhub: loreserver exited (code ${event.code ?? "none"}, signal ${
-                  event.signal ?? "none"
-                })\n`,
-              );
+              stderr(`nlhub: loreserver exited: ${describeExit(event.code, event.signal)}\n`);
             }
             break;
           case "restarting":

@@ -32,6 +32,34 @@ export function backoffDelayMs(consecutiveFailures: number): number {
   return Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** doublings);
 }
 
+/**
+ * Say how a process ended, in a way a reader can act on.
+ *
+ * Windows has no signals: a process killed from outside is reported through
+ * its exit code, and node passes that code on as the unsigned 32-bit number
+ * Windows uses. 0xFFFFFFFF, which is what TerminateProcess leaves behind,
+ * therefore arrives as 4294967295 and reads as a program that chose to exit
+ * with a very large number. The raw value is kept — it is what a crash dump or
+ * a service manager will show — but it no longer stands on its own.
+ */
+export function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
+  if (signal !== null) {
+    return `killed by ${signal}`;
+  }
+  if (code === null) {
+    return "no exit code";
+  }
+  if (code < 0x8000_0000) {
+    return `code ${code}`;
+  }
+  const hex = `0x${code.toString(16).toUpperCase()}`;
+  // Every code with the high bit set is a Windows status value rather than
+  // something the program returned: 0xFFFFFFFF from being terminated, and the
+  // 0xC0000000 range from faulting.
+  const meaning = code === 0xffff_ffff ? "terminated from outside" : "abnormal termination";
+  return `code ${code} (${hex}, ${meaning})`;
+}
+
 /** Something the supervisor did, in the order it did it. */
 export type SupervisorEvent =
   | { readonly kind: "started"; readonly pid: number; readonly attempt: number }
@@ -273,7 +301,7 @@ export class Supervisor {
     }
 
     this.#emit({ kind: "exited", code, signal, deliberate: false });
-    this.#note(`${this.#options.name} exited (code ${code ?? "none"}, signal ${signal ?? "none"})`);
+    this.#note(`${this.#options.name} exited: ${describeExit(code, signal)}`);
 
     if (Date.now() - this.#childStartedAt >= this.#stableAfterMs) {
       this.#consecutiveFailures = 0;

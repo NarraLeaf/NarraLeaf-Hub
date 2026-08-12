@@ -44,10 +44,13 @@ describe("resolveArtifact", () => {
     }
   });
 
-  it("pins a full SHA-256 for every asset, and a different one for each", () => {
-    const digests = supportedTargets().map((target) => {
+  it("pins a full SHA-256 for every asset and every binary, all distinct", () => {
+    const digests = supportedTargets().flatMap((target) => {
       const [platform = "", arch = ""] = target.split("-");
-      return resolveArtifact(platform, arch).sha256;
+      const artifact = resolveArtifact(platform, arch);
+      // The archive digest guards the download; the binary digest guards the
+      // file that is actually run, every time it is run.
+      return [artifact.sha256, artifact.binarySha256];
     });
 
     for (const digest of digests) {

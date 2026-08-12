@@ -12,6 +12,7 @@ import {
   Supervisor,
   SupervisionFailedError,
   backoffDelayMs,
+  describeExit,
   type SupervisorEvent,
 } from "../src/loreserver/supervisor.js";
 
@@ -83,6 +84,35 @@ describe("backoffDelayMs", () => {
     // the cap rather than a delay that never elapses.
     expect(backoffDelayMs(2000)).toBe(BACKOFF_CAP_MS);
     expect(backoffDelayMs(0)).toBe(BACKOFF_BASE_MS);
+  });
+});
+
+describe("describeExit", () => {
+  it("reports an ordinary exit code as itself", () => {
+    expect(describeExit(0, null)).toBe("code 0");
+    expect(describeExit(7, null)).toBe("code 7");
+  });
+
+  it("explains the number Windows reports for a process killed from outside", () => {
+    // 4294967295 is 0xFFFFFFFF, which is what a terminated process leaves
+    // behind on Windows rather than anything the program chose.
+    const described = describeExit(4_294_967_295, null);
+
+    expect(described).toContain("terminated from outside");
+    expect(described).toContain("0xFFFFFFFF");
+    // The raw value stays visible, because that is what other tools show.
+    expect(described).toContain("4294967295");
+  });
+
+  it("marks a Windows fault code as abnormal without claiming to name it", () => {
+    // 0xC0000005 is an access violation.
+    expect(describeExit(0xc000_0005, null)).toContain("abnormal termination");
+    expect(describeExit(0xc000_0005, null)).toContain("0xC0000005");
+  });
+
+  it("prefers the signal where there is one", () => {
+    expect(describeExit(null, "SIGKILL")).toBe("killed by SIGKILL");
+    expect(describeExit(null, null)).toBe("no exit code");
   });
 });
 

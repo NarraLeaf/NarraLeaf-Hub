@@ -27,7 +27,8 @@ export interface LoreserverArtifact {
   /** Where the asset is downloaded from. */
   readonly url: string;
   /**
-   * SHA-256 of the asset as a lower-case hex string.
+   * SHA-256 of the release asset as a lower-case hex string, checked as it is
+   * downloaded.
    *
    * These digests are Hub's own: they were produced by downloading each asset
    * and hashing it, because upstream ships neither checksums nor signatures.
@@ -38,6 +39,18 @@ export interface LoreserverArtifact {
   readonly sha256: string;
   /** Name of the executable inside the archive. */
   readonly binaryName: string;
+  /**
+   * SHA-256 of the executable unpacked from the asset, checked every time Hub
+   * is about to run it.
+   *
+   * The asset digest only says what was downloaded. It says nothing about the
+   * file that is on disk a week later, which is what actually gets executed: a
+   * copy that ran out of space partway, an interrupted extraction, a decayed
+   * sector or an edited binary all leave the archive digest satisfied and
+   * looking exactly like a good install. This digest is Hub's own for the same
+   * reason the other one is.
+   */
+  readonly binarySha256: string;
   /**
    * A constraint an operator has to know about before running this build,
    * beyond the platform and architecture in the target. Absent for artifacts
@@ -60,6 +73,7 @@ const ARTIFACTS: Readonly<Record<string, LoreserverArtifact>> = {
     url: `${RELEASE_BASE_URL}/loreserver-v${LORESERVER_VERSION}-x86_64-unknown-linux-gnu.tar.gz`,
     sha256: "f0de84c6175a476f157754f57316be0346105be502c93fabb65bb908eab0e1e1",
     binaryName: "loreserver",
+    binarySha256: "52841e3c2d541029ac45ad81a6388b7ca454f7f5011912fce91f8fcda8814766",
   },
   "win32-x64": {
     target: "win32-x64",
@@ -67,6 +81,7 @@ const ARTIFACTS: Readonly<Record<string, LoreserverArtifact>> = {
     url: `${RELEASE_BASE_URL}/loreserver-v${LORESERVER_VERSION}-x86_64-pc-windows-msvc.zip`,
     sha256: "4251e1419875c08485e1d316a1a0c5724e29e2c1a4d952beeb6bf3344926c75e",
     binaryName: "loreserver.exe",
+    binarySha256: "4939bc7c4bb296e9632adf2833ac2c63df08da36a4c9639333b9ba94bbe8432f",
   },
   "darwin-arm64": {
     target: "darwin-arm64",
@@ -74,6 +89,7 @@ const ARTIFACTS: Readonly<Record<string, LoreserverArtifact>> = {
     url: `${RELEASE_BASE_URL}/loreserver-v${LORESERVER_VERSION}-aarch64-apple-darwin.tar.gz`,
     sha256: "48281fccf72ed3ba4ad3271175523595069295f4f30b936ebb15c2fa50199e4b",
     binaryName: "loreserver",
+    binarySha256: "ca9eeac763590aca61a49e8265e11cb86d7f428eea6c0fd27cb5385d63e06bdc",
   },
   "linux-arm64": {
     // The only 64-bit ARM Linux asset upstream publishes is tuned for Neoverse
@@ -86,6 +102,7 @@ const ARTIFACTS: Readonly<Record<string, LoreserverArtifact>> = {
     url: `${RELEASE_BASE_URL}/loreserver-v${LORESERVER_VERSION}-aarch64-unknown-linux-gnu-neoverse-512tvb.tar.gz`,
     sha256: "01a9abf87643c46c10d9fd7d31bb3c91f371b4b66d66c39df838604ce4e9c151",
     binaryName: "loreserver",
+    binarySha256: "9345cfffd2270b60efd006c06aa9a264dc16d705b6b374ddf49f8ee2443daaa7",
     caveat:
       "this build targets Neoverse cores with 512-bit SVE (for example AWS Graviton 3); " +
       "it is not expected to run on other 64-bit ARM hardware",

@@ -1,10 +1,14 @@
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
 import { checkHealth, waitForHealth } from "../src/loreserver/health.js";
-import { verifyBinaryVersion } from "../src/loreserver/identify.js";
+import {
+  BinaryContentsError,
+  verifyBinaryDigest,
+  verifyBinaryVersion,
+} from "../src/loreserver/identify.js";
 import { ensureInstalled } from "../src/loreserver/install.js";
 import { instanceLayout, writeInstance } from "../src/loreserver/layout.js";
 import { LORESERVER_VERSION, resolveArtifact } from "../src/loreserver/pin.js";
@@ -59,9 +63,28 @@ describe.skipIf(configuredRoot === "")("loreserver, end to end", () => {
     // A second call finds the unpacked build and fetches nothing.
     expect((await ensureInstalled(layout, artifact)).alreadyInstalled).toBe(true);
 
+    // The binary that came out of the archive is the one the pin describes.
+    await expect(
+      verifyBinaryDigest(layout.binaryPath, artifact.binarySha256),
+    ).resolves.toBeUndefined();
     expect(await verifyBinaryVersion(layout.binaryPath, LORESERVER_VERSION)).toBe(
       LORESERVER_VERSION,
     );
+
+    // Appending to a real executable leaves it runnable and leaves --version
+    // saying the same thing, which is why the digest is what catches it.
+    await appendFile(layout.binaryPath, "        ");
+    await expect(
+      verifyBinaryDigest(layout.binaryPath, artifact.binarySha256),
+    ).rejects.toThrow(BinaryContentsError);
+    expect(await verifyBinaryVersion(layout.binaryPath, LORESERVER_VERSION)).toBe(
+      LORESERVER_VERSION,
+    );
+
+    // Put it back, so the rest of the run has the build it is meant to have.
+    await rm(layout.binDir, { recursive: true, force: true });
+    await ensureInstalled(layout, artifact);
+    await verifyBinaryDigest(layout.binaryPath, artifact.binarySha256);
 
     await writeInstance(layout, PORTS);
     expect(await readFile(layout.configPath, "utf8")).toContain(`port = ${PORTS.dataPort}`);
