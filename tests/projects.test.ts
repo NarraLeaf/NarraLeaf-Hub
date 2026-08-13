@@ -161,6 +161,26 @@ describe("grants", () => {
     expect(listGrants(connection, project.id)).toHaveLength(2);
   });
 
+  it("orders grants given in the same millisecond by the account's name", async () => {
+    // The owner's grant is written by createProject and another may be granted
+    // in the same tick, which is what a first invitation redeemed straight away
+    // looks like. Before this, the tie was broken by user_id — a random UUID —
+    // so the same two grants came back in either order. CI found it before a
+    // person did: the machine was fast enough to write both in one millisecond.
+    const connection = await database();
+    const ada = await account(connection, "ada");
+    const abe = await account(connection, "abe");
+    const project = createProject(connection, {
+      id: newProjectId(),
+      name: "harbour",
+      createdBy: ada,
+    });
+    grantAccess(connection, project.id, abe, "read", ada);
+    connection.prepare("UPDATE project_grants SET granted_at = 1 WHERE project_id = ?").run(project.id);
+
+    expect(listGrants(connection, project.id).map((grant) => grant.userId)).toEqual([abe, ada]);
+  });
+
   it("takes access away, and says so when there was none", async () => {
     const connection = await database();
     const ada = await account(connection, "ada");

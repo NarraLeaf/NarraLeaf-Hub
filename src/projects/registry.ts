@@ -328,10 +328,23 @@ export function listProjectsFor(database: DatabaseSync, userId: string): Reachab
     .map((row) => ({ project: toProject(row), level: levelColumn(row, "level") }));
 }
 
-/** Every grant on one project, in the order they were given. */
+/**
+ * Every grant on one project, in the order they were given.
+ *
+ * Two grants given in the same millisecond are ordered by the account's name
+ * rather than by its id: creating a project writes the owner's grant and the
+ * first invitation may be redeemed in the same tick, and an id is a random
+ * UUID, so the tie was being broken by nothing a person could see. The list is
+ * read by people and shown as it is read.
+ */
 export function listGrants(database: DatabaseSync, projectId: string): GrantRecord[] {
   return database
-    .prepare(`${SELECT_GRANT} WHERE project_id = ? ORDER BY granted_at, user_id`)
+    .prepare(
+      `SELECT g.project_id, g.user_id, g.level, g.granted_by, g.granted_at
+         FROM project_grants g LEFT JOIN users u ON u.id = g.user_id
+        WHERE g.project_id = ?
+        ORDER BY g.granted_at, u.username, g.user_id`,
+    )
     .all(projectId)
     .map((row) => toGrant(row));
 }
