@@ -11,7 +11,7 @@
  * intermediate "content" type: a caller holds finished encodings and nests them,
  * which is why {@link sequence} can simply concatenate what it is given.
  *
- * Only the types a certificate uses are here. A reader is not: nothing in Hub
+ * Only the types a certificate uses are here. A reader is not: nothing in Team
  * parses DER, because `crypto.X509Certificate` already does, and the tests use
  * it to read back what this writes.
  */
@@ -238,7 +238,7 @@ export function namedBits(bits: readonly number[]): Buffer {
   return bitString(bytes, 7 - (highest % 8));
 }
 
-/** `UTF8String`, which is what every name Hub writes uses. */
+/** `UTF8String`, which is what every name Team writes uses. */
 export function utf8String(text: string): Buffer {
   return tlv(TAG_UTF8_STRING, Buffer.from(text, "utf8"));
 }

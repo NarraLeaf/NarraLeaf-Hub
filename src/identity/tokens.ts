@@ -7,7 +7,7 @@
  *
  *     iss                 matches loreserver's configured jwt_issuer
  *     aud                 an array, holding loreserver's audience and the
- *                         origin of Hub's auth endpoint
+ *                         origin of Team's auth endpoint
  *     sub                 the user id
  *     env                 environment name
  *     name                display name
@@ -17,17 +17,17 @@
  *     idp                 which identity provider vouched for the user
  *     iat, exp
  *
- * Two claims are Hub's own:
+ * Two claims are Team's own:
  *
  *     token_epoch         the account's `token_epoch` when this was signed
- *     authority_sha256    the fingerprint of this Hub's certificate authority
+ *     authority_sha256    the fingerprint of this Team server's certificate authority
  *
- * The first is there because Hub is a verifier too — it is the service
+ * The first is there because Team is a verifier too — it is the service
  * loreserver asks about a caller — and the epoch is what makes tokens minted
  * before a revocation refusable without keeping a list of every token ever
  * issued. loreserver ignores a claim it does not know.
  *
- * The second is read by Studio, and it is what turns trusting this Hub from a
+ * The second is read by Studio, and it is what turns trusting this Team server from a
  * paragraph of instructions into a decision somebody can make. See
  * {@link MintOptions.authorityFingerprint} for why a fingerprint carried this
  * way is worth as much as one read down a telephone.
@@ -38,7 +38,7 @@
 import { createPublicKey, createSign, createVerify } from "node:crypto";
 
 import { authUrl, tokenAudience, type IdentityConfig } from "./config.js";
-import type { HubKey, KeyStore } from "./keys.js";
+import type { TeamKey, KeyStore } from "./keys.js";
 import type { UserRecord } from "./users.js";
 
 /** The claims of one token, in the shape they are signed in. */
@@ -60,11 +60,11 @@ export interface TokenClaims {
   /** The account's `token_epoch` at the moment this was signed. */
   readonly token_epoch: number;
   /**
-   * SHA-256 of this Hub's certificate authority, colon-separated upper-case
-   * hex — the same string `nlhub trust` prints.
+   * SHA-256 of this Team server's certificate authority, colon-separated upper-case
+   * hex — the same string `nlteam trust` prints.
    *
    * Absent on a token minted where no authority could be read, and on every
-   * token minted for Hub's own use: it is written for the one reader outside
+   * token minted for Team's own use: it is written for the one reader outside
    * this program.
    */
   readonly authority_sha256?: string;
@@ -149,7 +149,7 @@ export interface MintOptions {
   /**
    * Which lifetime this token gets, defaulting to the sign-in one.
    *
-   * That default is what nearly every mint wants — `nlhub token mint`, the
+   * That default is what nearly every mint wants — `nlteam token mint`, the
    * sign-in exchange, and the token `project create` presents to loreserver.
    * The one place that must say otherwise is the multiresource exchange in
    * src/projects/service.ts, and it does.
@@ -162,12 +162,12 @@ export interface MintOptions {
    */
   readonly resources?: readonly ResourceClaim[];
   /**
-   * The fingerprint of this Hub's authority, for a token that is going to
+   * The fingerprint of this Team server's authority, for a token that is going to
    * leave the building.
    *
-   * Written by `nlhub token mint` and by nothing else, because the token that
+   * Written by `nlteam token mint` and by nothing else, because the token that
    * command prints is the only one that travels to a machine which may not yet
-   * trust this Hub. Every other mint here happens on a connection that already
+   * trust this Team server. Every other mint here happens on a connection that already
    * exists, and a fingerprint on those would be carried for nobody.
    *
    * **Why a fingerprint in a token is not circular reasoning.** Nothing
@@ -189,9 +189,9 @@ export interface MintOptions {
  *
  * What revoking access does, and what it does not
  * ----------------------------------------------
- * loreserver checks a token's signature and its expiry. It asks Hub nothing
+ * loreserver checks a token's signature and its expiry. It asks Team nothing
  * else: there is no introspection call, no revocation list, and no callback.
- * Hub therefore cannot withdraw a token it has already handed out.
+ * Team therefore cannot withdraw a token it has already handed out.
  *
  * What that means in practice:
  *
@@ -199,12 +199,12 @@ export interface MintOptions {
  *     exchanges a token. This function refuses outright, and so does the sign-in
  *     path; the account cannot obtain anything new from the moment it is
  *     disabled.
- *   - Bumping the user's `token_epoch` refuses that token everywhere Hub is the
+ *   - Bumping the user's `token_epoch` refuses that token everywhere Team is the
  *     one checking it: the epoch is written into the token, and {@link
  *     verifyToken}'s caller compares it with the account's epoch as it stands
- *     now. Since every repository access goes on to ask Hub, that is nearly
+ *     now. Since every repository access goes on to ask Team, that is nearly
  *     everywhere.
- *   - Against whatever does not ask Hub, a token already in someone's hands
+ *   - Against whatever does not ask Team, a token already in someone's hands
  *     keeps working until `exp`. Nothing in this system can stop that, short of
  *     rotating and retiring the signing key, which invalidates everybody's
  *     tokens at once.
@@ -213,14 +213,14 @@ export interface MintOptions {
  * ---------------------------------------
  * That last point is the whole of the difference between them.
  *
- * A sign-in token is one Hub is asked about every time it matters. It comes
- * back to Hub to be exchanged, and the exchange refuses a disabled account or a
+ * A sign-in token is one Team is asked about every time it matters. It comes
+ * back to Team to be exchanged, and the exchange refuses a disabled account or a
  * stale epoch on the spot; so does the permission question loreserver asks on
  * every repository access. Its expiry is not what bounds it, so it lasts thirty
  * days rather than making somebody sign in again every quarter of an hour.
  *
  * A repository token is presented on the data connection, to loreserver's data
- * plane, and Hub is not necessarily consulted again before it expires. Nothing
+ * plane, and Team is not necessarily consulted again before it expires. Nothing
  * done here reaches a connection that is already open. The lifetime is that
  * token's only bound, which is why it is fifteen minutes however inconvenient
  * that is, and why lengthening it is not the same kind of decision as
@@ -228,7 +228,7 @@ export interface MintOptions {
  */
 export function mintToken(
   user: UserRecord,
-  key: HubKey,
+  key: TeamKey,
   config: IdentityConfig,
   options: MintOptions = {},
 ): MintedToken {
@@ -245,8 +245,8 @@ export function mintToken(
   const claims: TokenClaims = {
     iss: config.issuer,
     // Assembled from the configuration, never a literal: one of the two
-    // entries is the origin of Hub's own auth endpoint, which is a fact about
-    // where this Hub is deployed.
+    // entries is the origin of Team's own auth endpoint, which is a fact about
+    // where this Team server is deployed.
     aud: tokenAudience(config),
     sub: user.id,
     env: config.env,
@@ -264,7 +264,7 @@ export function mintToken(
     iat: issuedAt,
     exp: issuedAt + lifetimeSeconds,
     token_epoch: user.tokenEpoch,
-    // Written only when the caller had an authority to name. A Hub whose
+    // Written only when the caller had an authority to name. A Team server whose
     // storage root holds no certificates yet still mints tokens; they simply
     // carry no fingerprint, and Studio falls back to asking a person for one.
     ...(options.authorityFingerprint === undefined
@@ -320,12 +320,12 @@ export type TokenVerification =
 
 /** One sentence for each way a token can be refused. */
 export const TOKEN_REFUSAL_REASONS: Readonly<Record<TokenRefusal, string>> = {
-  malformed: "the token is not a JWT this Hub could take apart",
+  malformed: "the token is not a JWT this server could take apart",
   "unsupported-algorithm": "the token is not signed with RS256",
-  "unknown-key": "no published key of this Hub signed the token",
+  "unknown-key": "no published key of this server signed the token",
   "bad-signature": "the token's signature does not match its contents",
   "wrong-issuer": "the token was issued by somebody else",
-  "wrong-audience": "the token was not meant for this Hub",
+  "wrong-audience": "the token was not meant for this server",
   expired: "the token has expired",
 };
 
@@ -358,7 +358,7 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /**
- * Read a decoded claim set, insisting on every claim Hub writes.
+ * Read a decoded claim set, insisting on every claim Team writes.
  *
  * A token missing one is refused rather than defaulted: everything here comes
  * out of {@link mintToken}, so an absent claim means the token came from
@@ -410,11 +410,11 @@ export interface VerifyOptions {
 }
 
 /**
- * Check a token Hub signed.
+ * Check a token Team signed.
  *
  * This is the same check loreserver makes of the same token, done again by the
  * side that has the private keys, because loreserver's answer is not something
- * Hub can see: loreserver forwards the caller's `authorization` header to Hub
+ * Team can see: loreserver forwards the caller's `authorization` header to Team
  * and asks what that caller may reach, and an unreadable header has to mean the
  * caller may reach nothing.
  *
@@ -469,7 +469,7 @@ export function verifyToken(
   if (claims.iss !== config.issuer) {
     return { kind: "refused", reason: "wrong-issuer" };
   }
-  // The audience carries loreserver's audience and this Hub's own origin. The
+  // The audience carries loreserver's audience and this Team server's own origin. The
   // second is what says the token was meant to be presented here, rather than
   // to some other service that happens to accept the same issuer.
   if (!claims.aud.includes(authUrl(config)) && !claims.aud.includes(config.audience)) {

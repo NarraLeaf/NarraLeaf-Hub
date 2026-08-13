@@ -1,21 +1,21 @@
 // Reading a project out of a loreserver that is running and serving it.
 //
-// This is the test for the one rule the whole feature is shaped by: Hub reads
+// This is the test for the one rule the whole feature is shaped by: Team reads
 // as a client, against its own checkout, while loreserver keeps its lock on the
 // store. If that rule were ever broken the failure would not look like a
 // failure — the read would wait, for ever, at no CPU, with nothing logged — so
 // the assertion that the server is still answering afterwards is not a
 // formality. A run that hangs here is the defect.
 //
-// Skipped unless NLHUB_TEST_LORESERVER_ROOT names a directory it may write to,
+// Skipped unless NLTEAM_TEST_LORESERVER_ROOT names a directory it may write to,
 // because it downloads tens of megabytes and listens on two ports. Nothing in
 // the default test run does either.
 //
-//   NLHUB_TEST_LORESERVER_ROOT=/tmp/nlhub-it node node_modules/vitest/vitest.mjs run
+//   NLTEAM_TEST_LORESERVER_ROOT=/tmp/nlteam-it node node_modules/vitest/vitest.mjs run
 //
-// It covers more when NLHUB_TEST_LORE_CLI names Epic's `lore` executable: with
+// It covers more when NLTEAM_TEST_LORE_CLI names Epic's `lore` executable: with
 // it the test can put a project into the repository and read it back, which is
-// the half of this that a repository nobody has pushed to cannot reach. Hub
+// the half of this that a repository nobody has pushed to cannot reach. Team
 // itself has no verb that writes a revision and is not going to grow one.
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -40,11 +40,11 @@ import { encodeMsgpack } from "./msgpack-fixture.js";
 
 const execFileAsync = promisify(execFile);
 
-const configuredRoot = process.env["NLHUB_TEST_LORESERVER_ROOT"] ?? "";
-const loreCli = process.env["NLHUB_TEST_LORE_CLI"] ?? "";
+const configuredRoot = process.env["NLTEAM_TEST_LORESERVER_ROOT"] ?? "";
+const loreCli = process.env["NLTEAM_TEST_LORE_CLI"] ?? "";
 
 // Downloads go under the directory this test was given rather than into the
-// per-user cache a real Hub on this machine would be running from. Outside the
+// per-user cache a real Team on this machine would be running from. Outside the
 // per-run roots, so that a server started for the second test reuses the binary
 // the first one fetched instead of downloading tens of megabytes again.
 if (configuredRoot !== "") {
@@ -133,19 +133,19 @@ describe.skipIf(configuredRoot === "")("reading a project while loreserver serve
 
     const first = await readProject({ root, projectId, projectName, remote });
 
-    // Zero, not absent. Hub counted, and the answer is none.
+    // Zero, not absent. Team counted, and the answer is none.
     expect(first.history.revisions).toBe(0);
     expect(first.history.branch).toBe("main");
     expect(first.file.readable).toBe(false);
     expect(first.file.reason).toMatch(/nothing has been pushed/i);
     expect(first.cloned).toBe(true);
 
-    // The assertion this whole file exists for. A Hub that had opened the
-    // served store would not have got here at all, but a Hub that had taken
+    // The assertion this whole file exists for. A Team server that had opened the
+    // served store would not have got here at all, but a Team server that had taken
     // some other lock would leave the server unable to answer.
     expect(await checkHealth(PORTS.healthPort)).toBe(true);
 
-    // And the checkout is Hub's own, nowhere near what the server holds.
+    // And the checkout is Team's own, nowhere near what the server holds.
     const checkout = projectCheckoutPath(root, projectId);
     expect((await stat(checkout)).isDirectory()).toBe(true);
     expect(checkout.startsWith(storageRootOf(root))).toBe(false);
@@ -222,7 +222,7 @@ const ASSET_BYTES = 512 * 1024;
 /**
  * Put a small project into the repository at `url`.
  *
- * Epic's own client does the writing. Hub binds no verb that makes a revision,
+ * Epic's own client does the writing. Team binds no verb that makes a revision,
  * and giving it one so that a test could author something would be adding a
  * capability to the product for the benefit of the test.
  */

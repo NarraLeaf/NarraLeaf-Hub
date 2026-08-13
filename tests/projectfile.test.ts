@@ -1,4 +1,4 @@
-// What Hub says about a project file, including every way it can fail to read
+// What Team says about a project file, including every way it can fail to read
 // one.
 //
 // These drive the reader itself rather than a copy of it. What they stand in
@@ -7,7 +7,7 @@
 // hands it, so everything about how a file is understood is under test and
 // nothing about how it travelled is.
 //
-// The rule every one of them is about: Hub reads as far as it understands and
+// The rule every one of them is about: Team reads as far as it understands and
 // says unknown for the rest. Not an error, not an empty panel, not a refusal.
 import { describe, expect, it } from "vitest";
 
@@ -60,7 +60,7 @@ function asset(id: string): string {
 const IMAGE_ID = "64ce569f-7104-4c57-9baf-20d14d1e0ddb";
 const AUDIO_ID = "2c8f3d76-7a4c-4ba6-853e-253b10175394";
 
-describe("a project Hub can read", () => {
+describe("a project Team can read", () => {
   it("says what it is and how big its stage is", async () => {
     const file = await readProjectFile(revision({ "Harbour.nlproj": projectFile() }));
 
@@ -134,7 +134,7 @@ describe("a project Hub can read", () => {
   });
 
   it("reports a project with nothing in it as empty rather than as unknown", async () => {
-    // Zero is a fact about a new project. Absent is a fact about Hub. The
+    // Zero is a fact about a new project. Absent is a fact about Team. The
     // interface draws them differently and this is the row that keeps them
     // apart at the source.
     const file = await readProjectFile(revision({ "Harbour.nlproj": projectFile() }));
@@ -145,7 +145,7 @@ describe("a project Hub can read", () => {
   });
 });
 
-describe("a project file Hub cannot read", () => {
+describe("a project file Team cannot read", () => {
   /** Every refusal has to be a sentence, and no refusal may be a throw. */
   async function refusalFor(source: RevisionSource): Promise<string> {
     const file = await readProjectFile(source);
@@ -155,7 +155,7 @@ describe("a project file Hub cannot read", () => {
     return file.reason ?? "";
   }
 
-  it("says which schema it is and which one Hub reads", async () => {
+  it("says which schema it is and which one Team reads", async () => {
     const reason = await refusalFor(
       revision({ "Harbour.nlproj": projectFile({ schemaVersion: PROJECT_FILE_SCHEMA + 3 }) }),
     );
@@ -199,7 +199,7 @@ describe("a project file Hub cannot read", () => {
   });
 
   it("keeps the parts it did understand when a later one is unreadable", async () => {
-    // The point of the whole rule: an asset register Hub cannot parse costs
+    // The point of the whole rule: an asset register Team cannot parse costs
     // the breakdown and nothing else.
     const file = await readProjectFile(
       revision({

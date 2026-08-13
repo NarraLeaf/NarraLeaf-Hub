@@ -1,11 +1,11 @@
 /**
- * The slice of the Lore C ABI Hub binds.
+ * The slice of the Lore C ABI Team binds.
  *
  * Pure data: no koffi import, no shared library, nothing here can fail to
  * load. ./library.ts turns it into koffi types, ./events.ts decodes payloads
  * with them, and ./verbs.ts is the only surface above.
  *
- * It is deliberately a fraction of what lorelib exports. Hub reads: it clones,
+ * It is deliberately a fraction of what lorelib exports. Team reads: it clones,
  * it syncs, it walks a revision and it fetches blobs. It never stages, never
  * commits, never pushes and never merges, so none of those verbs are here — an
  * unbound verb is one less thing to keep true, and one less thing that looks
@@ -38,7 +38,7 @@ export const LORE_STRUCT_ALIASES = {
 } as const satisfies Readonly<Record<string, string>>;
 
 /**
- * Every struct Hub binds, in dependency order — koffi resolves a type name when
+ * Every struct Team binds, in dependency order — koffi resolves a type name when
  * the struct mentioning it is declared, so a struct must follow everything it
  * names.
  */
@@ -264,7 +264,7 @@ export const LORE_STRUCTS = {
 export type LoreStructName = keyof typeof LORE_STRUCTS;
 
 /**
- * The event tags Hub decodes, with their wire values.
+ * The event tags Team decodes, with their wire values.
  *
  * Enum values are ABI. A renumbered tag routes an event to the wrong decoder,
  * which then reads a struct at the wrong layout, so these are transcribed
@@ -334,7 +334,7 @@ export const LORE_CALLBACK_CONFIG = {
 } as const;
 
 /**
- * The verbs Hub binds, mapped to their args struct.
+ * The verbs Team binds, mapped to their args struct.
  *
  * Every Lore verb has one shape — `int32_t f(const LoreGlobalArgs*, const
  * LoreXArgs*, LoreEventCallbackConfig)` — so the args struct is the only thing

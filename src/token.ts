@@ -15,7 +15,7 @@
  *
  * This is the only mint that writes the authority's fingerprint into the token,
  * and the reason is where the token goes next: out of this machine, to somebody
- * whose computer has never heard of this Hub. Carrying the fingerprint means
+ * whose computer has never heard of this Team server. Carrying the fingerprint means
  * the person pasting it is not also asked to obtain one, compare it by eye, and
  * run a command against a file that only exists on the server.
  */
@@ -49,13 +49,13 @@ export async function tokenMint(
   try {
     password = await readPassword();
   } catch (error) {
-    stderr(`nlhub: ${error instanceof Error ? error.message : String(error)}\n`);
+    stderr(`nlteam: ${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
 
   const database = await openMigratedDatabase(layout.databasePath);
   try {
-    // Defaults, then what this Hub has stored, then what the command line
+    // Defaults, then what this Team server has stored, then what the command line
     // named. That order is what makes --token-lifetime an override for the run
     // rather than a value a stored setting could quietly beat.
     const config = identityConfig({ ...storedTokenLifetimes(database), ...options.overrides });
@@ -69,12 +69,12 @@ export async function tokenMint(
       // One sentence for every way it can fail. The reason is in the result
       // for a caller that logs it; the person at the keyboard is told nothing
       // they could use to find out which accounts exist.
-      stderr(`nlhub: ${SIGN_IN_REFUSED_MESSAGE}\n`);
+      stderr(`nlteam: ${SIGN_IN_REFUSED_MESSAGE}\n`);
       return 1;
     }
 
     const keys = await KeyStore.open(layout.keysDir);
-    // A Hub that has never been brought up has no authority to name. That is
+    // A Team server that has never been brought up has no authority to name. That is
     // not a reason to refuse a token: the claim is a convenience for whoever
     // pastes it, not something the token is invalid without, and the sign-in
     // it is for would fail on a certificate long before the claim mattered.
@@ -92,7 +92,7 @@ export async function tokenMint(
     stderr(`expires ${new Date(minted.claims.exp * 1000).toISOString()}\n`);
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${error instanceof Error ? error.message : String(error)}\n`);
+    stderr(`nlteam: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   } finally {
     database.close();

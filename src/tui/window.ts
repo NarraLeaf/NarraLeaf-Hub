@@ -12,7 +12,7 @@
  * the middle.
  */
 import { ellipsis, plural, relativeTime, wrapText } from "./format.js";
-import type { HubView } from "./hubview.js";
+import type { TeamView } from "./teamview.js";
 import { centred, overBody, SPLIT_FROM, WIDE_RAIL_FROM, type Rect } from "./layout.js";
 import { field, projectDetailLines, userDetailLines } from "./panels.js";
 import { choicesOf } from "./state.js";
@@ -99,9 +99,9 @@ function pickerEmpty(overlay: Extract<Overlay, { choice: number }>): string {
       return "Nobody but its owner can reach this project.";
     case "pick-account":
     case "pick-owner":
-      return "There are no accounts on this Hub yet.";
+      return "There are no accounts on this server yet.";
     case "pick-project":
-      return "There are no projects on this Hub yet.";
+      return "There are no projects on this server yet.";
     case "pick-level":
       return "";
   }
@@ -148,7 +148,7 @@ function detailWindow(
   return place(size, title, footer, build(inner), inner);
 }
 
-function connectionLines(view: HubView, width: number): Line[] {
+function connectionLines(view: TeamView, width: number): Line[] {
   const lines: Line[] = [
     field("sign-in", ellipsis(view.reach.signIn, width - 11), 10),
     field("data", ellipsis(view.reach.data, width - 11), 10),
@@ -189,9 +189,9 @@ function helpLines(): Line[] {
   ]);
 }
 
-function logLines(view: HubView, width: number): Line[] {
+function logLines(view: TeamView, width: number): Line[] {
   if (view.audit.length === 0) {
-    return [span(" nothing has been asked of Hub yet", { dim: true })];
+    return [span(" nothing has been asked of Team yet", { dim: true })];
   }
   return [...view.audit]
     .sort((left, right) => right.at - left.at)
@@ -212,16 +212,16 @@ function logLines(view: HubView, width: number): Line[] {
 /**
  * The words on the confirmation for revoking somebody's tokens.
  *
- * Two sentences, and no more: what this reaches, and what it does not. Hub
- * refuses a stale token wherever Hub is the one asked, and a data connection
- * already open is checked by loreserver rather than by Hub, so it may last
+ * Two sentences, and no more: what this reaches, and what it does not. Team
+ * refuses a stale token wherever Team is the one asked, and a data connection
+ * already open is checked by loreserver rather than by Team, so it may last
  * until the token it was opened with expires. "Every token stops working at
  * once" would be shorter and wrong, and the reach is the half of this an
  * operator gets wrong.
  */
 function revokeLines(width: number): Line[] {
   return [
-    ...wrapText("Every token Hub has issued stops being accepted.", width).map((text) =>
+    ...wrapText("Every token Team has issued stops being accepted.", width).map((text) =>
       span(text),
     ),
     ...wrapText("An open connection may last until its token expires.", width).map((text) =>
@@ -241,7 +241,7 @@ function revokeLines(width: number): Line[] {
 export function overlayWindow(
   overlay: Overlay,
   size: TuiSize,
-  view: HubView,
+  view: TeamView,
   draft?: string,
 ): WindowSpec | undefined {
   switch (overlay.kind) {

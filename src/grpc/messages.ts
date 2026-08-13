@@ -1,5 +1,5 @@
 /**
- * The messages Hub and loreserver exchange, and nothing else from lore's
+ * The messages Team and loreserver exchange, and nothing else from lore's
  * protocol.
  *
  * Three protocol files are involved, all of them public and MIT-licensed in
@@ -10,7 +10,7 @@
  *     lore/repository/v1/repository.proto  package lore.repository.v1
  *
  * The first two are the service loreserver expects to find at the `auth_url` it
- * was configured with, which is Hub. The third is what Hub calls on loreserver.
+ * was configured with, which is Team. The third is what Team calls on loreserver.
  * Field numbers below are copied from those files; a number is the whole of a
  * field's identity on the wire, so a wrong one is not a compile error anywhere,
  * it is a value that silently lands in a different field or in none.
@@ -97,7 +97,7 @@ function readResourcePermission(reader: MessageReader): ResourcePermission {
  * token the call carries.
  *
  * loreserver 0.8.6 leaves this out and forwards the caller's own
- * `authorization` header instead, so in practice Hub answers about the bearer.
+ * `authorization` header instead, so in practice Team answers about the bearer.
  * It is read regardless: a request that names somebody else and is answered
  * about the bearer would be an answer to a different question.
  */

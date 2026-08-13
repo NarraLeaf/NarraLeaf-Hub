@@ -19,7 +19,7 @@ import {
 import { settingsList, settingsSet } from "../src/settings.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-settings-");
+const temporaryRoot = useTemporaryRoots("nlteam-settings-");
 
 /** Run one of the commands and collect both its streams. */
 async function invoke(
@@ -60,7 +60,7 @@ function store(connection: DatabaseSync, key: string, value: string): void {
 }
 
 describe("storedTokenLifetimes", () => {
-  it("answers with the defaults on a Hub where nobody has stored anything", async () => {
+  it("answers with the defaults on a Team server where nobody has stored anything", async () => {
     const connection = await database();
 
     expect(storedTokenLifetimes(connection)).toEqual({
@@ -68,7 +68,7 @@ describe("storedTokenLifetimes", () => {
       repositoryTokenLifetimeSeconds: DEFAULT_IDENTITY.repositoryTokenLifetimeSeconds,
     });
     // The two numbers themselves, because the asymmetry is the point: a token
-    // Hub is asked about again can last a month, and one loreserver's data
+    // Team is asked about again can last a month, and one loreserver's data
     // plane checks for itself has nothing but its expiry to bound it.
     expect(DEFAULT_IDENTITY.signInTokenLifetimeSeconds).toBe(30 * 24 * 60 * 60);
     expect(DEFAULT_IDENTITY.repositoryTokenLifetimeSeconds).toBe(15 * 60);
@@ -99,9 +99,9 @@ describe("storedTokenLifetimes", () => {
 
   it("refuses a stored value that is not a number of seconds", async () => {
     const connection = await database();
-    // Nothing Hub writes could put this here. Whoever has the storage root has
+    // Nothing Team writes could put this here. Whoever has the storage root has
     // the SQLite file, and a value read back as NaN would reach a token's `exp`
-    // and issue it already expired, from a Hub saying nothing is wrong.
+    // and issue it already expired, from a Team server saying nothing is wrong.
     store(connection, SIGN_IN_LIFETIME_KEY, "an hour or so");
 
     expect(() => storedTokenLifetimes(connection)).toThrow(InvalidSettingError);
@@ -116,7 +116,7 @@ describe("storedTokenLifetimes", () => {
 });
 
 describe("setTokenLifetimes", () => {
-  it("refuses a lifetime shorter or longer than one Hub will store", async () => {
+  it("refuses a lifetime shorter or longer than one Team server will store", async () => {
     const connection = await database();
 
     expect(() => setTokenLifetimes(connection, { signInTokenLifetimeSeconds: 0 })).toThrow(
@@ -173,7 +173,7 @@ describe("setTokenLifetimes", () => {
   });
 });
 
-describe("nlhub settings list", () => {
+describe("nlteam settings list", () => {
   it("says what each setting is, and whether anybody chose it", async () => {
     const root = await temporaryRoot();
 
@@ -186,7 +186,7 @@ describe("nlhub settings list", () => {
     // Pinned in full. The durations are in the words somebody would have typed
     // rather than the seconds the keys are named for, and the last column is
     // the difference between a value that was chosen and one that has never
-    // been touched — which is the difference between a Hub that keeps this
+    // been touched — which is the difference between a Team server that keeps this
     // number through an upgrade and one that follows the default.
     expect(out).toBe(
       "token.sign_in_lifetime_seconds     30 days       default\n" +
@@ -207,7 +207,7 @@ describe("nlhub settings list", () => {
   });
 });
 
-describe("nlhub settings set", () => {
+describe("nlteam settings set", () => {
   it("says what the setting now is, what it was, and what the change does not reach", async () => {
     const root = await temporaryRoot();
 
@@ -233,12 +233,12 @@ describe("nlhub settings set", () => {
     expect(out).toBe(
       "token.repository_lifetime_seconds is 5 minutes, and was 15 minutes\n" +
         "Tokens already minted keep the lifetime they were given.\n" +
-        "loreserver accepts this one without asking Hub, so revoking access cannot cut it " +
+        "loreserver accepts this one without asking Team, so revoking access cannot cut it " +
         "short.\n",
     );
   });
 
-  it("writes the value where a running Hub reads it from", async () => {
+  it("writes the value where a running Team reads it from", async () => {
     const root = await temporaryRoot();
 
     await invoke((stdout, stderr) =>

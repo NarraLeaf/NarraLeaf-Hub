@@ -1,7 +1,7 @@
 /**
- * Where the binaries Hub downloads are kept.
+ * Where the binaries Team downloads are kept.
  *
- * They used to be kept under the storage root, one copy per Hub, which meant
+ * They used to be kept under the storage root, one copy per Team, which meant
  * one copy per test run and one per throwaway instance. On Windows that is not
  * merely wasteful: a firewall prompt is raised the first time a program at a
  * given path binds a port, and the rule it writes names that path. A machine
@@ -11,7 +11,7 @@
  *
  * So a downloaded binary goes where a program's own downloads go on each
  * platform, once per user and once per version. The storage root keeps
- * everything that is about one Hub — the configuration, the store, the
+ * everything that is about one Team server — the configuration, the store, the
  * database, the keys and the certificates — and nothing that is about a
  * release.
  *
@@ -29,10 +29,10 @@ import { isAbsolute, join, resolve } from "node:path";
  * is built, with no per-user directory to depend on and nothing to download at
  * run time. Anything named here is used exactly as given.
  */
-export const CACHE_DIRECTORY_ENV = "NLHUB_CACHE_DIR";
+export const CACHE_DIRECTORY_ENV = "NLTEAM_CACHE_DIR";
 
-/** The directory name Hub takes for itself inside a shared cache location. */
-const APPLICATION = "nlhub";
+/** The directory name Team takes for itself inside a shared cache location. */
+const APPLICATION = "nlteam";
 
 /** What one machine and one user keep their downloads in. */
 export function binariesCacheDir(
@@ -61,7 +61,7 @@ export function binariesCacheDir(
   // The XDG base directory specification says a relative `XDG_CACHE_HOME` is
   // to be ignored, which matters here: resolving one against the working
   // directory would put the binaries wherever the operator happened to be
-  // standing when they started Hub.
+  // standing when they started Team.
   const xdg = env["XDG_CACHE_HOME"];
   const base = xdg === undefined || xdg === "" || !isAbsolute(xdg) ? join(home, ".cache") : xdg;
   return join(base, APPLICATION);
@@ -70,7 +70,7 @@ export function binariesCacheDir(
 /**
  * Where one release of one program is unpacked.
  *
- * `bin` is kept between the cache and the version, so that anything else Hub
+ * `bin` is kept between the cache and the version, so that anything else Team
  * ever caches has somewhere to go that is not among the executables.
  */
 export function cachedInstallDir(
@@ -82,7 +82,7 @@ export function cachedInstallDir(
 }
 
 /**
- * Where a Hub older than this change put the same directory.
+ * Where a Team server older than this change put the same directory.
  *
  * Still derived, and still read, because an installation that already has the
  * binary there goes on using it — see src/loreserver/install.ts for why it is

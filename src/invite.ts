@@ -27,8 +27,8 @@ export function renderInvite(
     `    ${code}`,
     "",
     `role ${role}, expires ${new Date(expiresAt).toISOString()}`,
-    "It is shown here and nowhere else; Hub keeps only a hash of it.",
-    `Redeem it with: nlhub user create <username> --root ${root} --invite ${code}`,
+    "It is shown here and nowhere else; Team keeps only a hash of it.",
+    `Redeem it with: nlteam user create <username> --root ${root} --invite ${code}`,
     "",
   ].join("\n");
 }
@@ -50,7 +50,7 @@ export async function inviteCreate(
     stdout(renderInvite(code, invite.role, invite.expiresAt, layout.root));
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${error instanceof Error ? error.message : String(error)}\n`);
+    stderr(`nlteam: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   } finally {
     database.close();

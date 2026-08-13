@@ -1,12 +1,12 @@
 /**
- * Putting Hub's certificate authority into a machine's trust store, and taking
+ * Putting Team's certificate authority into a machine's trust store, and taking
  * it out again.
  *
  * This is the one step of the whole arrangement that a person has to do
  * deliberately, and it cannot be automated away: a Studio installation's client
  * library builds a chain against the host's own trust store, offers no place to
  * pin a certificate, and ignores `SSL_CERT_FILE` on Windows. So the decision to
- * trust this Hub is made once, by somebody who has compared a fingerprint
+ * trust this Team server is made once, by somebody who has compared a fingerprint
  * against one printed on the server.
  *
  * Trusting a certificate authority is not a small permission: anything holding
@@ -34,11 +34,11 @@ export type TrustSupport = "runs-here" | "print-only";
 
 /** How one platform is asked to trust or forget a certificate. */
 export interface TrustPlan {
-  /** Whether Hub can carry this out, or can only say what to run. */
+  /** Whether Team can carry this out, or can only say what to run. */
   readonly support: TrustSupport;
   /** The command, as a person would type it. */
   readonly command: string;
-  /** The program and its arguments, for the platforms Hub runs the command on. */
+  /** The program and its arguments, for the platforms Team runs the command on. */
   readonly argv: readonly string[];
   /**
    * What the operating system will do on its own once this is started.
@@ -50,7 +50,7 @@ export interface TrustPlan {
 }
 
 /** A file name for the certificate wherever it has to be copied to. */
-const LINUX_FILE_NAME = "narraleaf-hub.crt";
+const LINUX_FILE_NAME = "narraleaf-team.crt";
 
 /**
  * Quote a path for the shell a person will paste this into.
@@ -119,7 +119,7 @@ export function removePlan(caCertPath: string, certificate: X509Certificate): Tr
     case "win32": {
       // certutil identifies a certificate to delete by its SHA-1 thumbprint,
       // written without separators. The subject would also be accepted and is
-      // not used: two Hubs on one machine have the same subject, and deleting
+      // not used: two Team servers on one machine have the same subject, and deleting
       // by name would take out whichever it found.
       const thumbprint = certificate.fingerprint.replaceAll(":", "");
       return {
@@ -166,7 +166,7 @@ export function trustCommandFor(caCertPath: string): string {
   const plan = installPlan(caCertPath);
   return plan.support === "runs-here"
     ? plan.command
-    : `nlhub trust --install (it will print what to run)`;
+    : `nlteam trust --install (it will print what to run)`;
 }
 
 /** What running a command came to. */

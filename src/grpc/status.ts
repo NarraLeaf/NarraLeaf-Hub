@@ -8,7 +8,7 @@
  * after the headers said 200.
  */
 
-/** The codes Hub sends or reads. The rest of the range is never produced here. */
+/** The codes Team sends or reads. The rest of the range is never produced here. */
 export const GRPC_OK = 0;
 export const GRPC_UNKNOWN = 2;
 export const GRPC_INVALID_ARGUMENT = 3;

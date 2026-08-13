@@ -1,5 +1,5 @@
 /**
- * Hub's own certificate authority, and the certificate its auth endpoint
+ * Team's own certificate authority, and the certificate its auth endpoint
  * presents.
  *
  * Why an authority at all, rather than one self-signed certificate: a Studio
@@ -9,14 +9,14 @@
  * Windows, so trust cannot be established inside the connection — a person has
  * to put something into the trust store once, having compared a fingerprint out
  * of band. That thing should not be the certificate the endpoint presents: a
- * leaf expires, and moving a Hub or adding a host name changes its names, and
+ * leaf expires, and moving a Team server or adding a host name changes its names, and
  * every one of those would otherwise mean going round every machine again. So
  * the long-lived authority is what is trusted, and the endpoint's certificate is
  * issued from it and replaced whenever it needs to be.
  *
  * Both private keys sit under the storage root at mode 0600. The authority's is
  * the more valuable: anything holding it can issue a certificate for any name,
- * to any machine that has trusted this Hub.
+ * to any machine that has trusted this Team server.
  */
 import {
   createPrivateKey,
@@ -52,7 +52,7 @@ const MODULUS_LENGTH = 2048;
  * How long each certificate lasts.
  *
  * Ten years for the authority, because renewing it is the expensive act: every
- * machine that trusted this Hub has to be visited again.
+ * machine that trusted this Team server has to be visited again.
  *
  * A little over a year for the endpoint's certificate, which is the limit
  * Apple's platforms enforce on a server certificate — anything longer is
@@ -71,7 +71,7 @@ export const LEAF_RENEWAL_MARGIN_DAYS = 30;
  *
  * An hour, against two machines' clocks disagreeing: a certificate whose
  * `notBefore` is a minute in the future is refused with much the same message
- * as one that has expired, and a person with a freshly started Hub would have
+ * as one that has expired, and a person with a freshly started Team would have
  * no idea why.
  */
 const BACKDATE_MS = 60 * 60 * 1000;
@@ -79,7 +79,7 @@ const BACKDATE_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The organization both certificates carry, so a trust store groups them. */
-const ORGANIZATION = "NarraLeaf Hub";
+const ORGANIZATION = "NarraLeaf Team";
 
 /** Where the transport files live under one storage root. */
 export interface TlsLayout {
@@ -113,7 +113,7 @@ export function tlsLayout(root: string): TlsLayout {
 export class MissingAuthorityError extends Error {
   constructor(readonly tlsDir: string) {
     super(
-      `this Hub has no certificate authority in ${tlsDir}. ` +
+      `this Team server has no certificate authority in ${tlsDir}. ` +
         "Run up once with the same --root; it generates one on first start.",
     );
     this.name = "MissingAuthorityError";
@@ -132,8 +132,8 @@ export class MissingAuthorityKeyError extends Error {
   }
 }
 
-/** Hub's certificate authority, as it is on disk. */
-export interface HubAuthority {
+/** Team's certificate authority, as it is on disk. */
+export interface TeamAuthority {
   readonly layout: TlsLayout;
   readonly certificate: X509Certificate;
   readonly pem: string;
@@ -142,8 +142,8 @@ export interface HubAuthority {
 }
 
 /** The authority and the endpoint certificate issued from it. */
-export interface HubCertificates {
-  readonly authority: HubAuthority;
+export interface TeamCertificates {
+  readonly authority: TeamAuthority;
   /** The endpoint's certificate and the authority's, as node's TLS wants them. */
   readonly leafCertPem: string;
   readonly leafKeyPem: string;
@@ -210,8 +210,8 @@ async function readCertificate(
     return { pem, x509: new X509Certificate(pem) };
   } catch {
     // A file that is not a certificate is treated as no certificate, and one is
-    // written over it. Nothing is lost that Hub cannot make again, and the
-    // alternative is a Hub that will not start until a person deletes a file.
+    // written over it. Nothing is lost that Team server cannot make again, and the
+    // alternative is a Team server that will not start until a person deletes a file.
     return undefined;
   }
 }
@@ -219,7 +219,7 @@ async function readCertificate(
 /**
  * The names the endpoint's certificate has to carry.
  *
- * The loopback addresses are always there: a Hub is reached from its own
+ * The loopback addresses are always there: a Team server is reached from its own
  * machine at least during setup, and a client dialling an address matches
  * against `iPAddress` entries, never against `DNS` ones. Anything an operator
  * names is added, sorted into the two kinds by whether it parses as an address,
@@ -246,10 +246,10 @@ async function issueAuthority(
   const { publicKey, privateKey } = await generateRsaKeyPair();
   // The machine's name is in the subject so that a person scrolling a trust
   // store full of well-known authorities can tell which entry is theirs. It is
-  // not an identity check — the fingerprint is, which is what `nlhub trust`
+  // not an identity check — the fingerprint is, which is what `nlteam trust`
   // prints and what a person compares.
   const subject = {
-    commonName: `NarraLeaf Hub CA on ${hostname()}`,
+    commonName: `NarraLeaf Team CA on ${hostname()}`,
     organizationName: ORGANIZATION,
   };
 
@@ -263,7 +263,7 @@ async function issueAuthority(
     serialNumber: serialNumber(),
     notBefore: new Date(now.getTime() - BACKDATE_MS),
     notAfter: new Date(now.getTime() + CA_VALIDITY_DAYS * DAY_MS),
-    // pathlen:0 says no further authority may sit below this one. Hub issues
+    // pathlen:0 says no further authority may sit below this one. Team issues
     // leaf certificates and nothing else, so a chain with an intermediate in it
     // did not come from here.
     basicConstraints: { ca: true, pathLength: 0 },
@@ -320,7 +320,7 @@ async function issueLeaf(
  * can.
  *
  * Every answer here causes a new one to be issued from the same authority,
- * which is invisible to every machine that has trusted this Hub.
+ * which is invisible to every machine that has trusted this Team server.
  */
 export function leafReplacementReason(
   leaf: X509Certificate,
@@ -329,7 +329,7 @@ export function leafReplacementReason(
   now: Date,
 ): string | undefined {
   if (!leaf.verify(caCertificate.publicKey)) {
-    return "the certificate on disk was not signed by this Hub's authority";
+    return "the certificate on disk was not signed by this server's authority";
   }
   const notAfter = Date.parse(leaf.validTo);
   if (Number.isNaN(notAfter)) {
@@ -361,10 +361,10 @@ export interface CertificateOptions {
 /**
  * Read the authority without creating anything.
  *
- * `nlhub trust` uses this: printing a fingerprint for a person to compare must
+ * `nlteam trust` uses this: printing a fingerprint for a person to compare must
  * not be the act that decides what the fingerprint is.
  */
-export async function readAuthority(root: string): Promise<HubAuthority> {
+export async function readAuthority(root: string): Promise<TeamAuthority> {
   const layout = tlsLayout(root);
   const found = await readCertificate(layout.caCertPath);
   if (found === undefined) {
@@ -384,19 +384,19 @@ export async function readAuthority(root: string): Promise<HubAuthority> {
  *
  * A second call keeps the authority it finds, which is the property the whole
  * arrangement rests on: the fingerprint a person compared once stays the
- * fingerprint for the life of the Hub, however often the endpoint's own
+ * fingerprint for the life of the Team server, however often the endpoint's own
  * certificate is replaced underneath it.
  */
 export async function ensureCertificates(
   root: string,
   options: CertificateOptions = {},
-): Promise<HubCertificates> {
+): Promise<TeamCertificates> {
   const layout = tlsLayout(root);
   const now = options.now ?? new Date();
   const hostnames = options.hostnames ?? [];
 
   // 0700, for the reason the keys directory is: the two private keys under here
-  // are the whole of this Hub's transport security.
+  // are the whole of this Team server's transport security.
   await mkdir(layout.tlsDir, { recursive: true, mode: 0o700 });
 
   const existingCa = await readCertificate(layout.caCertPath);
@@ -416,8 +416,8 @@ export async function ensureCertificates(
   const because =
     existingLeaf === undefined
       ? generatedAuthority
-        ? "this Hub had no certificate authority"
-        : "this Hub had no certificate for its auth endpoint"
+        ? "this server had no certificate authority"
+        : "this server had no certificate for its auth endpoint"
       : leafReplacementReason(existingLeaf.x509, authority.x509, hostnames, now);
 
   let leafCertPem: string;

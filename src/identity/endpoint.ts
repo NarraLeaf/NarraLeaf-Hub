@@ -1,5 +1,5 @@
 /**
- * Hub's own HTTP endpoint.
+ * Team's own HTTP endpoint.
  *
  * It serves two things and refuses everything else:
  *
@@ -13,7 +13,7 @@
  * Plain HTTP is deliberate. The document is a set of public keys, so there is
  * nothing in it to keep secret, and nothing an eavesdropper can do with it. A
  * verifier that fetched the keys over a tampered connection would be a problem,
- * which is why loreserver is pointed at the loopback address of the machine Hub
+ * which is why loreserver is pointed at the loopback address of the machine Team
  * runs on rather than across a network.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -25,7 +25,7 @@ export interface EndpointOptions {
   readonly port: number;
   /**
    * Interface to listen on. The loopback by default: the only caller is a
-   * loreserver Hub started itself, on this machine.
+   * loreserver Team started itself, on this machine.
    */
   readonly host?: string;
   /**
@@ -42,8 +42,8 @@ export interface EndpointOptions {
 export class EndpointListenError extends Error {
   constructor(address: string, cause: Error) {
     super(
-      `Hub's endpoint could not listen on ${address}: ${cause.message}. ` +
-        "Another program may hold that port; --hub-port moves it.",
+      `Team's endpoint could not listen on ${address}: ${cause.message}. ` +
+        "Another program may hold that port; --team-port moves it.",
       { cause },
     );
     this.name = "EndpointListenError";
@@ -57,13 +57,13 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
     "content-length": Buffer.byteLength(text),
     // A JWKS that a verifier holds on to after a key is retired is a token
     // that verifies when it should not. Caching it is the verifier's decision
-    // to make deliberately, not one Hub makes for it by saying nothing.
+    // to make deliberately, not one Team server makes for it by saying nothing.
     "cache-control": "no-store",
   });
   response.end(text);
 }
 
-/** Hub's HTTP endpoint, listening. */
+/** Team's HTTP endpoint, listening. */
 export class IdentityEndpoint {
   readonly #server: Server;
   readonly #host: string;
@@ -130,7 +130,7 @@ function handle(
   // The path is taken apart with the URL parser rather than compared as a
   // string, so a query string or an escaped separator cannot make one route
   // look like another.
-  const path = new URL(request.url ?? "/", "http://hub.invalid").pathname;
+  const path = new URL(request.url ?? "/", "http://team.invalid").pathname;
 
   if (request.method !== "GET" && request.method !== "HEAD") {
     sendJson(response, 405, { error: "only GET is served here" });

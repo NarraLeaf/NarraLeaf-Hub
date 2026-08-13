@@ -16,7 +16,7 @@ import {
   type Session,
   type TuiState,
 } from "../src/tui/state.js";
-import { FIXTURE_VIEW } from "./fixtures/hubview.js";
+import { FIXTURE_VIEW } from "./fixtures/teamview.js";
 
 const START: Session = { state: INITIAL_STATE, draft: "" };
 

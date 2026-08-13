@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { frameOf, SPLIT_FROM, WIDE_RAIL_FROM } from "../src/tui/layout.js";
 import { plainText } from "../src/tui/text.js";
 import { overlayWindow } from "../src/tui/window.js";
-import { FIXTURE_VIEW } from "./fixtures/hubview.js";
+import { FIXTURE_VIEW } from "./fixtures/teamview.js";
 
 const SMALL = { columns: 80, rows: 24 };
 const MIDDLING = { columns: 120, rows: 40 };
@@ -79,9 +79,9 @@ describe("a window is the size of what is in it", () => {
 });
 
 describe("the confirmation for revoking somebody's tokens", () => {
-  // The pair an operator gets wrong. Hub refuses a stale token wherever Hub is
+  // The pair an operator gets wrong. Team refuses a stale token wherever Team is
   // the one asked; a data connection already open is checked by loreserver
-  // rather than by Hub, and may last until the token it was opened with
+  // rather than by Team, and may last until the token it was opened with
   // expires. Both halves have to be on screen, and nothing else.
   const window = overlayWindow(REVOKE, MIDDLING, FIXTURE_VIEW);
   const said = window!.lines.map((line) => plainText(line)).join(" ");
@@ -91,7 +91,7 @@ describe("the confirmation for revoking somebody's tokens", () => {
   });
 
   it("says what stops", () => {
-    expect(said).toContain("Every token Hub has issued stops being accepted.");
+    expect(said).toContain("Every token Team has issued stops being accepted.");
   });
 
   it("says what does not", () => {

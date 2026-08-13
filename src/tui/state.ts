@@ -9,7 +9,7 @@
  */
 import { accountsFor, canBeGranted, clamp as clampChoice, holdersOf, LEVELS, projectsFor } from "./choices.js";
 import type { Choice } from "./choices.js";
-import type { HubView } from "./hubview.js";
+import type { TeamView } from "./teamview.js";
 
 /** The size of the terminal, in cells. */
 export interface TuiSize {
@@ -140,7 +140,7 @@ export function topOverlay(state: TuiState): Overlay | undefined {
 }
 
 /** How many rows the surface has to move a selection through. */
-export function rowCount(surface: Surface, view: HubView): number {
+export function rowCount(surface: Surface, view: TeamView): number {
   switch (surface) {
     case "users":
       return view.users.length;
@@ -177,7 +177,7 @@ function pop(session: Session): Step {
   return withState(session, { ...session.state, overlays: session.state.overlays.slice(0, -1) });
 }
 
-function move(session: Session, by: number, view: HubView): Step {
+function move(session: Session, by: number, view: TeamView): Step {
   const count = rowCount(session.state.surface, view);
   return withState(session, {
     ...session.state,
@@ -234,7 +234,7 @@ function confirm(session: Session, key: KeyPress, action: Action): Step {
  * The view is needed to know how far a selection may move and who a key would
  * act on; nothing is read from it that is not on screen.
  */
-export function reduce(session: Session, key: KeyPress, view: HubView): Step {
+export function reduce(session: Session, key: KeyPress, view: TeamView): Step {
   const { state } = session;
   const top = topOverlay(state);
 
@@ -336,15 +336,15 @@ function asked(session: Session, action: Action | undefined): Step {
   return action === undefined ? { session } : { session, action };
 }
 
-function selectedUser(state: TuiState, view: HubView): HubView["users"][number] | undefined {
+function selectedUser(state: TuiState, view: TeamView): TeamView["users"][number] | undefined {
   return state.surface === "users" ? view.users[state.selection] : undefined;
 }
 
-function selectedProject(state: TuiState, view: HubView): HubView["projects"][number] | undefined {
+function selectedProject(state: TuiState, view: TeamView): TeamView["projects"][number] | undefined {
   return state.surface === "projects" ? view.projects[state.selection] : undefined;
 }
 
-function disableAction(state: TuiState, view: HubView): Action | undefined {
+function disableAction(state: TuiState, view: TeamView): Action | undefined {
   const user = selectedUser(state, view);
   if (user === undefined) {
     return undefined;
@@ -359,7 +359,7 @@ function disableAction(state: TuiState, view: HubView): Action | undefined {
  * cursor — so that `g` means the same thing whether it is pressed on the list
  * or inside the panel that lists who can already reach it.
  */
-function projectInPlay(state: TuiState, view: HubView): string | undefined {
+function projectInPlay(state: TuiState, view: TeamView): string | undefined {
   for (let index = state.overlays.length - 1; index >= 0; index -= 1) {
     const overlay = state.overlays[index];
     if (overlay?.kind === "project-detail") {
@@ -382,7 +382,7 @@ function isPicker(overlay: Overlay): overlay is Picker {
 }
 
 /** The rows a picker is showing, read from the one place that decides them. */
-export function choicesOf(overlay: Picker, view: HubView): Choice[] {
+export function choicesOf(overlay: Picker, view: TeamView): Choice[] {
   switch (overlay.kind) {
     case "pick-account":
       return accountsFor(view, overlay.project);
@@ -415,7 +415,7 @@ function replaceTop(session: Session, overlay: Overlay): Step {
  * step of giving access returns to the first and an operator who picked the
  * wrong person is one key from fixing it.
  */
-function pick(session: Session, key: KeyPress, overlay: Picker, view: HubView): Step {
+function pick(session: Session, key: KeyPress, overlay: Picker, view: TeamView): Step {
   const rows = choicesOf(overlay, view);
 
   if (key.escape === true) {
@@ -486,7 +486,7 @@ function pick(session: Session, key: KeyPress, overlay: Picker, view: HubView): 
  * is the one thing here that cannot be chosen from a list, because it does not
  * exist yet.
  */
-function nameProject(session: Session, key: KeyPress, view: HubView): Step {
+function nameProject(session: Session, key: KeyPress, view: TeamView): Step {
   if (key.escape === true) {
     return { session: { state: { ...session.state, overlays: session.state.overlays.slice(0, -1) }, draft: "" } };
   }
@@ -523,7 +523,7 @@ function nameProject(session: Session, key: KeyPress, view: HubView): Step {
 }
 
 /** What return does on each surface. */
-function open(session: Session, view: HubView): Step {
+function open(session: Session, view: TeamView): Step {
   const { state } = session;
   if (state.surface === "users") {
     const user = view.users[state.selection];
@@ -537,7 +537,7 @@ function open(session: Session, view: HubView): Step {
   }
   if (state.surface === "settings") {
     const setting = view.settings[state.selection];
-    // A row Hub cannot write opens nothing. An editor over a value that would
+    // A row Team cannot write opens nothing. An editor over a value that would
     // be thrown away is worse than no editor, because it looks like it worked.
     if (setting === undefined || !setting.editable) {
       return { session };

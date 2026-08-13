@@ -1,5 +1,5 @@
 /**
- * The `trust` command: what this Hub's certificate authority is, and how a
+ * The `trust` command: what this Team server's certificate authority is, and how a
  * machine comes to believe it.
  *
  * Running it with no arguments changes nothing at all. That is the point of it:
@@ -28,7 +28,7 @@ function describeError(error: unknown): string {
 /** The block naming the authority and its fingerprint, which every run prints. */
 function renderAuthority(path: string, fingerprint: string, subject: string): string {
   return [
-    "This Hub's certificate authority:",
+    "This server's certificate authority:",
     `  ${path}`,
     `  ${subject.split("\n").join(", ")}`,
     `  SHA-256  ${fingerprint}`,
@@ -73,21 +73,21 @@ export async function trust(
 
     if (options.install !== true && !removing) {
       stdout(
-        "Compare that fingerprint with the one printed by the Hub you mean to reach,\n" +
-          "over something other than the connection you are about to trust.\n\n",
+        "Compare that fingerprint with the one printed by the server you mean to\n" +
+          "reach, over something other than the connection you are about to trust.\n\n",
       );
       stdout(renderPlan(plan, "trust it"));
       if (plan.support === "runs-here") {
-        stdout("nlhub trust --install runs that for you.\n");
+        stdout("nlteam trust --install runs that for you.\n");
       }
       // Said here because this is where an operator comes to find out what to
       // send somebody, and the answer is that they have already sent it: a
-      // token from `nlhub token mint` carries this fingerprint, and Studio
+      // token from `nlteam token mint` carries this fingerprint, and Studio
       // compares it against what the server presents and offers to install the
       // authority itself. The command above is for machines without Studio on
       // them - this one, another server, a script.
       stdout(
-        "Studio does not need any of this. A token from nlhub token mint carries the\n" +
+        "Studio does not need any of this. A token from nlteam token mint carries the\n" +
           "fingerprint above, and Studio asks the person signing in for one confirmation.\n\n",
       );
       stdout("Nothing has been changed.\n");
@@ -100,7 +100,7 @@ export async function trust(
       // change this command did not make and could not make without root.
       stdout(renderPlan(plan, removing ? "stop trusting it" : "trust it"));
       stderr(
-        "nlhub: there is no per-user trust store on this platform, so nothing was changed. " +
+        "nlteam: there is no per-user trust store on this platform, so nothing was changed. " +
           "Run the two commands above.\n",
       );
       return 1;
@@ -120,7 +120,7 @@ export async function trust(
     }
     if (outcome.code !== 0) {
       stderr(
-        `nlhub: that command ended with status ${outcome.code}, so the trust store was ` +
+        `nlteam: that command ended with status ${outcome.code}, so the trust store was ` +
           "probably not changed.\n",
       );
       return 1;
@@ -133,7 +133,7 @@ export async function trust(
     );
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   }
 }

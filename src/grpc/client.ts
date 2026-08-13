@@ -1,10 +1,10 @@
 /**
  * Making a gRPC call, on HTTP/2 without TLS.
  *
- * One call of one message in each direction is the whole of what Hub asks of
+ * One call of one message in each direction is the whole of what Team asks of
  * loreserver, so a call is a function rather than a channel: connect, send,
  * read the answer, close. A long-lived connection would be worth having for a
- * program that called repeatedly, and `nlhub project create` makes one call.
+ * program that called repeatedly, and `nlteam project create` makes one call.
  *
  * The outcome of a gRPC call is not its HTTP status. A call that failed answers
  * `:status 200` and puts the failure in a `grpc-status` trailer, or in the
@@ -39,7 +39,7 @@ export interface UnaryCallOptions {
    * The certificate authority to verify an `https` service against, as PEM.
    *
    * Given, it replaces the host's trust store for this call rather than adding
-   * to it — which is what makes a call to a Hub whose authority nobody has
+   * to it — which is what makes a call to a Team server whose authority nobody has
    * installed possible without installing it.
    */
   readonly ca?: string | undefined;

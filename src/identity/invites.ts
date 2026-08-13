@@ -3,7 +3,7 @@
  *
  * A code is a secret, so it is treated like one. It is shown once, at the
  * moment it is made, and only its SHA-256 is written down — a person who can
- * read `hub.db` can already do worse things than make an account, but a backup
+ * read `team.db` can already do worse things than make an account, but a backup
  * of it, or a copy sent somewhere for support, must not be a bag of usable
  * invitations.
  *
@@ -31,7 +31,7 @@ export interface InviteRecord {
   readonly codeHash: string;
   /** The group the account made from this invite joins. */
   readonly role: string;
-  /** True for the code `up` prints when a Hub holds no accounts at all. */
+  /** True for the code `up` prints when a Team server holds no accounts at all. */
   readonly isBootstrap: boolean;
   readonly createdAt: number;
   readonly expiresAt: number;
@@ -49,7 +49,7 @@ export interface CreatedInvite {
 /** Raised when a code matches no invitation. */
 export class UnknownInviteError extends Error {
   constructor() {
-    super("that invite code is not one this Hub issued.");
+    super("that invite code is not one this server issued.");
     this.name = "UnknownInviteError";
   }
 }
@@ -177,7 +177,7 @@ function toInvite(row: Row): InviteRecord {
 export interface NewInvite {
   readonly role?: string;
   readonly lifetimeMs?: number;
-  /** Marks the code `up` prints for a Hub with no accounts. */
+  /** Marks the code `up` prints for a Team server with no accounts. */
   readonly isBootstrap?: boolean;
 }
 
@@ -256,7 +256,7 @@ function findByCode(database: DatabaseSync, code: string): InviteRecord | undefi
 /**
  * Withdraw every unused bootstrap code.
  *
- * `up` prints a fresh code each time it finds a Hub with no accounts, because
+ * `up` prints a fresh code each time it finds a Team server with no accounts, because
  * it cannot print the previous one — it never had it, only its hash. Dropping
  * the old ones keeps exactly one live code at a time instead of one per start.
  *

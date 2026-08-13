@@ -1,15 +1,15 @@
 /**
- * The projects Hub knows about, and who may reach each of them.
+ * The projects Team knows about, and who may reach each of them.
  *
- * A project is one loreserver repository. Hub keeps the row that says who made
+ * A project is one loreserver repository. Team keeps the row that says who made
  * it and who it has been shared with; loreserver keeps the contents and asks
- * Hub, on every access, whether the caller is one of those people.
+ * Team, on every access, whether the caller is one of those people.
  *
  * The two systems agree on an identifier and nothing else. loreserver's
  * repository id is sixteen bytes; it appears in a permission question as a
  * resource id, which is those bytes as lower-case hex with `urc-` in front. So
  * that is what is stored — the hex — and {@link resourceIdOf} is the only place
- * the prefix is written. A second identifier of Hub's own would have to be
+ * the prefix is written. A second identifier of Team's own would have to be
  * mapped back to this one at exactly the moment a wrong answer costs somebody
  * their access.
  */
@@ -50,7 +50,7 @@ function levelColumn(row: Row, column: string): AccessLevel {
   const level = LEVEL_ORDER.find((known) => known === value);
   if (level === undefined) {
     throw new Error(
-      `hub.db holds an access level of "${value}", and the levels are ${LEVEL_ORDER.join(", ")}.`,
+      `team.db holds an access level of "${value}", and the levels are ${LEVEL_ORDER.join(", ")}.`,
     );
   }
   return level;
@@ -163,7 +163,7 @@ export function resourceIdOf(projectId: string): string {
 /**
  * The project a resource id names, or undefined.
  *
- * Undefined for anything that is not shaped like one of Hub's: a resource id
+ * Undefined for anything that is not shaped like one of Team's: a resource id
  * loreserver invented for something other than a repository, or a repository id
  * in some other spelling. Neither is a project here, and both have to answer
  * "no" rather than "not found by accident".

@@ -7,8 +7,8 @@
  * a signature over bytes somebody else assembled proves nothing about what this
  * program meant to say.
  *
- * The certificates Hub issues are for one purpose: a TLS server on a machine an
- * operator controls, trusted because that operator installed Hub's certificate
+ * The certificates Team issues are for one purpose: a TLS server on a machine an
+ * operator controls, trusted because that operator installed Team's certificate
  * authority by hand. There is no revocation, no OCSP, no policy — nothing that
  * would need an infrastructure to answer for it. What is here is what a TLS
  * client checks: the chain, the validity dates, the basic constraints, the key
@@ -78,7 +78,7 @@ const KEY_USAGE_BITS = {
 /** A key usage, by the name `openssl x509 -text` prints for it. */
 export type KeyUsage = keyof typeof KEY_USAGE_BITS;
 
-/** The parts of a distinguished name Hub writes. */
+/** The parts of a distinguished name Team writes. */
 export interface DistinguishedName {
   readonly commonName: string;
   readonly organizationName?: string | undefined;
@@ -255,7 +255,7 @@ export function encodePublicKeyInfo(publicKey: KeyObject): Buffer {
   if (publicKey.asymmetricKeyType !== "rsa") {
     throw new UnencodableValueError(
       `a ${publicKey.asymmetricKeyType ?? "key of unknown type"} cannot be written here; ` +
-        "Hub's certificates are RSA",
+        "Team's certificates are RSA",
     );
   }
   const rsaPublicKey = publicKey.export({ type: "pkcs1", format: "der" });

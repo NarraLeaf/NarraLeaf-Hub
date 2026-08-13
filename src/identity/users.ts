@@ -1,5 +1,5 @@
 /**
- * The accounts Hub issues tokens for.
+ * The accounts Team issues tokens for.
  *
  * A user record carries no password hash. Reading one is a separate query,
  * made only by the code that is about to check a password, so that a record
@@ -37,7 +37,7 @@ export interface UserRecord {
    * When the epoch above was last bumped, or undefined for an account whose
    * tokens have never been refused.
    *
-   * Undefined also on an account whose tokens were refused before Hub kept this
+   * Undefined also on an account whose tokens were refused before Team kept this
    * moment: migration 4 leaves the column NULL for rows that already existed
    * rather than inventing a timestamp for a bump nobody recorded.
    */
@@ -84,7 +84,7 @@ export class WeakPasswordError extends Error {
   }
 }
 
-/** The shortest password Hub will store. */
+/** The shortest password Team will store. */
 export const MINIMUM_PASSWORD_LENGTH = 10;
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,31}$/;
@@ -134,7 +134,7 @@ export function listUsers(database: DatabaseSync): UserRecord[] {
     .map((row) => toUser(database, row));
 }
 
-/** How many accounts exist. Zero is what makes a Hub need bootstrapping. */
+/** How many accounts exist. Zero is what makes a Team server need bootstrapping. */
 export function countUsers(database: DatabaseSync): number {
   const row = database.prepare("SELECT COUNT(*) AS count FROM users").get();
   return row === undefined ? 0 : integerColumn(row, "count");
@@ -332,7 +332,7 @@ export function enableUser(database: DatabaseSync, username: string): UserRecord
  *
  * The same bump {@link disableUser} makes, without the `disabled_at` that goes
  * with it: the person may sign in a second later and be given a token that
- * works, while everything issued before this moment is refused wherever Hub is
+ * works, while everything issued before this moment is refused wherever Team is
  * the one asked. That is the operation for a token that has got out, as
  * against an account that should not have one — ./tokens.ts sets out how far
  * either of them reaches, and where neither does.
@@ -374,7 +374,7 @@ export type SignInResult =
  * The one sentence a failed sign-in is reported with, whichever way it failed.
  *
  * Saying "no such user" would let anyone with a browser enumerate the accounts
- * on a Hub, and saying "your stored password could not be read" would tell them
+ * on a Team server, and saying "your stored password could not be read" would tell them
  * which account to attack next.
  */
 export const SIGN_IN_REFUSED_MESSAGE = "the username or password is not right";

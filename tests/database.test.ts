@@ -16,7 +16,7 @@ import {
 import { identityLayout } from "../src/identity/layout.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-database-");
+const temporaryRoot = useTemporaryRoots("nlteam-database-");
 
 /** The names of every table in an open database. */
 function tableNames(database: DatabaseSync): string[] {
@@ -77,7 +77,7 @@ describe("migrate", () => {
 
       expect(tableNames(database)).toContain("decisions");
       // The account is still there. A migration that took the file back to
-      // something empty would pass every check about tables and lose a Hub.
+      // something empty would pass every check about tables and lose a Team server.
       expect(database.prepare("SELECT username FROM users").all()).toEqual([{ username: "ada" }]);
     } finally {
       database.close();
@@ -121,7 +121,7 @@ describe("migrate", () => {
     }
   });
 
-  it("refuses a file written by a newer Hub rather than working on it", async () => {
+  it("refuses a file written by a newer Team rather than working on it", async () => {
     const root = await temporaryRoot();
     const path = identityLayout(root).databasePath;
     const database = await openDatabase(path);
@@ -137,11 +137,11 @@ describe("migrate", () => {
     }
   });
 
-  it("keeps its file under the storage root, beside everything else Hub writes", async () => {
+  it("keeps its file under the storage root, beside everything else Team writes", async () => {
     const root = await temporaryRoot();
     const layout = identityLayout(root);
 
-    expect(layout.databasePath).toBe(join(layout.root, "hub.db"));
+    expect(layout.databasePath).toBe(join(layout.root, "team.db"));
     expect(layout.keysDir).toBe(join(layout.root, "keys"));
   });
 });

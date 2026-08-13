@@ -28,7 +28,7 @@ import {
 } from "../src/projects/registry.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-projects-");
+const temporaryRoot = useTemporaryRoots("nlteam-projects-");
 
 /** Cheap parameters: these tests are about the rows, not the cost of a hash. */
 const CHEAP: ScryptParameters = { cost: 2 ** 12, blockSize: 8, parallelism: 1, keyLength: 32 };
@@ -75,7 +75,7 @@ describe("resource ids", () => {
     expect(newProjectId()).not.toBe(first);
   });
 
-  it("recognises nothing else as one of Hub's", () => {
+  it("recognises nothing else as one of Team's", () => {
     // A resource loreserver invented for something other than a repository has
     // to answer "not a project here" rather than fall through to a lookup.
     expect(projectIdFromResourceId("urc-not-hex")).toBeUndefined();

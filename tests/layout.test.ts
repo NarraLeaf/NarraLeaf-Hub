@@ -16,7 +16,7 @@ import { LORESERVER_VERSION } from "../src/loreserver/pin.js";
 const temporaryRoots: string[] = [];
 
 async function temporaryRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "nlhub-layout-"));
+  const root = await mkdtemp(join(tmpdir(), "nlteam-layout-"));
   temporaryRoots.push(root);
   return root;
 }
@@ -31,13 +31,13 @@ afterEach(async () => {
 });
 
 describe("instanceLayout", () => {
-  it("puts everything about one Hub under the one directory it is given", async () => {
+  it("puts everything about one Team server under the one directory it is given", async () => {
     const root = await temporaryRoot();
     const layout = instanceLayout(root, "loreserver");
 
     expect(layout.root).toBe(resolve(root));
     // The executable is the exception, and the only one: it belongs to a
-    // version rather than to this Hub, and lives in the per-user cache.
+    // version rather than to this Team server, and lives in the per-user cache.
     expect(layout.binDir.startsWith(layout.root)).toBe(false);
     expect(layout.binaryPath).toBe(join(layout.binDir, "loreserver"));
     expect(layout.licensePath).toBe(join(layout.binDir, "LICENSE.txt"));
@@ -72,33 +72,33 @@ describe("instanceLayout", () => {
 describe("renderConfig", () => {
   /** A layout with fixed paths, so the rendering can be checked exactly. */
   const layout: InstanceLayout = {
-    root: "C:\\srv\\hub",
-    binDir: "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6",
-    binaryPath: "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6\\loreserver.exe",
-    licensePath: "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6\\LICENSE.txt",
+    root: "C:\\srv\\team",
+    binDir: "C:\\Users\\ada\\AppData\\Local\\nlteam\\cache\\bin\\loreserver-0.8.6",
+    binaryPath: "C:\\Users\\ada\\AppData\\Local\\nlteam\\cache\\bin\\loreserver-0.8.6\\loreserver.exe",
+    licensePath: "C:\\Users\\ada\\AppData\\Local\\nlteam\\cache\\bin\\loreserver-0.8.6\\LICENSE.txt",
     noticesPath:
-      "C:\\Users\\ada\\AppData\\Local\\nlhub\\cache\\bin\\loreserver-0.8.6\\THIRD-PARTY-NOTICES.txt",
+      "C:\\Users\\ada\\AppData\\Local\\nlteam\\cache\\bin\\loreserver-0.8.6\\THIRD-PARTY-NOTICES.txt",
     stored: {
-      binDir: "C:\\srv\\hub\\bin\\loreserver-0.8.6",
-      binaryPath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\loreserver.exe",
-      licensePath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\LICENSE.txt",
-      noticesPath: "C:\\srv\\hub\\bin\\loreserver-0.8.6\\THIRD-PARTY-NOTICES.txt",
+      binDir: "C:\\srv\\team\\bin\\loreserver-0.8.6",
+      binaryPath: "C:\\srv\\team\\bin\\loreserver-0.8.6\\loreserver.exe",
+      licensePath: "C:\\srv\\team\\bin\\loreserver-0.8.6\\LICENSE.txt",
+      noticesPath: "C:\\srv\\team\\bin\\loreserver-0.8.6\\THIRD-PARTY-NOTICES.txt",
     },
-    configDir: "C:\\srv\\hub\\loreserver\\config",
-    configPath: "C:\\srv\\hub\\loreserver\\config\\local.toml",
-    immutableStoreDir: "C:\\srv\\hub\\loreserver\\store\\immutable",
-    mutableStoreDir: "C:\\srv\\hub\\loreserver\\store\\mutable",
-    logDir: "C:\\srv\\hub\\logs",
-    logPath: "C:\\srv\\hub\\logs\\loreserver.log",
+    configDir: "C:\\srv\\team\\loreserver\\config",
+    configPath: "C:\\srv\\team\\loreserver\\config\\local.toml",
+    immutableStoreDir: "C:\\srv\\team\\loreserver\\store\\immutable",
+    mutableStoreDir: "C:\\srv\\team\\loreserver\\store\\mutable",
+    logDir: "C:\\srv\\team\\logs",
+    logPath: "C:\\srv\\team\\logs\\loreserver.log",
   };
 
   it("writes the tables and keys loreserver reads", () => {
     expect(renderConfig(layout, { dataPort: 41337, healthPort: 41339 })).toBe(
       [
         "[immutable_store.local]",
-        'path = "C:/srv/hub/loreserver/store/immutable"',
+        'path = "C:/srv/team/loreserver/store/immutable"',
         "[mutable_store.local]",
-        'path = "C:/srv/hub/loreserver/store/mutable"',
+        'path = "C:/srv/team/loreserver/store/mutable"',
         "[server.grpc]",
         "port = 41337",
         "[server.quic]",
@@ -130,12 +130,12 @@ describe("renderConfig", () => {
 });
 
 describe("renderConfig, with identity switched on", () => {
-  const layout = instanceLayout("/srv/hub", "loreserver");
+  const layout = instanceLayout("/srv/team", "loreserver");
   const auth = {
-    issuer: "narraleaf-hub",
+    issuer: "narraleaf-team",
     audience: ["loreserver"],
     jwksUrl: "http://127.0.0.1:41400/.well-known/jwks.json",
-    authUrl: "https://hub.example.com",
+    authUrl: "https://team.example.com",
   };
 
   it("writes both blocks, because one on its own fails as a client bug", () => {
@@ -146,14 +146,14 @@ describe("renderConfig, with identity switched on", () => {
     expect(toml).toContain(
       [
         "[server.auth]",
-        'jwt_issuer = "narraleaf-hub"',
+        'jwt_issuer = "narraleaf-team"',
         'jwt_audience = ["loreserver"]',
         "[server.auth.jwk]",
         'endpoint = "http://127.0.0.1:41400/.well-known/jwks.json"',
       ].join("\n"),
     );
     expect(toml).toContain(
-      ["[environment.endpoint]", 'auth_url = "https://hub.example.com"'].join("\n"),
+      ["[environment.endpoint]", 'auth_url = "https://team.example.com"'].join("\n"),
     );
   });
 
@@ -209,10 +209,10 @@ describe("writeInstance", () => {
     const layout = instanceLayout(root, "loreserver");
 
     await writeInstance(layout, DEFAULT_PORTS, {
-      issuer: "narraleaf-hub",
+      issuer: "narraleaf-team",
       audience: ["loreserver"],
       jwksUrl: "http://127.0.0.1:41400/.well-known/jwks.json",
-      authUrl: "https://hub.example.com",
+      authUrl: "https://team.example.com",
     });
     expect(await readFile(layout.configPath, "utf8")).toContain('jwt_audience = ["loreserver"]');
 

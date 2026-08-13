@@ -173,7 +173,7 @@ function parse(stored: string): ParsedHash {
   };
 }
 
-/** Hashing with scrypt, the algorithm Hub uses today. */
+/** Hashing with scrypt, the algorithm Team uses today. */
 export class ScryptPasswordHasher implements PasswordHasher {
   readonly #parameters: ScryptParameters;
 
@@ -247,7 +247,7 @@ export class ScryptPasswordHasher implements PasswordHasher {
   }
 }
 
-/** The hasher Hub uses when a caller expresses no preference. */
+/** The hasher Team uses when a caller expresses no preference. */
 export function defaultPasswordHasher(): PasswordHasher {
   return new ScryptPasswordHasher();
 }

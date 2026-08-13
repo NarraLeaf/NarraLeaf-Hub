@@ -1,9 +1,9 @@
 /**
- * The settings that decide what a Hub token says and who will accept it.
+ * The settings that decide what a Team server token says and who will accept it.
  *
- * Three of them — the issuer, the audience and Hub's own auth origin — are
- * written into two files at once: they appear in every token Hub mints, and in
- * the `local.toml` Hub generates for loreserver. A token is accepted only when
+ * Three of them — the issuer, the audience and Team's own auth origin — are
+ * written into two files at once: they appear in every token Team mints, and in
+ * the `local.toml` Team generates for loreserver. A token is accepted only when
  * both copies agree, so they are read from one place rather than typed twice.
  */
 import { DEFAULT_PORTS } from "../loreserver/layout.js";
@@ -19,13 +19,13 @@ export interface IdentityConfig {
   readonly audience: string;
   /**
    * Host and optional port of the endpoint Studio authenticates against,
-   * without a scheme, for example `hub.example.com:41402`.
+   * without a scheme, for example `team.example.com:41402`.
    *
    * Studio refuses to use a token whose `aud` does not name the endpoint it is
    * talking to, so this value reaches the token as well as the configuration.
    * It is also the name the endpoint's certificate has to carry, which is why
    * `up --hostname` exists: a certificate for `127.0.0.1` proves nothing about
-   * a machine somebody reaches as `hub.example.com`.
+   * a machine somebody reaches as `team.example.com`.
    *
    * When an operator names none, it is this machine's loopback at the TLS
    * port, so the default configuration is consistent with itself.
@@ -38,9 +38,9 @@ export interface IdentityConfig {
   /**
    * How long a token minted to sign in with is good for.
    *
-   * Hub is asked about this one every time it matters: it is presented back to
-   * Hub to be exchanged, and every repository access loreserver serves goes on
-   * to ask Hub about the account behind it. Revoking an account's access
+   * Team is asked about this one every time it matters: it is presented back to
+   * Team to be exchanged, and every repository access loreserver serves goes on
+   * to ask Team about the account behind it. Revoking an account's access
    * therefore refuses it at once, and its expiry is not what bounds it.
    */
   readonly signInTokenLifetimeSeconds: number;
@@ -49,18 +49,18 @@ export interface IdentityConfig {
    *
    * Much shorter than the one above, and src/identity/tokens.ts sets out why
    * the pair is not one number: this is the token presented to loreserver's
-   * data plane, which Hub is not necessarily asked about again before it
+   * data plane, which Team is not necessarily asked about again before it
    * expires, so the lifetime is the only bound it has.
    */
   readonly repositoryTokenLifetimeSeconds: number;
-  /** The port Hub's own HTTP endpoint listens on. */
-  readonly hubPort: number;
+  /** The port Team's own HTTP endpoint listens on. */
+  readonly teamPort: number;
   /**
-   * The port Hub's authorization service listens on in plain HTTP/2.
+   * The port Team's authorization service listens on in plain HTTP/2.
    *
    * This is where loreserver, on the same machine, asks whether a caller may
    * touch a repository. It is a second port rather than a second path on
-   * {@link hubPort} because the two speak different protocols: one serves
+   * {@link teamPort} because the two speak different protocols: one serves
    * documents over HTTP/1.1, the other gRPC over HTTP/2.
    */
   readonly authPort: number;
@@ -90,27 +90,27 @@ export interface IdentityConfig {
    * The same `--hostname` values that go into the endpoint's certificate. A
    * token's audience is written for every one of them, because a collaborator
    * does not connect on `127.0.0.1` and a token whose audience names only the
-   * loopback works on the Hub machine and nowhere else.
+   * loopback works on the Team server machine and nowhere else.
    */
   readonly hostnames: readonly string[];
 }
 
 /** The identity settings used when an operator names none. */
 export const DEFAULT_IDENTITY: IdentityConfig = {
-  issuer: "narraleaf-hub",
+  issuer: "narraleaf-team",
   audience: "loreserver",
   // The TLS listener on this machine, so the default configuration is
   // consistent with itself. A deployment other people reach names its own host
   // with --auth-origin, and its certificate is given that name with --hostname.
   authOrigin: "127.0.0.1:41402",
   env: "local",
-  idp: "narraleaf-hub",
-  // Both are defaults, and a Hub reads what it mints with out of its database
+  idp: "narraleaf-team",
+  // Both are defaults, and a Team server reads what it mints with out of its database
   // — src/identity/settings.ts. These are what answer for a setting nobody has
-  // stored, which is every Hub until somebody changes one.
+  // stored, which is every Team server until somebody changes one.
   signInTokenLifetimeSeconds: 30 * 24 * 60 * 60,
   repositoryTokenLifetimeSeconds: 15 * 60,
-  hubPort: 41400,
+  teamPort: 41400,
   authPort: 41401,
   authTlsPort: 41402,
   dataPort: DEFAULT_PORTS.dataPort,
@@ -137,11 +137,11 @@ export function identityConfig(overrides: Partial<IdentityConfig> = {}): Identit
 }
 
 /**
- * The URL form of Hub's auth origin.
+ * The URL form of Team's auth origin.
  *
  * The scheme is fixed at `https`: the origin names an endpoint people
  * authenticate against from other machines, and a password may not travel in
- * clear. Hub's own JWKS endpoint is a different thing and is plain HTTP —
+ * clear. Team's own JWKS endpoint is a different thing and is plain HTTP —
  * public keys are not a secret, and loreserver fetches them over the loopback.
  */
 export function authUrl(config: IdentityConfig): string {
@@ -171,7 +171,7 @@ function bracketed(host: string): string {
 /**
  * Every host this deployment is reached by.
  *
- * The auth origin's host is always one: on a Hub nobody else connects to, it is
+ * The auth origin's host is always one: on a Team server nobody else connects to, it is
  * the only one there is. Anything an operator named with `--hostname` joins it,
  * which is the same list the endpoint's certificate is issued for — a name
  * people connect by has to be in both, and taking them from one setting is what
@@ -197,7 +197,7 @@ export function dataRemoteUrl(host: string, dataPort: number): string {
  *
  * There are two such addresses, and it is the second that is easy to forget:
  *
- *   - Hub's auth endpoint, `https://host:41402`, where the client signs in.
+ *   - Team's auth endpoint, `https://host:41402`, where the client signs in.
  *   - loreserver's data port, `lore://host:41337`, which is where the work
  *     happens — cloning, committing, pushing. A token naming only the first
  *     signs in successfully and then fails every repository operation with
@@ -216,7 +216,7 @@ export function dataRemoteUrl(host: string, dataPort: number): string {
  * should be tidied down to a single form without watching a real client do the
  * whole of a clone, commit and push against it.
  *
- * Both paths that issue a token — `nlhub token mint` and the exchange method a
+ * Both paths that issue a token — `nlteam token mint` and the exchange method a
  * client signs in with — build their audience here. Two lists that had to agree
  * would be two lists that eventually did not.
  *
@@ -234,9 +234,9 @@ export function tokenAudience(config: IdentityConfig): string[] {
   return [...new Set(entries)];
 }
 
-/** Where Hub publishes its JWKS, as loreserver is told to fetch it. */
-export function jwksUrl(hubPort: number, host = "127.0.0.1"): string {
-  return `http://${host}:${hubPort}/.well-known/jwks.json`;
+/** Where Team publishes its JWKS, as loreserver is told to fetch it. */
+export function jwksUrl(teamPort: number, host = "127.0.0.1"): string {
+  return `http://${host}:${teamPort}/.well-known/jwks.json`;
 }
 
 /**
@@ -244,8 +244,8 @@ export function jwksUrl(hubPort: number, host = "127.0.0.1"): string {
  *
  * This is not what goes into loreserver's `auth_url`: that key is also how a
  * client is told where to sign in, so it has to be the https origin. This
- * address is the one loreserver can be pointed at when it cannot verify Hub's
- * certificate itself, and it is what `nlhub project create` and the tests use,
+ * address is the one loreserver can be pointed at when it cannot verify Team's
+ * certificate itself, and it is what `nlteam project create` and the tests use,
  * because neither of them is a client that needs telling anything.
  */
 export function plaintextAuthUrl(config: IdentityConfig, host = "127.0.0.1"): string {

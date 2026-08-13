@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import { snapshot, type TuiState } from "../src/tui/snapshot.js";
-import { FIXTURE_VIEW, FUTURE_SCHEMA_VIEW } from "./fixtures/hubview.js";
+import { FIXTURE_VIEW, FUTURE_SCHEMA_VIEW } from "./fixtures/teamview.js";
 
 const SIZES = [
   { columns: 80, rows: 24 },
@@ -192,9 +192,9 @@ describe("a panel keeps every line it was given", () => {
 });
 
 describe("a project it cannot read", () => {
-  // The rule this holds to: Hub reads a project as far as it understands it
+  // The rule this holds to: Team reads a project as far as it understands it
   // and says "unknown" for the rest. It does not refuse, it does not throw,
-  // and it does not lose the parts it did understand. Without this, Hub
+  // and it does not lose the parts it did understand. Without this, Team
   // becomes a component that has to be upgraded in step with Studio.
   for (const size of SIZES) {
     it(`degrades rather than failing at ${size.columns}x${size.rows}`, () => {
@@ -312,7 +312,7 @@ describe("the terminal interface owns no business logic", () => {
           continue;
         }
         const source = await readFile(path, "utf8");
-        if (/node:sqlite|DatabaseSync|\.prepare\(|hub\.db/.test(source)) {
+        if (/node:sqlite|DatabaseSync|\.prepare\(|team\.db/.test(source)) {
           offenders.push(path);
         }
       }

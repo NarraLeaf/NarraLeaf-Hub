@@ -237,7 +237,7 @@ describe("the repository messages", () => {
 
 describe("fields nothing here knows about", () => {
   it("reads the fields it knows out of a message carrying extra ones", () => {
-    // A later loreserver adding a field must not stop Hub reading the rest.
+    // A later loreserver adding a field must not stop Team reading the rest.
     const encoded = Buffer.concat([
       encodeCheckUserPermissionRequest({ resourceIds: ["urc-aa"] }),
       new MessageWriter().varint(9, 1).string(10, "added later").finish(),

@@ -17,8 +17,8 @@
 //
 // Usage:
 //   node scripts/build.mjs
-//   node scripts/tui-drive.mjs --root /srv/hub
-//   node scripts/tui-drive.mjs --root /srv/hub --columns 120 --rows 40 --keys 2,down,enter,esc
+//   node scripts/tui-drive.mjs --root /srv/team
+//   node scripts/tui-drive.mjs --root /srv/team --columns 120 --rows 40 --keys 2,down,enter,esc
 //
 // Keys are comma separated. Anything not named below is sent as itself, so
 // `--keys 3,enter,q` and `--keys l` both work.
@@ -47,7 +47,7 @@ function argumentOf(name, fallback) {
 
 const root = argumentOf("root", undefined);
 if (root === undefined) {
-  console.error("tui-drive: --root <path> names the Hub to open");
+  console.error("tui-drive: --root <path> names the Team server to open");
   process.exit(2);
 }
 
@@ -72,7 +72,7 @@ try {
   process.exit(2);
 }
 
-const executable = join(dirname(dirname(fileURLToPath(import.meta.url))), "dist", "nlhub.js");
+const executable = join(dirname(dirname(fileURLToPath(import.meta.url))), "dist", "nlteam.js");
 
 const terminal = spawn(process.execPath, [executable, "--root", root], {
   name: "xterm-256color",

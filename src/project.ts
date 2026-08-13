@@ -3,8 +3,8 @@
  * who can.
  *
  * `project create` is the only one that talks to loreserver. The rest are rows
- * in Hub's database, and they take effect on the next thing anybody does:
- * loreserver asks Hub about every repository access, so a grant added here is
+ * in Team's database, and they take effect on the next thing anybody does:
+ * loreserver asks Team about every repository access, so a grant added here is
  * in force immediately and a revocation is too, without a restart on either
  * side and without waiting for a token to expire.
  */
@@ -70,7 +70,7 @@ export interface ProjectRevokeOptions {
 /**
  * The account a command is acting for.
  *
- * A Hub with one account has no ambiguity to resolve, and naming yourself on
+ * A Team server with one account has no ambiguity to resolve, and naming yourself on
  * every command would be ceremony. With two, there is no such thing as the
  * obvious one, so the command says so rather than choosing.
  */
@@ -80,7 +80,7 @@ function resolveOperator(database: DatabaseSync, username: string | undefined): 
   }
   const accounts = countUsers(database);
   if (accounts === 0) {
-    throw new Error("this Hub has no accounts yet. Run up to be given an invite code for one.");
+    throw new Error("this server has no accounts yet. Run up to be given an invite code for one.");
   }
   const only = listUsers(database)[0];
   if (accounts > 1 || only === undefined) {
@@ -95,8 +95,8 @@ function resolveOperator(database: DatabaseSync, username: string | undefined): 
  * Create a repository on loreserver and record the project it belongs to.
  *
  * The row is written first and removed again if loreserver refuses. That order
- * matters: loreserver announces the new repository back to Hub while the create
- * call is still open, and a Hub that had not recorded the project yet would
+ * matters: loreserver announces the new repository back to Team while the create
+ * call is still open, and a Team server that had not recorded the project yet would
  * have nothing to say about it.
  */
 export async function projectCreate(
@@ -108,7 +108,7 @@ export async function projectCreate(
   const database = await openMigratedDatabase(layout.databasePath);
 
   try {
-    // Defaults, then what this Hub has stored, then what the command line
+    // Defaults, then what this Team server has stored, then what the command line
     // named. That order is what makes --token-lifetime an override for the run
     // rather than a value a stored setting could quietly beat.
     const config = identityConfig({ ...storedTokenLifetimes(database), ...options.overrides });
@@ -151,7 +151,7 @@ export async function projectCreate(
     stdout(`default branch ${repository.defaultBranchName}\n`);
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -201,7 +201,7 @@ export async function projectList(
     }
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -227,7 +227,7 @@ export async function projectGrant(
     stdout(`${user.username} may ${grant.level} ${project.name}\n`);
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -260,7 +260,7 @@ export async function projectRevoke(
     }
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();

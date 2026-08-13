@@ -10,7 +10,7 @@ import type { UserRecord } from "../src/identity/users.js";
 import { ensureCertificates, readAuthority } from "../src/tls/authority.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-tokens-");
+const temporaryRoot = useTemporaryRoots("nlteam-tokens-");
 
 const ADA: UserRecord = {
   id: "9a1c0e2e-3b7d-4d2a-8f0e-5b6d7c8e9f00",
@@ -60,9 +60,9 @@ describe("mintToken", () => {
   it("writes exactly the claims loreserver insists on, and nothing else", async () => {
     const keys = await store();
     const config = identityConfig({
-      issuer: "narraleaf-hub",
+      issuer: "narraleaf-team",
       audience: "loreserver",
-      authOrigin: "hub.example.com",
+      authOrigin: "team.example.com",
     });
     const now = new Date("2026-08-11T09:00:00.000Z");
 
@@ -71,18 +71,18 @@ describe("mintToken", () => {
 
     expect(header).toEqual({ alg: "RS256", typ: "JWT", kid: keys.signingKey.kid });
     expect(claims).toEqual({
-      iss: "narraleaf-hub",
+      iss: "narraleaf-team",
       // Every remote this token may be sent to, in every spelling the client
       // has been seen to compare against. tests/audience.test.ts is where each
       // entry is accounted for.
       aud: [
         "loreserver",
-        "https://hub.example.com",
-        "https://hub.example.com/",
-        "hub.example.com",
-        "hub.example.com:41337",
-        "lore://hub.example.com:41337",
-        "lore://hub.example.com:41337/",
+        "https://team.example.com",
+        "https://team.example.com/",
+        "team.example.com",
+        "team.example.com:41337",
+        "lore://team.example.com:41337",
+        "lore://team.example.com:41337/",
       ],
       sub: ADA.id,
       env: "local",
@@ -93,22 +93,22 @@ describe("mintToken", () => {
       preferred_username: "ada",
       groups: ["admin", "authors"],
       is_service_account: false,
-      idp: "narraleaf-hub",
+      idp: "narraleaf-team",
       iat: 1_786_438_800,
       // Thirty days, because nothing said otherwise and a token minted for
-      // anything but a repository's data connection is one Hub is asked about
+      // anything but a repository's data connection is one Team is asked about
       // again before it can be used for anything.
       exp: 1_786_438_800 + 30 * 24 * 60 * 60,
-      // Hub's own claim, and the only one loreserver does not read: it is what
-      // lets Hub refuse a token that was signed before this account's access
+      // Team's own claim, and the only one loreserver does not read: it is what
+      // lets Team refuse a token that was signed before this account's access
       // was revoked.
       token_epoch: ADA.tokenEpoch,
     });
   });
 
-  it("carries an audience array holding loreserver's audience and Hub's own origin", async () => {
+  it("carries an audience array holding loreserver's audience and Team's own origin", async () => {
     const keys = await store();
-    const config = identityConfig({ audience: "loreserver", authOrigin: "hub.example.com" });
+    const config = identityConfig({ audience: "loreserver", authOrigin: "team.example.com" });
 
     const { claims } = decodeToken(mintToken(ADA, keys.signingKey, config).token);
     const audience = (claims as { aud: unknown }).aud;
@@ -118,7 +118,7 @@ describe("mintToken", () => {
     // talking to.
     expect(Array.isArray(audience)).toBe(true);
     expect(audience).toContain("loreserver");
-    expect(audience).toContain("https://hub.example.com");
+    expect(audience).toContain("https://team.example.com");
   });
 
   it("says the account is a service account when it is one, and empty groups stay empty", async () => {
@@ -144,7 +144,7 @@ describe("mintToken", () => {
 
     // Studio compares this against a fingerprint it computes from the
     // certificate the endpoint presented, and a person may compare it against
-    // what `nlhub trust` printed. Both comparisons are of strings, so the
+    // what `nlteam trust` printed. Both comparisons are of strings, so the
     // spelling is part of the contract: colon-separated upper-case hex.
     expect((claims as { authority_sha256?: string }).authority_sha256).toBe(
       authority.fingerprint256,
@@ -152,7 +152,7 @@ describe("mintToken", () => {
     expect(authority.fingerprint256).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
   });
 
-  it("leaves the fingerprint out of a token minted for Hub's own use", async () => {
+  it("leaves the fingerprint out of a token minted for Team's own use", async () => {
     const keys = await store();
 
     const { claims } = decodeToken(
@@ -261,7 +261,7 @@ describe("mintToken", () => {
     // the token carries, and a revision's author is a name and an address
     // everywhere else.
     const keys = await store();
-    const config = identityConfig({ authOrigin: "hub.example.com" });
+    const config = identityConfig({ authOrigin: "team.example.com" });
 
     const withAddress = mintToken({ ...ADA, email: "ada@example.com" }, keys.signingKey, config);
     expect(withAddress.claims.email).toBe("ada@example.com");

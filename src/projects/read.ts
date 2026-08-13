@@ -1,13 +1,13 @@
 /**
  * Reading one project: its revision history, and the file inside it.
  *
- * Everything here happens against Hub's own checkout of the repository — see
+ * Everything here happens against Team's own checkout of the repository — see
  * ./cache.ts for why there is one at all, which is the single rule this whole
  * feature is shaped by. The checkout is the only path a Lore call is given.
  *
  * Nothing raises. A repository that cannot be reached, a checkout that cannot
  * be made, a revision that cannot be walked: each of them answers with a
- * history Hub did not count and a file it could not read, plus a sentence
+ * history Team did not count and a file it could not read, plus a sentence
  * saying which. That is what keeps a loreserver that is down or a Studio that
  * is newer costing freshness rather than costing the screen.
  */
@@ -31,7 +31,7 @@ import { ensureCheckout, offlineGlobals, onlineGlobals, type CheckoutOptions } f
 import { readProjectFile, revisionSizes, type RevisionFile, type RevisionSource } from "./content.js";
 
 import type { LoreGlobals } from "../lore/call.js";
-import type { ProjectFileView, RevisionView } from "../tui/hubview.js";
+import type { ProjectFileView, RevisionView } from "../tui/teamview.js";
 
 /** What one read of a project produced. */
 export interface ProjectReading {
@@ -56,13 +56,13 @@ const TREE_ENTRY_LIMIT = 200_000;
 class TreeTooLargeError extends Error {
   constructor() {
     super(
-      `this revision holds more than ${TREE_ENTRY_LIMIT.toLocaleString("en-US")} entries, which is more than Hub will walk`,
+      `this revision holds more than ${TREE_ENTRY_LIMIT.toLocaleString("en-US")} entries, which is more than Team will walk`,
     );
     this.name = "TreeTooLargeError";
   }
 }
 
-/** Read everything Hub can say about one project. Never throws. */
+/** Read everything Team can say about one project. Never throws. */
 export async function readProject(options: ReadProjectOptions): Promise<ProjectReading> {
   try {
     return await read(options);
@@ -87,8 +87,8 @@ async function read(options: ReadProjectOptions): Promise<ProjectReading> {
 
     if (tip === undefined) {
       // Zero rather than absent, and the two are not the same thing on screen:
-      // this is a project nobody has pushed to, which Hub knows, rather than a
-      // count Hub did not take.
+      // this is a project nobody has pushed to, which Team knows, rather than a
+      // count Team did not take.
       return {
         history: { revisions: 0, ...(branch === undefined ? {} : { branch }) },
         file: {
@@ -99,7 +99,7 @@ async function read(options: ReadProjectOptions): Promise<ProjectReading> {
       };
     }
 
-    // A revision with no metadata Hub could read still counts as a revision:
+    // A revision with no metadata Team could read still counts as a revision:
     // the count and the branch above it are true either way, and the who and
     // the when are absent rather than the whole history being lost.
     const details: RevisionDetails = await revisionDetails(local, tip.revision).catch(() => ({}));
@@ -137,7 +137,7 @@ interface WalkedRevision {
    * What the revision holds, absent when it could not be walked.
    *
    * Absent rather than nought, which the interface draws differently and
-   * rightly: nought is a revision with nothing in it, and a size Hub failed to
+   * rightly: nought is a revision with nothing in it, and a size Team failed to
    * measure must not read as a project somebody emptied.
    */
   readonly bytes?: number;
@@ -236,13 +236,13 @@ function revisionSource(
   };
 }
 
-/** The sentence for a project whose repository Hub could not get to. */
+/** The sentence for a project whose repository Team could not get to. */
 function unreachable(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   return `this project's repository could not be read: ${detail}`;
 }
 
-/** The sentence for a revision Hub reached but could not walk. */
+/** The sentence for a revision Team reached but could not walk. */
 function unreadableRevision(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   return `the latest revision of this project could not be read: ${detail}`;

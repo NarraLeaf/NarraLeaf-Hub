@@ -9,7 +9,7 @@ import { render, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useState } from "react";
 
 import { Interface } from "./app.js";
-import type { HubView } from "./hubview.js";
+import type { TeamView } from "./teamview.js";
 import { INITIAL_STATE, reduce, type Action, type KeyPress, type Session, type TuiSize } from "./state.js";
 
 /**
@@ -23,7 +23,7 @@ import { INITIAL_STATE, reduce, type Action, type KeyPress, type Session, type T
  */
 export interface Operations {
   /** Gather the view again. Called after anything that changed something. */
-  readonly refresh: () => Promise<HubView>;
+  readonly refresh: () => Promise<TeamView>;
   /** Carry one action out, and say in one line what it did. */
   readonly perform: (action: Action) => Promise<string>;
   /**
@@ -34,7 +34,7 @@ export interface Operations {
    * how the screen is told. The interface still fetches nothing — it is handed
    * a finished view here exactly as it is everywhere else.
    */
-  readonly subscribe?: (listen: (view: HubView) => void) => () => void;
+  readonly subscribe?: (listen: (view: TeamView) => void) => () => void;
 }
 
 /** A terminal that has not said how big it is is assumed to be the smallest one. */
@@ -76,10 +76,10 @@ function pressOf(input: string, key: Parameters<Parameters<typeof useInput>[0]>[
   };
 }
 
-function App({ first, operations }: { first: HubView; operations: Operations }): ReturnType<typeof Interface> {
+function App({ first, operations }: { first: TeamView; operations: Operations }): ReturnType<typeof Interface> {
   const { exit } = useApp();
   const size = useTerminalSize();
-  const [view, setView] = useState<HubView>(first);
+  const [view, setView] = useState<TeamView>(first);
   const [session, setSession] = useState<Session>({ state: INITIAL_STATE, draft: "" });
   const [status, setStatus] = useState<string | undefined>(undefined);
 
@@ -133,7 +133,7 @@ function App({ first, operations }: { first: HubView; operations: Operations }):
  * crash that left the terminal on that screen would leave a person with no
  * prompt and no way to know why.
  */
-export async function runInterface(view: HubView, operations: Operations): Promise<void> {
+export async function runInterface(view: TeamView, operations: Operations): Promise<void> {
   const instance = render(<App first={view} operations={operations} />, {
     alternateScreen: true,
     exitOnCtrlC: true,

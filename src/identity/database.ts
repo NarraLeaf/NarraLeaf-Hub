@@ -1,8 +1,8 @@
 /**
- * The file that holds the accounts and the projects: `<root>/hub.db`.
+ * The file that holds the accounts and the projects: `<root>/team.db`.
  *
- * Storage is node's built-in SQLite, which is why Hub can keep a database
- * without gaining a dependency. There is exactly one writer — the Hub process
+ * Storage is node's built-in SQLite, which is why Team can keep a database
+ * without gaining a dependency. There is exactly one writer — the Team server process
  * — so nothing here worries about connection pools.
  *
  * The schema is versioned and only ever moves forward. Every change is a new
@@ -27,8 +27,8 @@ export class ColumnTypeError extends Error {
     readonly expected: string,
   ) {
     super(
-      `hub.db holds a ${column} that is not ${expected}. The file was written by ` +
-        "something other than this version of Hub.",
+      `team.db holds a ${column} that is not ${expected}. The file was written by ` +
+        "something other than this version of Team.",
     );
     this.name = "ColumnTypeError";
   }
@@ -59,7 +59,7 @@ export function optionalTextColumn(row: Row, column: string): string | undefined
  * Read an integer column.
  *
  * node:sqlite hands back a `bigint` only for values outside the range a double
- * represents exactly. Nothing Hub stores is that large — the biggest numbers
+ * represents exactly. Nothing Team stores is that large — the biggest numbers
  * here are millisecond timestamps — so one is narrowed rather than propagated.
  */
 export function integerColumn(row: Row, column: string): number {
@@ -187,12 +187,12 @@ const MIGRATIONS: readonly Migration[] = [
   },
   {
     version: 3,
-    description: "settings an operator can change without a new build of Hub",
+    description: "settings an operator can change without a new build of Team",
     statements: [
       // One row per setting somebody has chosen, and no row for one left alone.
       // An absent row is not a missing value: it means the default in
       // src/identity/config.ts answers for that setting, so a later version of
-      // Hub that changes a default reaches every installation that never
+      // Team that changes a default reaches every installation that never
       // touched it. Writing the defaults in here as the migration ran would
       // freeze them at whatever this build thinks, and nothing would say so.
       //
@@ -219,18 +219,18 @@ const MIGRATIONS: readonly Migration[] = [
       // Rows that already exist keep NULL, and that is deliberate. There is no
       // honest timestamp for a bump that happened before this column existed,
       // and the obvious invention — the moment this migration ran — would read
-      // as every account on the Hub having had its tokens refused on the day
-      // Hub was upgraded. Absent is drawn as "unknown", which is true.
+      // as every account on the Team server having had its tokens refused on the day
+      // Team was upgraded. Absent is drawn as "unknown", which is true.
       "ALTER TABLE users ADD COLUMN tokens_invalidated_at INTEGER",
     ],
   },
   {
     version: 5,
-    description: "the authorization decisions Hub has made",
+    description: "the authorization decisions Team has made",
     statements: [
       // One row per decision. Before this table there was none: every decision
       // went to the log of the `up` process that made it and nowhere else, so a
-      // Hub that had been running for a month could not say who had reached
+      // Team that had been running for a month could not say who had reached
       // what, and the screen that shows the last few decisions had nothing to
       // show.
       //
@@ -257,7 +257,7 @@ const MIGRATIONS: readonly Migration[] = [
   },
 ];
 
-/** The schema version this build of Hub writes and expects. */
+/** The schema version this build of Team writes and expects. */
 export const SCHEMA_VERSION: number = MIGRATIONS.reduce(
   (highest, migration) => Math.max(highest, migration.version),
   0,
@@ -271,8 +271,8 @@ export class SchemaTooNewError extends Error {
     readonly supported: number,
   ) {
     super(
-      `${path} is at schema version ${found}, and this version of Hub understands ${supported}. ` +
-        "It was written by a newer Hub. Upgrade Hub rather than downgrading the file.",
+      `${path} is at schema version ${found}, and this version of Team understands ${supported}. ` +
+        "It was written by a newer Team. Upgrade Team rather than downgrading the file.",
     );
     this.name = "SchemaTooNewError";
   }
@@ -280,7 +280,7 @@ export class SchemaTooNewError extends Error {
 
 /**
  * node:sqlite announces itself as experimental the first time it is used, on
- * stderr, through the ordinary process warning channel. Hub is a program an
+ * stderr, through the ordinary process warning channel. Team is a program an
  * operator leaves running, and a line about node internals on every start is
  * noise they cannot act on.
  *
@@ -317,7 +317,7 @@ let sqlite: Promise<typeof import("node:sqlite")> | undefined;
  * The warning is emitted as the module loads, not as it is used, and a static
  * import is evaluated before any code in this file could install a filter. So
  * the module is imported on demand instead — which is also why opening a
- * database is asynchronous, and why running `nlhub --version` neither loads
+ * database is asynchronous, and why running `nlteam --version` neither loads
  * SQLite nor says anything about it.
  */
 function loadSqlite(): Promise<typeof import("node:sqlite")> {
@@ -331,7 +331,7 @@ function loadSqlite(): Promise<typeof import("node:sqlite")> {
  *
  * Foreign keys are switched on per connection — SQLite's default is off, and a
  * `REFERENCES` clause that nothing enforces is a comment. The write-ahead log
- * is what lets a reader run while the Hub process writes.
+ * is what lets a reader run while the Team server process writes.
  */
 export async function openDatabase(path: string): Promise<DatabaseSync> {
   const { DatabaseSync } = await loadSqlite();
@@ -371,7 +371,7 @@ export function schemaVersion(database: DatabaseSync): number {
  * One row is recorded per migration rather than one row overwritten, so the
  * file says when each step was applied.
  */
-export function migrate(database: DatabaseSync, path = "hub.db"): number {
+export function migrate(database: DatabaseSync, path = "team.db"): number {
   let current = schemaVersion(database);
   if (current > SCHEMA_VERSION) {
     throw new SchemaTooNewError(path, current, SCHEMA_VERSION);

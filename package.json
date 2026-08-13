@@ -1,5 +1,5 @@
 {
-  "name": "@narraleaf/hub",
+  "name": "@narraleaf/team",
   "version": "0.1.0",
   "private": true,
   "description": "Self-hosted project server for teams using NarraLeaf Studio",
@@ -7,11 +7,11 @@
   "author": "NarraLeaf Project",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NarraLeaf/NarraLeaf-Hub.git"
+    "url": "git+https://github.com/NarraLeaf/NarraLeaf-Team.git"
   },
   "type": "module",
   "bin": {
-    "nlhub": "dist/nlhub.js"
+    "nlteam": "dist/nlteam.js"
   },
   "files": [
     "dist"

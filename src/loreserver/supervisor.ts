@@ -86,7 +86,7 @@ export class SupervisionFailedError extends Error {
     options?: { cause?: unknown },
   ) {
     super(
-      `${processName} failed ${failures} times in a row without staying up, so Hub stopped ` +
+      `${processName} failed ${failures} times in a row without staying up, so Team stopped ` +
         `restarting it. Its output is in ${logPath}.`,
       options,
     );
@@ -358,9 +358,9 @@ export class Supervisor {
     this.#options.onEvent?.(event);
   }
 
-  /** Write a line of Hub's own into the log, so it reads in order. */
+  /** Write a line of Team's own into the log, so it reads in order. */
   #note(text: string): void {
-    this.#log?.write(`[${new Date().toISOString()}] hub: ${text}\n`);
+    this.#log?.write(`[${new Date().toISOString()}] team: ${text}\n`);
   }
 
   async #closeLog(): Promise<void> {

@@ -20,7 +20,7 @@ const PREFIX_BYTES = 5;
 /**
  * The largest message either side will read.
  *
- * Four mebibytes is gRPC's own default limit. Nothing Hub exchanges comes near
+ * Four mebibytes is gRPC's own default limit. Nothing Team exchanges comes near
  * it — the largest is a list of resource ids — and the point of the limit is
  * that a length field is a promise about memory made by whoever sent it.
  */

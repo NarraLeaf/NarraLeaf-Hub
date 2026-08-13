@@ -10,7 +10,7 @@ import { mintToken } from "../src/identity/tokens.js";
 import type { UserRecord } from "../src/identity/users.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-endpoint-");
+const temporaryRoot = useTemporaryRoots("nlteam-endpoint-");
 
 const ADA: UserRecord = {
   id: "0d7a1f1c-2b3c-4d5e-8f90-a1b2c3d4e5f6",
@@ -46,7 +46,7 @@ async function serve(): Promise<{ endpoint: IdentityEndpoint; keys: KeyStore }> 
 }
 
 describe("IdentityEndpoint", () => {
-  it("answers /health with the version of the Hub that is answering", async () => {
+  it("answers /health with the version of the Team server that is answering", async () => {
     const { endpoint } = await serve();
 
     const response = await fetch(`${endpoint.url}/health`);

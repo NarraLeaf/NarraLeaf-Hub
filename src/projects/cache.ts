@@ -1,9 +1,9 @@
 /**
- * Hub's own checkouts of the projects it serves.
+ * Team's own checkouts of the projects it serves.
  *
  * The rule this file exists to hold
  * ---------------------------------
- * **Hub never opens the store loreserver is serving.** A repository lock is
+ * **Team never opens the store loreserver is serving.** A repository lock is
  * exclusive, and it is exclusive within one process as hard as between two:
  * opening a store loreserver holds does not fail and does not time out. It
  * waits, at no CPU, with nothing logged, for a lock that will not be released
@@ -11,7 +11,7 @@
  * catch — the read simply never returns, and so does everything queued behind
  * it.
  *
- * So Hub reads a project the way a Studio installation on somebody else's
+ * So Team reads a project the way a Studio installation on somebody else's
  * machine reads it: as a client, over the network, against its own loreserver.
  * It clones into a directory of its own and opens that. Every path a Lore call
  * is given comes from {@link projectCheckoutPath} and from nowhere else.
@@ -29,7 +29,7 @@
  * A full clone of a project costs its whole content twice over — once on the
  * wire and once on disk. A bare one costs neither: measured against a
  * repository holding an 8 MB asset, 187 ms, nothing on the wire, and 2 448
- * bytes on disk. What it leaves behind still answers everything Hub asks — the
+ * bytes on disk. What it leaves behind still answers everything Team asks — the
  * branch, the history and each revision's metadata come off the disk with no
  * network at all, and the revision tree and any file in it are read through
  * the store, which fetches what it needs on demand. The cost tracks the shape
@@ -67,7 +67,7 @@ export function projectCheckoutPath(root: string, projectId: string): string {
 /**
  * The file that says a checkout finished.
  *
- * Outside the checkout rather than in it, so that nothing Hub writes ever
+ * Outside the checkout rather than in it, so that nothing Team writes ever
  * appears in a working tree. Without it, a clone interrupted partway — a
  * machine that lost power, an operator who pressed Ctrl-C — leaves a directory
  * that looks like a checkout, and every later sync of it fails in the same way
@@ -173,7 +173,7 @@ export async function ensureCheckout(options: CheckoutOptions): Promise<Checkout
     // A failure here is not a failure to read. A loreserver that asks nobody
     // who they are — one brought up without identity — serves the clone that
     // follows perfectly well and has no endpoint to exchange a token at, so
-    // stopping here would make Hub unable to read the simplest Hub there is.
+    // stopping here would make Team unable to read the simplest Team there is.
     // One that does ask refuses the clone in its own words a moment later,
     // and that sentence is the one worth putting on screen.
     await loginWithToken(globals, {

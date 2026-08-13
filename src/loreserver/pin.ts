@@ -1,14 +1,14 @@
 /**
- * The loreserver build Hub installs and runs.
+ * The loreserver build Team installs and runs.
  *
  * loreserver is Epic Games' content-addressed store server, released from
- * https://github.com/EpicGames/lore. Hub pins one version so that every
- * installation of one Hub release runs the same server build; nothing here
+ * https://github.com/EpicGames/lore. Team pins one version so that every
+ * installation of one Team server release runs the same server build; nothing here
  * consults a "latest" endpoint, and no other module hard-codes a version
  * number, an asset name or a digest.
  */
 
-/** The loreserver version this build of Hub installs. */
+/** The loreserver version this build of Team installs. */
 export const LORESERVER_VERSION = "0.8.6";
 
 /**
@@ -18,7 +18,7 @@ export const LORESERVER_VERSION = "0.8.6";
  */
 const RELEASE_BASE_URL = `https://github.com/EpicGames/lore/releases/download/v${LORESERVER_VERSION}`;
 
-/** One platform's release asset, and what Hub knows about it. */
+/** One platform's release asset, and what Team knows about it. */
 export interface LoreserverArtifact {
   /** The `${process.platform}-${process.arch}` pair this artifact serves. */
   readonly target: string;
@@ -30,24 +30,24 @@ export interface LoreserverArtifact {
    * SHA-256 of the release asset as a lower-case hex string, checked as it is
    * downloaded.
    *
-   * These digests are Hub's own: they were produced by downloading each asset
+   * These digests are Team's own: they were produced by downloading each asset
    * and hashing it, because upstream ships neither checksums nor signatures.
    * They therefore attest that an artifact is byte-for-byte the one this
-   * release of Hub was tested against — they do not attest anything about who
+   * release of Team was tested against — they do not attest anything about who
    * built it. Re-hash the asset from the release page before changing one.
    */
   readonly sha256: string;
   /** Name of the executable inside the archive. */
   readonly binaryName: string;
   /**
-   * SHA-256 of the executable unpacked from the asset, checked every time Hub
+   * SHA-256 of the executable unpacked from the asset, checked every time Team
    * is about to run it.
    *
    * The asset digest only says what was downloaded. It says nothing about the
    * file that is on disk a week later, which is what actually gets executed: a
    * copy that ran out of space partway, an interrupted extraction, a decayed
    * sector or an edited binary all leave the archive digest satisfied and
-   * looking exactly like a good install. This digest is Hub's own for the same
+   * looking exactly like a good install. This digest is Team's own for the same
    * reason the other one is.
    */
   readonly binarySha256: string;
@@ -109,18 +109,18 @@ const ARTIFACTS: Readonly<Record<string, LoreserverArtifact>> = {
   },
 };
 
-/** Raised when Hub has no pinned loreserver for the machine it is running on. */
+/** Raised when Team has no pinned loreserver for the machine it is running on. */
 export class UnsupportedPlatformError extends Error {
   constructor(readonly target: string) {
     super(
       `no loreserver ${LORESERVER_VERSION} build is available for ${target}. ` +
-        `Hub can install loreserver on ${supportedTargets().join(", ")}.`,
+        `Team can install loreserver on ${supportedTargets().join(", ")}.`,
     );
     this.name = "UnsupportedPlatformError";
   }
 }
 
-/** The `${platform}-${arch}` pairs Hub can install loreserver for. */
+/** The `${platform}-${arch}` pairs Team can install loreserver for. */
 export function supportedTargets(): string[] {
   return Object.keys(ARTIFACTS);
 }

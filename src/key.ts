@@ -18,7 +18,7 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Print every key Hub holds. Returns the process exit code. */
+/** Print every key Team holds. Returns the process exit code. */
 export async function keyList(
   options: KeyOptions,
   stdout: WriteText,
@@ -34,7 +34,7 @@ export async function keyList(
     }
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   }
 }
@@ -56,7 +56,7 @@ export async function keyRotate(
     );
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   }
 }

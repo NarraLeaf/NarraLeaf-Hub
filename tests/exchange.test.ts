@@ -34,7 +34,7 @@ import { startAuthorizationService } from "../src/projects/service.js";
 import { ensureCertificates } from "../src/tls/authority.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-exchange-");
+const temporaryRoot = useTemporaryRoots("nlteam-exchange-");
 
 const CHEAP: ScryptParameters = { cost: 2 ** 12, blockSize: 8, parallelism: 1, keyLength: 32 };
 const hasher = new ScryptPasswordHasher(CHEAP);
@@ -69,9 +69,9 @@ afterEach(async () => {
 /**
  * A service on a free port, in plaintext or over TLS.
  *
- * The TLS form is driven through the same client with the Hub's own authority
+ * The TLS form is driven through the same client with the Team server's own authority
  * as its `ca`, which is what a Studio installation does once a person has run
- * `nlhub trust --install` — with the difference that this test hands the
+ * `nlteam trust --install` — with the difference that this test hands the
  * certificate over rather than asking the operating system for it.
  */
 async function harness(options: { readonly tls?: boolean } = {}): Promise<Harness> {
@@ -85,7 +85,7 @@ async function harness(options: { readonly tls?: boolean } = {}): Promise<Harnes
 
   const server = await startAuthorizationService({
     // Port 0: the operating system picks one that is free, so a test run cannot
-    // collide with a Hub the machine is already running.
+    // collide with a Team server the machine is already running.
     port: 0,
     database,
     keys,
@@ -115,7 +115,7 @@ async function harness(options: { readonly tls?: boolean } = {}): Promise<Harnes
         path: METHOD_EXCHANGE_EXTERNAL_TOKEN,
         message: encodeExchangeExternalTokenForUserTokenRequest({
           externalToken,
-          // Passed through by the client and read by nobody: Hub knows one kind
+          // Passed through by the client and read by nobody: Team knows one kind
           // of token.
           tokenType: "jwt",
         }),
@@ -132,19 +132,19 @@ async function harness(options: { readonly tls?: boolean } = {}): Promise<Harnes
 
 describe("ExchangeExternalTokenForUserToken", () => {
   it("hands back a token issued now, not the one it was given", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
+    const team = await harness();
+    const ada = await team.user("ada");
     const config = identityConfig();
     // Minted five minutes ago, so the one that comes back can be told apart
     // from it by when it expires. A token minted twice in the same second is
     // byte-identical — the claims are the same and RS256 is deterministic — so
     // comparing the strings would prove nothing either way.
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const presented = hub.tokenFor(ada, { now: fiveMinutesAgo });
+    const presented = team.tokenFor(ada, { now: fiveMinutesAgo });
 
-    const issued = await hub.exchange(presented);
-    const verified = verifyToken(issued?.userToken ?? "", hub.keys, config);
-    const before = verifyToken(presented, hub.keys, config);
+    const issued = await team.exchange(presented);
+    const verified = verifyToken(issued?.userToken ?? "", team.keys, config);
+    const before = verifyToken(presented, team.keys, config);
 
     // Issued now, which is what makes an exchange a check rather than a
     // renewal: the new token carries the account's state as it stands now.
@@ -156,12 +156,12 @@ describe("ExchangeExternalTokenForUserToken", () => {
   });
 
   it("puts the origin of the auth endpoint in the token's audience", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
+    const team = await harness();
+    const ada = await team.user("ada");
     const config = identityConfig();
 
-    const issued = await hub.exchange(hub.tokenFor(ada));
-    const verified = verifyToken(issued?.userToken ?? "", hub.keys, config);
+    const issued = await team.exchange(team.tokenFor(ada));
+    const verified = verifyToken(issued?.userToken ?? "", team.keys, config);
 
     // A client refuses a token whose `aud` does not name the endpoint it is
     // talking to, calling it a leak risk. Both spellings of the origin are
@@ -173,15 +173,15 @@ describe("ExchangeExternalTokenForUserToken", () => {
   });
 
   it("names the account in the fields a client keys its state by", async () => {
-    const hub = await harness();
-    await createUser(hub.database, hasher, {
+    const team = await harness();
+    await createUser(team.database, hasher, {
       username: "ada",
       password: "a password nobody guesses",
       displayName: "Ada Lovelace",
     });
-    const ada = requireUser(hub.database, "ada");
+    const ada = requireUser(team.database, "ada");
 
-    const issued = await hub.exchange(hub.tokenFor(ada));
+    const issued = await team.exchange(team.tokenFor(ada));
 
     expect(issued?.userId).toBe(ada.id);
     expect(issued?.userName).toBe("Ada Lovelace");
@@ -193,101 +193,101 @@ describe("ExchangeExternalTokenForUserToken", () => {
   });
 
   it("refuses a token for an account that has been disabled", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const presented = hub.tokenFor(ada);
-    disableUser(hub.database, ada.username);
+    const team = await harness();
+    const ada = await team.user("ada");
+    const presented = team.tokenFor(ada);
+    disableUser(team.database, ada.username);
 
     // A status, not an empty success: an absent token on an OK reply looks to a
     // client like a server fault rather than a refusal.
-    await expect(hub.exchange(presented)).rejects.toThrow(GrpcCallError);
-    await expect(hub.exchange(presented)).rejects.toMatchObject({
+    await expect(team.exchange(presented)).rejects.toThrow(GrpcCallError);
+    await expect(team.exchange(presented)).rejects.toMatchObject({
       status: GRPC_UNAUTHENTICATED,
     });
-    expect(hub.log.some((line) => line.includes("the account is disabled"))).toBe(true);
+    expect(team.log.some((line) => line.includes("the account is disabled"))).toBe(true);
   });
 
   it("refuses a token that has expired", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
+    const team = await harness();
+    const ada = await team.user("ada");
     const lastYear = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-    const presented = hub.tokenFor(ada, { now: lastYear });
+    const presented = team.tokenFor(ada, { now: lastYear });
 
-    await expect(hub.exchange(presented)).rejects.toMatchObject({
+    await expect(team.exchange(presented)).rejects.toMatchObject({
       status: GRPC_UNAUTHENTICATED,
     });
-    expect(hub.log.some((line) => line.includes("the token has expired"))).toBe(true);
+    expect(team.log.some((line) => line.includes("the token has expired"))).toBe(true);
   });
 
-  it("refuses a token signed by a key this Hub does not publish", async () => {
-    const hub = await harness();
+  it("refuses a token signed by a key this Team server does not publish", async () => {
+    const team = await harness();
     const stranger = await harness();
-    const ada = await hub.user("ada");
+    const ada = await team.user("ada");
     await stranger.user("ada");
 
-    // The same claims, signed by another Hub's key. Nothing but the signature
+    // The same claims, signed by another Team server's key. Nothing but the signature
     // distinguishes it, which is the point.
     const presented = mintToken(ada, stranger.keys.signingKey, identityConfig()).token;
 
-    await expect(hub.exchange(presented)).rejects.toMatchObject({
+    await expect(team.exchange(presented)).rejects.toMatchObject({
       status: GRPC_UNAUTHENTICATED,
     });
-    expect(hub.log.some((line) => line.includes("no published key"))).toBe(true);
+    expect(team.log.some((line) => line.includes("no published key"))).toBe(true);
   });
 
   it("refuses a token issued before the account's access was revoked", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const presented = hub.tokenFor(ada);
+    const team = await harness();
+    const ada = await team.user("ada");
+    const presented = team.tokenFor(ada);
     // Disabling bumps the epoch as well as setting disabled_at, so the account
     // is enabled again to leave the epoch as the only thing refusing this.
-    disableUser(hub.database, ada.username);
-    enableUser(hub.database, ada.username);
+    disableUser(team.database, ada.username);
+    enableUser(team.database, ada.username);
 
-    await expect(hub.exchange(presented)).rejects.toMatchObject({
+    await expect(team.exchange(presented)).rejects.toMatchObject({
       status: GRPC_UNAUTHENTICATED,
     });
-    expect(hub.log.some((line) => line.includes("before the account's access was revoked"))).toBe(
+    expect(team.log.some((line) => line.includes("before the account's access was revoked"))).toBe(
       true,
     );
   });
 
   it("refuses a token that revoking made stale, and takes a fresh one from that account", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const presented = hub.tokenFor(ada);
+    const team = await harness();
+    const ada = await team.user("ada");
+    const presented = team.tokenFor(ada);
 
-    revokeUserTokens(hub.database, ada.username);
+    revokeUserTokens(team.database, ada.username);
 
-    await expect(hub.exchange(presented)).rejects.toMatchObject({
+    await expect(team.exchange(presented)).rejects.toMatchObject({
       status: GRPC_UNAUTHENTICATED,
     });
-    expect(hub.log.some((line) => line.includes("before the account's access was revoked"))).toBe(
+    expect(team.log.some((line) => line.includes("before the account's access was revoked"))).toBe(
       true,
     );
 
     // Nothing about the account changed but the epoch, so a token minted after
     // it is taken. That is what makes revoking cost the person one sign-in
     // rather than costing an operator two commands and a decision in between.
-    const issued = await hub.exchange(hub.tokenFor(requireUser(hub.database, ada.username)));
+    const issued = await team.exchange(team.tokenFor(requireUser(team.database, ada.username)));
 
-    expect(verifyToken(issued?.userToken ?? "", hub.keys, identityConfig()).kind).toBe("verified");
+    expect(verifyToken(issued?.userToken ?? "", team.keys, identityConfig()).kind).toBe("verified");
   });
 
   it("refuses a request carrying no token at all", async () => {
-    const hub = await harness();
+    const team = await harness();
 
-    await expect(hub.exchange("")).rejects.toMatchObject({ status: GRPC_UNAUTHENTICATED });
+    await expect(team.exchange("")).rejects.toMatchObject({ status: GRPC_UNAUTHENTICATED });
   });
 
   it("says nothing about which check failed", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    disableUser(hub.database, ada.username);
+    const team = await harness();
+    const ada = await team.user("ada");
+    disableUser(team.database, ada.username);
 
-    const failure = await hub.exchange(hub.tokenFor(ada)).catch((error: unknown) => error);
+    const failure = await team.exchange(team.tokenFor(ada)).catch((error: unknown) => error);
 
-    // The distinctions are in Hub's log and nowhere else: this is the one
+    // The distinctions are in Team's log and nowhere else: this is the one
     // method reachable by anybody who can open a socket to the endpoint.
     expect(failure).toBeInstanceOf(GrpcCallError);
     expect((failure as GrpcCallError).statusMessage).toBe(
@@ -300,7 +300,7 @@ describe("ExchangeExternalTokenForUserToken", () => {
  * The claims of a token, as a verifier reads them off the wire.
  *
  * Read from the encoded token rather than from what minted it, because the
- * `resources` claim is one loreserver reads and Hub's own verifier does not
+ * `resources` claim is one loreserver reads and Team's own verifier does not
  * return — a check against the parsed claim object would not see it.
  */
 function claimsOf(token: string): Record<string, unknown> {
@@ -310,15 +310,15 @@ function claimsOf(token: string): Record<string, unknown> {
 
 describe("the resources claim", () => {
   it("names every project the account may reach, with what it may do", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
 
-    const issued = await hub.exchange(hub.tokenFor(ada));
+    const issued = await team.exchange(team.tokenFor(ada));
     const claims = claimsOf(issued?.userToken ?? "");
 
     // Not decoration. A client authorizes its data connection with this token,
@@ -332,11 +332,11 @@ describe("the resources claim", () => {
   });
 
   it("is a list of objects, because a list of strings will not decode", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    createProject(hub.database, { id: newProjectId(), name: "harbour", createdBy: ada.id });
+    const team = await harness();
+    const ada = await team.user("ada");
+    createProject(team.database, { id: newProjectId(), name: "harbour", createdBy: ada.id });
 
-    const issued = await hub.exchange(hub.tokenFor(ada));
+    const issued = await team.exchange(team.tokenFor(ada));
     const resources = claimsOf(issued?.userToken ?? "")["resources"];
 
     // loreserver deserializes this into Vec<ResourcePermission>, whose fields
@@ -351,52 +351,52 @@ describe("the resources claim", () => {
   });
 
   it("is empty for an account with no grants, rather than absent", async () => {
-    const hub = await harness();
-    const bob = await hub.user("bob");
+    const team = await harness();
+    const bob = await team.user("bob");
 
-    const issued = await hub.exchange(hub.tokenFor(bob));
+    const issued = await team.exchange(team.tokenFor(bob));
 
     expect(claimsOf(issued?.userToken ?? "")["resources"]).toEqual([]);
   });
 
   it("is not on a token minted for anything else", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
+    const team = await harness();
+    const ada = await team.user("ada");
 
-    // `nlhub token mint` opens no data connection, so it names no resources.
-    expect(claimsOf(hub.tokenFor(ada))).not.toHaveProperty("resources");
+    // `nlteam token mint` opens no data connection, so it names no resources.
+    expect(claimsOf(team.tokenFor(ada))).not.toHaveProperty("resources");
   });
 });
 
 describe("ExchangeUserTokenForMultiresourceToken", () => {
   /** Ask for a token covering some resources, as a client does before a clone. */
   async function multiresource(
-    hub: Harness,
+    team: Harness,
     token: string,
     resourceIds: readonly string[],
   ): Promise<UserToken | undefined> {
     const reply = await unaryCall({
-      url: hub.server.url,
+      url: team.server.url,
       path: METHOD_EXCHANGE_MULTIRESOURCE_TOKEN,
       message: encodeExchangeUserTokenForMultiresourceTokenRequest({ resourceIds }),
       authorization: `Bearer ${token}`,
-      ...(hub.caPem === undefined ? {} : { ca: hub.caPem }),
+      ...(team.caPem === undefined ? {} : { ca: team.caPem }),
       timeoutMs: 5000,
     });
     return decodeExchangeUserTokenForMultiresourceTokenResponse(reply).token;
   }
 
   it("hands back a token naming the resources that were asked for", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
     const resource = resourceIdOf(project.id);
 
-    const issued = await multiresource(hub, hub.tokenFor(ada), [resource]);
+    const issued = await multiresource(team, team.tokenFor(ada), [resource]);
 
     expect(issued?.userId).toBe(ada.id);
     expect(claimsOf(issued?.userToken ?? "")["resources"]).toEqual([
@@ -405,10 +405,10 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
   });
 
   it("refuses when the caller has no grant on one of them", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const bob = await hub.user("bob");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const bob = await team.user("bob");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
@@ -418,42 +418,42 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
     // asked for covers the whole set, and one that quietly covered less would
     // fail later, somewhere that cannot say why.
     await expect(
-      multiresource(hub, hub.tokenFor(bob), [resourceIdOf(project.id)]),
+      multiresource(team, team.tokenFor(bob), [resourceIdOf(project.id)]),
     ).rejects.toMatchObject({ status: GRPC_PERMISSION_DENIED });
-    expect(hub.log.some((line) => line.includes("multiresource bob"))).toBe(true);
-    expect(hub.log.some((line) => line.includes("denied, no grant"))).toBe(true);
+    expect(team.log.some((line) => line.includes("multiresource bob"))).toBe(true);
+    expect(team.log.some((line) => line.includes("denied, no grant"))).toBe(true);
   });
 
-  it("refuses a resource that is not a project on this Hub", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
+  it("refuses a resource that is not a project on this Team server", async () => {
+    const team = await harness();
+    const ada = await team.user("ada");
 
-    await expect(multiresource(hub, hub.tokenFor(ada), ["not-a-resource"])).rejects.toMatchObject({
+    await expect(multiresource(team, team.tokenFor(ada), ["not-a-resource"])).rejects.toMatchObject({
       status: GRPC_PERMISSION_DENIED,
     });
   });
 
   it("refuses a caller it cannot identify", async () => {
-    const hub = await harness();
+    const team = await harness();
 
-    await expect(multiresource(hub, "not a token", ["urc-whatever"])).rejects.toMatchObject({
+    await expect(multiresource(team, "not a token", ["urc-whatever"])).rejects.toMatchObject({
       status: GRPC_UNAUTHENTICATED,
     });
   });
 
   it("lasts minutes, where the token signed in with lasts a month", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
 
-    const signIn = await hub.exchange(hub.tokenFor(ada));
-    const repository = await multiresource(hub, hub.tokenFor(ada), [resourceIdOf(project.id)]);
+    const signIn = await team.exchange(team.tokenFor(ada));
+    const repository = await multiresource(team, team.tokenFor(ada), [resourceIdOf(project.id)]);
 
-    // Two lifetimes and not one number used twice. Hub is asked about the
+    // Two lifetimes and not one number used twice. Team is asked about the
     // sign-in token every time it matters, so revoking reaches it; this one
     // goes to loreserver's data plane, which checks it for itself, and its
     // expiry is the only thing that ends it.
@@ -463,21 +463,21 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
     expect((repository?.expiresAt ?? 0) - now).toBeLessThanOrEqual(15 * 60);
   });
 
-  it("takes the lifetime from the database as it mints, not from when Hub started", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+  it("takes the lifetime from the database as it mints, not from when Team started", async () => {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
 
-    // The service is already running and has already answered a call. A Hub
+    // The service is already running and has already answered a call. A Team server
     // that read the setting once would go on issuing quarter-hour tokens here,
     // and the only way to find out would be to restart it and watch.
-    await multiresource(hub, hub.tokenFor(ada), [resourceIdOf(project.id)]);
-    setTokenLifetimes(hub.database, { repositoryTokenLifetimeSeconds: 120 });
-    const issued = await multiresource(hub, hub.tokenFor(ada), [resourceIdOf(project.id)]);
+    await multiresource(team, team.tokenFor(ada), [resourceIdOf(project.id)]);
+    setTokenLifetimes(team.database, { repositoryTokenLifetimeSeconds: 120 });
+    const issued = await multiresource(team, team.tokenFor(ada), [resourceIdOf(project.id)]);
 
     const now = Math.floor(Date.now() / 1000);
     expect((issued?.expiresAt ?? 0) - now).toBeGreaterThan(60);
@@ -485,21 +485,21 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
   });
 
   it("covers every resource asked for at once", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const first = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const first = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
-    const second = createProject(hub.database, {
+    const second = createProject(team.database, {
       id: newProjectId(),
       name: "lighthouse",
       createdBy: ada.id,
     });
     const resources = [resourceIdOf(first.id), resourceIdOf(second.id)];
 
-    const issued = await multiresource(hub, hub.tokenFor(ada), resources);
+    const issued = await multiresource(team, team.tokenFor(ada), resources);
 
     expect(
       (claimsOf(issued?.userToken ?? "")["resources"] as { resource_id: string }[]).map(
@@ -511,28 +511,28 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
 
 describe("the same service over TLS", () => {
   it("completes a handshake and answers an exchange", async () => {
-    const hub = await harness({ tls: true });
-    const ada = await hub.user("ada");
+    const team = await harness({ tls: true });
+    const ada = await team.user("ada");
 
-    expect(hub.server.url.startsWith("https://")).toBe(true);
-    const issued = await hub.exchange(hub.tokenFor(ada));
+    expect(team.server.url.startsWith("https://")).toBe(true);
+    const issued = await team.exchange(team.tokenFor(ada));
 
     expect(issued?.userId).toBe(ada.id);
-    expect(verifyToken(issued?.userToken ?? "", hub.keys, identityConfig()).kind).toBe("verified");
+    expect(verifyToken(issued?.userToken ?? "", team.keys, identityConfig()).kind).toBe("verified");
   });
 
   it("cannot be reached by a client that does not have the authority", async () => {
-    const hub = await harness({ tls: true });
-    const ada = await hub.user("ada");
+    const team = await harness({ tls: true });
+    const ada = await team.user("ada");
 
     // No `ca`, so node falls back to the host's own trust store — which is
-    // exactly the state a Studio installation is in before `nlhub trust`.
+    // exactly the state a Studio installation is in before `nlteam trust`.
     await expect(
       unaryCall({
-        url: hub.server.url,
+        url: team.server.url,
         path: METHOD_EXCHANGE_EXTERNAL_TOKEN,
         message: encodeExchangeExternalTokenForUserTokenRequest({
-          externalToken: hub.tokenFor(ada),
+          externalToken: team.tokenFor(ada),
           tokenType: "jwt",
         }),
         timeoutMs: 5000,

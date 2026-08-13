@@ -1,9 +1,9 @@
 /**
  * Turning an `authorization: Bearer <jwt>` header into an account.
  *
- * loreserver does not tell Hub who is calling. It forwards the header the
+ * loreserver does not tell Team who is calling. It forwards the header the
  * client sent it, unread, and asks what that caller may reach — so identifying
- * the caller is Hub's job, from a token Hub itself signed a few minutes
+ * the caller is Team's job, from a token Team itself signed a few minutes
  * earlier.
  *
  * Two questions are answered here, and both have to be:
@@ -48,7 +48,7 @@ export type CallerIdentification =
 const REFUSAL_REASONS: Readonly<Record<CallerRefusal, string>> = {
   ...TOKEN_REFUSAL_REASONS,
   "no-token": "the call carried no bearer token",
-  "unknown-account": "the token names an account this Hub does not have",
+  "unknown-account": "the token names an account this server does not have",
   disabled: "the account is disabled",
   "stale-epoch": "the token was issued before the account's access was revoked",
 };

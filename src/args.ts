@@ -1,5 +1,5 @@
 /**
- * Command line parsing for the `nlhub` executable.
+ * Command line parsing for the `nlteam` executable.
  *
  * Parsing is kept separate from anything that writes output or exits, so the
  * decision the arguments describe can be inspected on its own.
@@ -28,7 +28,7 @@ export interface IdentityOverrides {
   readonly idp?: string;
   /** The sign-in token's lifetime; the repository token's has no option. */
   readonly signInTokenLifetimeSeconds?: number;
-  readonly hubPort?: number;
+  readonly teamPort?: number;
   readonly authPort?: number;
   readonly authTlsPort?: number;
   readonly dataPort?: number;
@@ -40,10 +40,10 @@ export type Invocation =
   | { readonly kind: "version" }
   | { readonly kind: "help" }
   /**
-   * Open the terminal interface on the Hub at `root`.
+   * Open the terminal interface on the Team server at `root`.
    *
    * This is what a command line that names no command means. The identity
-   * settings come along because the interface shows them: a Hub brought up
+   * settings come along because the interface shows them: a Team server brought up
    * with `--data-port 41500` is reached at that port whether or not the
    * screen showing the address was told about it.
    */
@@ -59,7 +59,7 @@ export type Invocation =
       readonly root: string;
       readonly dataPort: number;
       readonly healthPort: number;
-      /** True when loreserver is to be told to demand a Hub token. */
+      /** True when loreserver is to be told to demand a Team server token. */
       readonly identity: boolean;
       readonly overrides: IdentityOverrides;
     }
@@ -102,7 +102,7 @@ export type Invocation =
       readonly root: string;
       readonly name: string;
       readonly description: string | undefined;
-      /** The account it is created for; absent when the Hub has only one. */
+      /** The account it is created for; absent when the Team server has only one. */
       readonly as: string | undefined;
       readonly dataPort: number;
       readonly overrides: IdentityOverrides;
@@ -124,7 +124,7 @@ export type Invocation =
       readonly project: string;
       readonly username: string;
     }
-  /** Show the settings this Hub keeps in its database. */
+  /** Show the settings this Team server keeps in its database. */
   | { readonly kind: "settings-list"; readonly root: string }
   /**
    * Change one setting.
@@ -146,7 +146,7 @@ export type Invocation =
   /** Generate a key and sign with it from now on. */
   | { readonly kind: "key-rotate"; readonly root: string }
   /**
-   * Show this Hub's certificate authority, and optionally trust it here.
+   * Show this Team server's certificate authority, and optionally trust it here.
    *
    * With neither flag, nothing is changed: printing the fingerprint is the
    * whole of what it does, because that is what a person compares.
@@ -169,7 +169,7 @@ function error(message: string): Invocation {
 
 /** Every command that keeps state needs to be told which storage root. */
 function missingRoot(command: string): Invocation {
-  return error(`${command} needs --root <path>, the directory Hub keeps its files in`);
+  return error(`${command} needs --root <path>, the directory Team keeps its files in`);
 }
 
 /**
@@ -220,8 +220,8 @@ export function parseDuration(option: string, text: string): number | string {
 /**
  * Split `--option=value` into its two halves.
  *
- * Both spellings are accepted, so that neither `--root /srv/hub` nor
- * `--root=/srv/hub` is a surprise.
+ * Both spellings are accepted, so that neither `--root /srv/team` nor
+ * `--root=/srv/team` is a surprise.
  */
 function splitInlineValue(token: string): { option: string; value: string | undefined } {
   const separator = token.indexOf("=");
@@ -324,7 +324,7 @@ const IDENTITY_OPTIONS = [
   "--env",
   "--idp",
   "--token-lifetime",
-  "--hub-port",
+  "--team-port",
   "--auth-port",
   "--auth-tls-port",
   // Not only loreserver's setting: a token's audience has to name the data
@@ -337,7 +337,7 @@ const IDENTITY_OPTIONS = [
  *
  * `--hostname` is one of the identity options rather than only an option of
  * `up`, for the same reason `--data-port` is: it decides what a token's
- * audience says, so a token minted without it is a token that works on the Hub
+ * audience says, so a token minted without it is a token that works on the Team server
  * machine and nowhere else.
  */
 const IDENTITY_LIST_OPTIONS = ["--hostname"] as const;
@@ -355,7 +355,7 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     env?: string;
     idp?: string;
     signInTokenLifetimeSeconds?: number;
-    hubPort?: number;
+    teamPort?: number;
     authPort?: number;
     authTlsPort?: number;
     dataPort?: number;
@@ -374,7 +374,7 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
   if (authOrigin !== undefined) {
     // A scheme here would end up written twice, as https://https://host.
     if (authOrigin.includes("://")) {
-      return "--auth-origin is a host, without a scheme, for example hub.example.com";
+      return "--auth-origin is a host, without a scheme, for example team.example.com";
     }
     overrides.authOrigin = authOrigin;
   }
@@ -398,13 +398,13 @@ function readIdentityOverrides(tokens: Tokens): IdentityOverrides | string {
     // to be the only bound on a token is not one to lengthen for a single run.
     overrides.signInTokenLifetimeSeconds = Math.floor(milliseconds / 1000);
   }
-  const hubPort = tokens.values.get("--hub-port");
-  if (hubPort !== undefined) {
-    const port = parsePort("--hub-port", hubPort);
+  const teamPort = tokens.values.get("--team-port");
+  if (teamPort !== undefined) {
+    const port = parsePort("--team-port", teamPort);
     if (typeof port === "string") {
       return port;
     }
-    overrides.hubPort = port;
+    overrides.teamPort = port;
   }
   const authPort = tokens.values.get("--auth-port");
   if (authPort !== undefined) {
@@ -496,7 +496,7 @@ function parseUp(argv: readonly string[]): Invocation {
   const listeners: readonly (readonly [string, number])[] = [
     ["--data-port", dataPort],
     ["--health-port", healthPort],
-    ["--hub-port", overrides.hubPort ?? DEFAULT_IDENTITY.hubPort],
+    ["--team-port", overrides.teamPort ?? DEFAULT_IDENTITY.teamPort],
     ["--auth-port", overrides.authPort ?? DEFAULT_IDENTITY.authPort],
     ["--auth-tls-port", overrides.authTlsPort ?? DEFAULT_IDENTITY.authTlsPort],
   ];
@@ -521,7 +521,7 @@ function parseUp(argv: readonly string[]): Invocation {
  * Parse a command line that names no command.
  *
  * It opens the terminal interface, and it takes the options that decide what
- * that interface is looking at and what it says about how this Hub is
+ * that interface is looking at and what it says about how this Team server is
  * reached. Nothing here starts anything: the interface reads.
  */
 function parseInterface(argv: readonly string[]): Invocation {
@@ -543,7 +543,7 @@ function parseInterface(argv: readonly string[]): Invocation {
 
   const root = tokens.values.get("--root");
   if (root === undefined) {
-    return missingRoot("nlhub with no command");
+    return missingRoot("nlteam with no command");
   }
 
   let healthPort = DEFAULT_PORTS.healthPort;
@@ -954,7 +954,7 @@ function parseTrust(argv: readonly string[]): Invocation {
  * Callers pass `process.argv.slice(2)` — the node executable and the script
  * path are not part of the command line as far as this function is concerned.
  *
- * An empty command line is treated as a request for help: a bare `nlhub` names
+ * An empty command line is treated as a request for help: a bare `nlteam` names
  * no command, and there is nothing else it could mean.
  */
 export function parseArgs(argv: readonly string[]): Invocation {

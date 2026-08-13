@@ -46,16 +46,17 @@ export interface RunOptions {
 const DEFAULT_SIGN_IN_LIFETIME = describeDuration(DEFAULT_IDENTITY.signInTokenLifetimeSeconds);
 
 /** The text `--help` prints. */
-export const USAGE = `Usage: nlhub <command> [options]
+export const USAGE = `Usage: nlteam <command> [options]
 
-NarraLeaf Hub is a self-hosted project server for teams using NarraLeaf Studio.
+NarraLeaf Team is a self-hosted project server for teams using NarraLeaf Studio.
 
-With no command it opens the terminal interface on the Hub at --root. A bare
-nlhub, at a terminal, opens it on NLHUB_ROOT or on the working directory when
-that is a Hub already.
+With no command it opens the terminal interface on the server at --root. A bare
+nlteam, at a terminal, opens it on NLTEAM_ROOT or on the working directory when
+that is a server already.
 
 Commands:
-  up                        Install and run loreserver, and serve Hub's endpoint
+  up                        Install and run loreserver, and serve the
+                            sign-in endpoint
   invite create             Make an invite code, and print it once
   user list                 List the accounts
   user create <username>    Redeem an invite code into an account
@@ -71,20 +72,20 @@ Commands:
                             Let an account reach a project
   project revoke <project> <username>
                             Stop an account reaching a project
-  settings list             Show the settings this Hub keeps, and whether each
-                            is the default or was set here
+  settings list             Show the settings this server keeps, and whether
+                            each is the default or was set here
   settings set <key> <value>
                             Change one of them
   key list                  Show the signing keys
   key rotate                Generate a key and sign with it from now on
-  trust                     Show this Hub's certificate authority and its
+  trust                     Show this server's certificate authority and its
                             fingerprint, and change nothing
 
-Every command takes --root <path>, the directory Hub keeps its files in.
+Every command takes --root <path>, the directory Team keeps its files in.
 
 Options for up:
       --health-port <port>  loreserver's HTTP health check port (default ${DEFAULT_PORTS.healthPort})
-      --identity            Configure loreserver to demand a Hub token
+      --identity            Configure loreserver to demand a Team token
 
 Options for trust:
       --install             Trust this authority in this account's trust store
@@ -101,7 +102,7 @@ Options for user create:
 
 Options for project create:
       --description <text>
-      --as <username>       The account it belongs to, when the Hub has more
+      --as <username>       The account it belongs to, when the server has more
                             than one
 
 Options for project list:
@@ -115,11 +116,11 @@ audience is built from these, so a command given a different set to the one
 up was given mints a token that will not be accepted:
       --data-port <port>    Where loreserver serves data, which a client reaches
                             as lore://host:port (default ${DEFAULT_PORTS.dataPort})
-      --hostname <host>     A name people reach this Hub by. Goes into the auth
-                            endpoint's certificate and into every token's
+      --hostname <host>     A name people reach this server by. Goes into the
+                            auth endpoint's certificate and into every token's
                             audience. Repeatable; the loopback and localhost are
                             always included
-      --hub-port <port>     Hub's own HTTP port (default ${DEFAULT_IDENTITY.hubPort})
+      --team-port <port>    Team's own HTTP port (default ${DEFAULT_IDENTITY.teamPort})
       --auth-port <port>    Port loreserver asks about permissions on, in plain
                             HTTP/2 on the loopback (default ${DEFAULT_IDENTITY.authPort})
       --auth-tls-port <port>
@@ -133,7 +134,7 @@ up was given mints a token that will not be accepted:
       --idp <name>          Identity provider claim (default ${DEFAULT_IDENTITY.idp})
       --token-lifetime <duration>
                             How long a sign-in token lasts, overriding this
-                            Hub's stored setting for this run
+                            server's stored setting for this run
                             (default ${DEFAULT_SIGN_IN_LIFETIME})
 
 Options:
@@ -294,7 +295,7 @@ export async function run(
     case "error":
       // Prefix the program name the way command line tools conventionally do,
       // so the line still identifies its source in a wall of build output.
-      stderr(`nlhub: ${invocation.message}\n`);
+      stderr(`nlteam: ${invocation.message}\n`);
       return 2;
   }
 }

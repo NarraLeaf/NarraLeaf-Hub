@@ -1,5 +1,5 @@
 /**
- * The one way Hub calls Lore.
+ * The one way Team calls Lore.
  *
  * Everything that has to be got right about the call path is handled here,
  * once:

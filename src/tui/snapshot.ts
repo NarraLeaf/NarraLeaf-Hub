@@ -10,7 +10,7 @@ import { renderToString } from "ink";
 import { createElement } from "react";
 
 import { Interface } from "./app.js";
-import type { HubView } from "./hubview.js";
+import type { TeamView } from "./teamview.js";
 import { topOverlay, type Overlay, type TuiSize, type TuiState } from "./state.js";
 import { overlayWindow } from "./window.js";
 
@@ -69,7 +69,7 @@ function toGrid(rendered: string, size: TuiSize): string[] {
 }
 
 /** Draw one state at one size, and report what was drawn. */
-export function snapshot(state: TuiState, size: TuiSize, view: HubView): Snapshot {
+export function snapshot(state: TuiState, size: TuiSize, view: TeamView): Snapshot {
   const rendered = renderToString(createElement(Interface, { state, size, view }), {
     columns: size.columns,
   });

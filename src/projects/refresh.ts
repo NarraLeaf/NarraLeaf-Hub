@@ -2,7 +2,7 @@
  * Reading every project's repository, without anything waiting for it.
  *
  * The database answers instantly and a repository does not: a clone is network
- * work, and the first read of a project Hub has never seen is the slowest one
+ * work, and the first read of a project Team has never seen is the slowest one
  * it will ever do. So the view is gathered from the database and drawn, and
  * this fills the repository parts in afterwards, telling whoever is drawing
  * that there is something new to draw.
@@ -61,7 +61,7 @@ export class ProjectReadings {
 
   constructor(private readonly options: ProjectReadingsOptions) {}
 
-  /** What Hub last read about one project, or undefined if it has not. */
+  /** What Team last read about one project, or undefined if it has not. */
   get(projectId: string): ProjectReading | undefined {
     return this.readings.get(projectId);
   }
@@ -117,12 +117,12 @@ export class ProjectReadings {
   }
 
   /**
-   * Let the version control library trust this Hub's own authority.
+   * Let the version control library trust this Team server's own authority.
    *
-   * A loreserver told to demand a token sends its clients to Hub's https
-   * endpoint to exchange one, and Hub is one of those clients. Lore's TLS is
+   * A loreserver told to demand a token sends its clients to Team's https
+   * endpoint to exchange one, and Team is one of those clients. Lore's TLS is
    * rustls, which verifies that endpoint's certificate against its own trust
-   * store — and a Hub's authority is one it generated for itself, which no
+   * store — and a Team server's authority is one it generated for itself, which no
    * store on earth holds. Without this the exchange fails with "failed to
    * connect to auth endpoint: transport error" and every clone that follows is
    * refused with "Not authorized to access repository", which reads as a
@@ -131,7 +131,7 @@ export class ProjectReadings {
    * `SSL_CERT_FILE` is the channel because it is the one rustls-native-certs
    * offers, and it is what `up` already hands loreserver for the same reason.
    * It replaces the trust store rather than adding to it, which is exactly
-   * right here: everything this library talks to is this Hub. Node's own
+   * right here: everything this library talks to is this Team server. Node's own
    * outbound TLS — the release downloads — does not read it. An operator who
    * set it themselves is left alone.
    */
@@ -148,7 +148,7 @@ export class ProjectReadings {
       process.env["SSL_CERT_FILE"] = authority.layout.caCertPath;
       this.trusted = true;
     } catch {
-      // A Hub that has not been brought up has no authority yet. Left to be
+      // A Team server that has not been brought up has no authority yet. Left to be
       // tried again on the next pass rather than latched as done.
     }
   }
@@ -161,7 +161,7 @@ export class ProjectReadings {
 
     // Once per pass rather than once per project, and re-read each pass so
     // that a key rotated in another terminal is picked up without this being
-    // restarted. A Hub that has not been brought up has no keys directory at
+    // restarted. A Team server that has not been brought up has no keys directory at
     // all, and that is a reason to read without a token rather than to stop.
     this.keys = await KeyStore.open(identityLayout(root).keysDir).catch(() => undefined);
 
@@ -186,13 +186,13 @@ export class ProjectReadings {
         this.readings.set(project.id, reading);
       } catch (error) {
         // readProject answers rather than raising, so anything reaching here is
-        // Hub's own doing — minting a token, or something worse. It is put
-        // where every other thing Hub could not read goes, which is the screen,
+        // Team's own doing — minting a token, or something worse. It is put
+        // where every other thing Team could not read goes, which is the screen,
         // rather than into a log nobody has open. The pass carries on: one
         // project that cannot be read must not cost the others theirs.
         this.readings.set(project.id, {
           history: {},
-          file: { readable: false, reason: `Hub could not read this project: ${describe(error)}` },
+          file: { readable: false, reason: `Team could not read this project: ${describe(error)}` },
           cloned: false,
         });
       }
@@ -207,7 +207,7 @@ export class ProjectReadings {
    * alone, which is the same shape a Studio installation presents. Undefined
    * where the owner is gone or disabled — a loreserver that demands nobody's
    * identity accepts the read anyway, and one that does refuses it with a
-   * sentence that says so, which is better than Hub reading as somebody who
+   * sentence that says so, which is better than Team reading as somebody who
    * has been shut out.
    */
   private mint(projectId: string, ownerId: string): string | undefined {
@@ -222,7 +222,7 @@ export class ProjectReadings {
       }
       return mintToken(owner, keys.signingKey, this.options.config, {
         // The short lifetime, because this one is presented on the data
-        // connection and Hub is not asked about it again.
+        // connection and Team is not asked about it again.
         purpose: "repository",
         resources: [{ resource_id: resourceIdOf(projectId), permission: permissionsFor("read") }],
       }).token;

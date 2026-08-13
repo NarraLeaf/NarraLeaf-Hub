@@ -1,5 +1,5 @@
 /**
- * Turning the numbers in a HubView into the words on screen.
+ * Turning the numbers in a TeamView into the words on screen.
  *
  * Nothing here reads the clock or the machine's timezone. A relative time is
  * measured against the moment the view was gathered, and a date is written in
@@ -11,7 +11,7 @@
  * What is drawn where a value is missing.
  *
  * One word everywhere, because the alternative is a screen where a blank cell
- * sometimes means nothing and sometimes means Hub could not work it out.
+ * sometimes means nothing and sometimes means Team could not work it out.
  */
 export const UNKNOWN = "unknown";
 

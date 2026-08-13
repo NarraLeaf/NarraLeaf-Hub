@@ -51,9 +51,9 @@ describe("parseArgs", () => {
 
 describe("parseArgs, up", () => {
   it("takes a root and fills in the default ports", () => {
-    expect(parseArgs(["up", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["up", "--root", "/srv/team"])).toEqual({
       kind: "up",
-      root: "/srv/hub",
+      root: "/srv/team",
       dataPort: DEFAULT_PORTS.dataPort,
       healthPort: DEFAULT_PORTS.healthPort,
       // Identity is off unless it is asked for: a loreserver that suddenly
@@ -68,15 +68,15 @@ describe("parseArgs, up", () => {
       parseArgs([
         "up",
         "--root",
-        "/srv/hub",
+        "/srv/team",
         "--identity",
         "--issuer",
-        "hub.example.com",
+        "team.example.com",
         "--audience",
         "lore",
         "--auth-origin",
-        "hub.example.com",
-        "--hub-port",
+        "team.example.com",
+        "--team-port",
         "41500",
         "--token-lifetime",
         "5m",
@@ -84,40 +84,40 @@ describe("parseArgs, up", () => {
     ).toMatchObject({
       identity: true,
       overrides: {
-        issuer: "hub.example.com",
+        issuer: "team.example.com",
         audience: "lore",
-        authOrigin: "hub.example.com",
-        hubPort: 41500,
+        authOrigin: "team.example.com",
+        teamPort: 41500,
         signInTokenLifetimeSeconds: 300,
       },
     });
   });
 
   it("refuses an auth origin written as a URL, which would be doubled", () => {
-    expect(messageFor(["up", "--root", "/srv/hub", "--auth-origin", "https://hub.example.com"]))
+    expect(messageFor(["up", "--root", "/srv/team", "--auth-origin", "https://team.example.com"]))
       .toContain("without a scheme");
   });
 
   it("accepts ports on the command line", () => {
-    expect(parseArgs(["up", "--root", "/srv/hub", "--data-port", "9000"])).toMatchObject({
+    expect(parseArgs(["up", "--root", "/srv/team", "--data-port", "9000"])).toMatchObject({
       dataPort: 9000,
       healthPort: DEFAULT_PORTS.healthPort,
     });
-    expect(parseArgs(["up", "--root", "/srv/hub", "--health-port", "9001"])).toMatchObject({
+    expect(parseArgs(["up", "--root", "/srv/team", "--health-port", "9001"])).toMatchObject({
       dataPort: DEFAULT_PORTS.dataPort,
       healthPort: 9001,
     });
   });
 
   it("accepts a value joined to its option with an equals sign", () => {
-    expect(parseArgs(["up", "--root=/srv/hub", "--data-port=9000"])).toMatchObject({
-      root: "/srv/hub",
+    expect(parseArgs(["up", "--root=/srv/team", "--data-port=9000"])).toMatchObject({
+      root: "/srv/team",
       dataPort: 9000,
     });
   });
 
   it("keeps a Windows path intact, backslashes and all", () => {
-    expect(parseArgs(["up", "--root", "D:\\srv\\hub"])).toMatchObject({ root: "D:\\srv\\hub" });
+    expect(parseArgs(["up", "--root", "D:\\srv\\team"])).toMatchObject({ root: "D:\\srv\\team" });
   });
 
   it("insists on a root, because there is no sensible default for one", () => {
@@ -126,14 +126,14 @@ describe("parseArgs, up", () => {
   });
 
   it("rejects a port that is not one", () => {
-    expect(messageFor(["up", "--root", "/srv/hub", "--data-port", "http"])).toContain(
+    expect(messageFor(["up", "--root", "/srv/team", "--data-port", "http"])).toContain(
       "needs a port number",
     );
-    expect(messageFor(["up", "--root", "/srv/hub", "--data-port", "0"])).toContain("between 1");
-    expect(messageFor(["up", "--root", "/srv/hub", "--data-port", "70000"])).toContain(
+    expect(messageFor(["up", "--root", "/srv/team", "--data-port", "0"])).toContain("between 1");
+    expect(messageFor(["up", "--root", "/srv/team", "--data-port", "70000"])).toContain(
       "between 1",
     );
-    expect(messageFor(["up", "--root", "/srv/hub", "--health-port", "1.5"])).toContain(
+    expect(messageFor(["up", "--root", "/srv/team", "--health-port", "1.5"])).toContain(
       "needs a port number",
     );
   });
@@ -142,15 +142,15 @@ describe("parseArgs, up", () => {
     // gRPC and QUIC share a number because they are on different transports.
     // The health check is HTTP, on the same transport as gRPC.
     expect(
-      messageFor(["up", "--root", "/srv/hub", "--data-port", "9000", "--health-port", "9000"]),
+      messageFor(["up", "--root", "/srv/team", "--data-port", "9000", "--health-port", "9000"]),
     ).toContain("cannot both be 9000");
-    // Four listeners come up on one machine, so the check covers Hub's two as
+    // Four listeners come up on one machine, so the check covers Team's two as
     // well: whichever lost the race would be silently absent.
     expect(
-      messageFor(["up", "--root", "/srv/hub", "--hub-port", "9000", "--auth-port", "9000"]),
+      messageFor(["up", "--root", "/srv/team", "--team-port", "9000", "--auth-port", "9000"]),
     ).toContain("cannot both be 9000");
     expect(
-      messageFor(["up", "--root", "/srv/hub", "--auth-port", String(DEFAULT_PORTS.dataPort)]),
+      messageFor(["up", "--root", "/srv/team", "--auth-port", String(DEFAULT_PORTS.dataPort)]),
     ).toContain("cannot both be");
   });
 
@@ -159,72 +159,72 @@ describe("parseArgs, up", () => {
   });
 
   it("reports an option it does not have", () => {
-    expect(messageFor(["up", "--root", "/srv/hub", "--verbose"])).toContain("--verbose");
+    expect(messageFor(["up", "--root", "/srv/team", "--verbose"])).toContain("--verbose");
   });
 
   it("answers --help after the command with help", () => {
     expect(parseArgs(["up", "--help"])).toEqual({ kind: "help" });
-    expect(parseArgs(["up", "--root", "/srv/hub", "-h"])).toEqual({ kind: "help" });
+    expect(parseArgs(["up", "--root", "/srv/team", "-h"])).toEqual({ kind: "help" });
   });
 });
 
 describe("parseArgs, the identity commands", () => {
   it("makes an invite with a default role and expiry", () => {
-    expect(parseArgs(["invite", "create", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["invite", "create", "--root", "/srv/team"])).toEqual({
       kind: "invite-create",
-      root: "/srv/hub",
+      root: "/srv/team",
       role: "member",
       lifetimeMs: 7 * 24 * 60 * 60 * 1000,
     });
   });
 
   it("reads a duration in the units people write them in", () => {
-    expect(parseArgs(["invite", "create", "--root", "/srv/hub", "--expires", "48h"])).toMatchObject(
+    expect(parseArgs(["invite", "create", "--root", "/srv/team", "--expires", "48h"])).toMatchObject(
       { lifetimeMs: 48 * 60 * 60 * 1000 },
     );
-    expect(parseArgs(["invite", "create", "--root", "/srv/hub", "--expires", "90"])).toMatchObject({
+    expect(parseArgs(["invite", "create", "--root", "/srv/team", "--expires", "90"])).toMatchObject({
       lifetimeMs: 90 * 1000,
     });
-    expect(messageFor(["invite", "create", "--root", "/srv/hub", "--expires", "soon"])).toContain(
+    expect(messageFor(["invite", "create", "--root", "/srv/team", "--expires", "soon"])).toContain(
       "duration",
     );
   });
 
   it("takes a username as the word after the verb", () => {
-    expect(parseArgs(["user", "disable", "ada", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["user", "disable", "ada", "--root", "/srv/team"])).toEqual({
       kind: "user-disable",
-      root: "/srv/hub",
+      root: "/srv/team",
       username: "ada",
     });
-    expect(parseArgs(["user", "enable", "--root", "/srv/hub", "ada"])).toEqual({
+    expect(parseArgs(["user", "enable", "--root", "/srv/team", "ada"])).toEqual({
       kind: "user-enable",
-      root: "/srv/hub",
+      root: "/srv/team",
       username: "ada",
     });
-    expect(parseArgs(["user", "revoke-tokens", "ada", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["user", "revoke-tokens", "ada", "--root", "/srv/team"])).toEqual({
       kind: "user-revoke-tokens",
-      root: "/srv/hub",
+      root: "/srv/team",
       username: "ada",
     });
-    expect(messageFor(["user", "disable", "--root", "/srv/hub"])).toContain("needs a username");
-    expect(messageFor(["user", "revoke-tokens", "--root", "/srv/hub"])).toContain(
+    expect(messageFor(["user", "disable", "--root", "/srv/team"])).toContain("needs a username");
+    expect(messageFor(["user", "revoke-tokens", "--root", "/srv/team"])).toContain(
       "needs a username",
     );
   });
 
   it("insists that an account comes from an invitation", () => {
     expect(
-      parseArgs(["user", "create", "ada", "--root", "/srv/hub", "--invite", "CODE"]),
+      parseArgs(["user", "create", "ada", "--root", "/srv/team", "--invite", "CODE"]),
     ).toEqual({
       kind: "user-create",
-      root: "/srv/hub",
+      root: "/srv/team",
       username: "ada",
       code: "CODE",
       displayName: undefined,
       email: undefined,
       isServiceAccount: false,
     });
-    expect(messageFor(["user", "create", "ada", "--root", "/srv/hub"])).toContain("--invite");
+    expect(messageFor(["user", "create", "ada", "--root", "/srv/team"])).toContain("--invite");
   });
 
   it("marks a service account when it is told to", () => {
@@ -234,7 +234,7 @@ describe("parseArgs, the identity commands", () => {
         "create",
         "builder",
         "--root",
-        "/srv/hub",
+        "/srv/team",
         "--invite",
         "CODE",
         "--service-account",
@@ -246,30 +246,30 @@ describe("parseArgs, the identity commands", () => {
 
   it("mints for one named account, with the identity settings it is given", () => {
     expect(
-      parseArgs(["token", "mint", "ada", "--root", "/srv/hub", "--env", "staging"]),
+      parseArgs(["token", "mint", "ada", "--root", "/srv/team", "--env", "staging"]),
     ).toEqual({
       kind: "token-mint",
-      root: "/srv/hub",
+      root: "/srv/team",
       username: "ada",
       overrides: { env: "staging" },
     });
   });
 
   it("rotates and lists keys", () => {
-    expect(parseArgs(["key", "rotate", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["key", "rotate", "--root", "/srv/team"])).toEqual({
       kind: "key-rotate",
-      root: "/srv/hub",
+      root: "/srv/team",
     });
-    expect(parseArgs(["key", "list", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["key", "list", "--root", "/srv/team"])).toEqual({
       kind: "key-list",
-      root: "/srv/hub",
+      root: "/srv/team",
     });
   });
 
   it("names the verb it did not recognise, and the ones it has", () => {
-    expect(messageFor(["user", "invent", "--root", "/srv/hub"])).toBe("unknown user command: invent");
+    expect(messageFor(["user", "invent", "--root", "/srv/team"])).toBe("unknown user command: invent");
     expect(messageFor(["user"])).toContain("list, create, disable, enable or revoke-tokens");
-    expect(messageFor(["key", "melt", "--root", "/srv/hub"])).toBe("unknown key command: melt");
+    expect(messageFor(["key", "melt", "--root", "/srv/team"])).toBe("unknown key command: melt");
   });
 
   it("wants a root for every command that keeps state", () => {
@@ -292,17 +292,17 @@ describe("parseArgs, the identity commands", () => {
 
 describe("parseArgs, the settings commands", () => {
   it("lists them", () => {
-    expect(parseArgs(["settings", "list", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["settings", "list", "--root", "/srv/team"])).toEqual({
       kind: "settings-list",
-      root: "/srv/hub",
+      root: "/srv/team",
     });
   });
 
   it("reads a value in every duration a command line here takes", () => {
-    expect(parseArgs(["settings", "set", SIGN_IN_LIFETIME_KEY, "7d", "--root", "/srv/hub"])).toEqual(
+    expect(parseArgs(["settings", "set", SIGN_IN_LIFETIME_KEY, "7d", "--root", "/srv/team"])).toEqual(
       {
         kind: "settings-set",
-        root: "/srv/hub",
+        root: "/srv/team",
         key: SIGN_IN_LIFETIME_KEY,
         seconds: 7 * 24 * 60 * 60,
       },
@@ -310,15 +310,15 @@ describe("parseArgs, the settings commands", () => {
     // The same spellings --token-lifetime takes, because somebody who knows one
     // of them should not have to discover a second.
     expect(
-      parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "30m", "--root", "/srv/hub"]),
+      parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "30m", "--root", "/srv/team"]),
     ).toMatchObject({ key: REPOSITORY_LIFETIME_KEY, seconds: 30 * 60 });
     expect(
-      parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "900", "--root", "/srv/hub"]),
+      parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "900", "--root", "/srv/team"]),
     ).toMatchObject({ seconds: 900 });
   });
 
   it("names the settings there are when it is given one there is not", () => {
-    const message = messageFor(["settings", "set", "token.lifetime", "7d", "--root", "/srv/hub"]);
+    const message = messageFor(["settings", "set", "token.lifetime", "7d", "--root", "/srv/team"]);
 
     expect(message).toContain("there is no setting called token.lifetime");
     for (const key of SETTING_KEYS) {
@@ -328,12 +328,12 @@ describe("parseArgs, the settings commands", () => {
 
   it("names the key in what it says about a value it could not read", () => {
     expect(
-      messageFor(["settings", "set", SIGN_IN_LIFETIME_KEY, "a while", "--root", "/srv/hub"]),
+      messageFor(["settings", "set", SIGN_IN_LIFETIME_KEY, "a while", "--root", "/srv/team"]),
     ).toContain(SIGN_IN_LIFETIME_KEY);
   });
 
   it("says what is missing, and names the verb it did not recognise", () => {
-    expect(messageFor(["settings", "set", "--root", "/srv/hub"])).toContain("a key and a value");
+    expect(messageFor(["settings", "set", "--root", "/srv/team"])).toContain("a key and a value");
     expect(messageFor(["settings", "invent"])).toBe("unknown settings command: invent");
     expect(messageFor(["settings"])).toContain("list or set");
   });
@@ -341,12 +341,12 @@ describe("parseArgs, the settings commands", () => {
 
 describe("parseArgs, the project commands", () => {
   it("creates a project, with the default loreserver port and no owner named", () => {
-    expect(parseArgs(["project", "create", "harbour", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["project", "create", "harbour", "--root", "/srv/team"])).toEqual({
       kind: "project-create",
-      root: "/srv/hub",
+      root: "/srv/team",
       name: "harbour",
       description: undefined,
-      // Absent means the account is worked out from the Hub, which only has an
+      // Absent means the account is worked out from the Team server, which only has an
       // answer when there is exactly one.
       as: undefined,
       dataPort: DEFAULT_PORTS.dataPort,
@@ -361,7 +361,7 @@ describe("parseArgs, the project commands", () => {
         "create",
         "harbour",
         "--root",
-        "/srv/hub",
+        "/srv/team",
         "--description",
         "a game about a port at night",
         "--as",
@@ -369,41 +369,41 @@ describe("parseArgs, the project commands", () => {
         "--data-port",
         "9000",
         "--issuer",
-        "hub.example.com",
+        "team.example.com",
       ]),
     ).toMatchObject({
       description: "a game about a port at night",
       as: "ada",
       dataPort: 9000,
-      overrides: { issuer: "hub.example.com" },
+      overrides: { issuer: "team.example.com" },
     });
   });
 
   it("lists everything, or what one account can reach", () => {
-    expect(parseArgs(["project", "list", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["project", "list", "--root", "/srv/team"])).toEqual({
       kind: "project-list",
-      root: "/srv/hub",
+      root: "/srv/team",
       as: undefined,
     });
-    expect(parseArgs(["project", "list", "--root", "/srv/hub", "--as", "ada"])).toMatchObject({
+    expect(parseArgs(["project", "list", "--root", "/srv/team", "--as", "ada"])).toMatchObject({
       as: "ada",
     });
   });
 
   it("grants read unless another level is named, and revokes", () => {
-    expect(parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/team"])).toEqual({
       kind: "project-grant",
-      root: "/srv/hub",
+      root: "/srv/team",
       project: "harbour",
       username: "ada",
       level: "read",
     });
     expect(
-      parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/hub", "--level", "write"]),
+      parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/team", "--level", "write"]),
     ).toMatchObject({ level: "write" });
-    expect(parseArgs(["project", "revoke", "harbour", "ada", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["project", "revoke", "harbour", "ada", "--root", "/srv/team"])).toEqual({
       kind: "project-revoke",
-      root: "/srv/hub",
+      root: "/srv/team",
       project: "harbour",
       username: "ada",
     });
@@ -413,13 +413,13 @@ describe("parseArgs, the project commands", () => {
     // Ownership comes from creating a project, so it is not something --level
     // hands out.
     expect(
-      messageFor(["project", "grant", "harbour", "ada", "--root", "/srv/hub", "--level", "owner"]),
+      messageFor(["project", "grant", "harbour", "ada", "--root", "/srv/team", "--level", "owner"]),
     ).toContain("read or write");
   });
 
   it("says what is missing, and names the verb it did not recognise", () => {
-    expect(messageFor(["project", "create", "--root", "/srv/hub"])).toContain("needs a name");
-    expect(messageFor(["project", "grant", "harbour", "--root", "/srv/hub"])).toContain(
+    expect(messageFor(["project", "create", "--root", "/srv/team"])).toContain("needs a name");
+    expect(messageFor(["project", "grant", "harbour", "--root", "/srv/team"])).toContain(
       "a project and a username",
     );
     expect(messageFor(["project", "invent"])).toBe("unknown project command: invent");

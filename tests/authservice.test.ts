@@ -42,7 +42,7 @@ import {
 import { startAuthorizationService } from "../src/projects/service.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-auth-");
+const temporaryRoot = useTemporaryRoots("nlteam-auth-");
 
 const CHEAP: ScryptParameters = { cost: 2 ** 12, blockSize: 8, parallelism: 1, keyLength: 32 };
 const hasher = new ScryptPasswordHasher(CHEAP);
@@ -87,7 +87,7 @@ async function harness(): Promise<Harness> {
   const keys = await KeyStore.open(layout.keysDir);
   const log: string[] = [];
   // Port 0: the operating system picks one that is free, so a test run cannot
-  // collide with a Hub the machine is already running.
+  // collide with a Team server the machine is already running.
   const server = await startAuthorizationService({
     port: 0,
     database,
@@ -147,63 +147,63 @@ async function harness(): Promise<Harness> {
 
 describe("CheckUserPermission", () => {
   it("answers with the projects the grant table says the caller may reach", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const bob = await hub.user("bob");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const bob = await team.user("bob");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
     const resource = resourceIdOf(project.id);
 
-    expect(await hub.check(hub.bearer(ada), [resource])).toEqual([resource]);
-    expect(await hub.check(hub.bearer(bob), [resource])).toEqual([]);
+    expect(await team.check(team.bearer(ada), [resource])).toEqual([resource]);
+    expect(await team.check(team.bearer(bob), [resource])).toEqual([]);
 
     // And a grant takes effect at once: nothing is cached, and no token is
     // reissued in between.
-    grantAccess(hub.database, project.id, bob.id, "read", ada.id);
-    expect(await hub.check(hub.bearer(bob), [resource])).toEqual([resource]);
+    grantAccess(team.database, project.id, bob.id, "read", ada.id);
+    expect(await team.check(team.bearer(bob), [resource])).toEqual([resource]);
   });
 
   it("returns only the granted subset when asked about several at once", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const bob = await hub.user("bob");
-    const hers = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const bob = await team.user("bob");
+    const hers = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
-    const shared = createProject(hub.database, {
+    const shared = createProject(team.database, {
       id: newProjectId(),
       name: "lighthouse",
       createdBy: bob.id,
     });
-    const his = createProject(hub.database, {
+    const his = createProject(team.database, {
       id: newProjectId(),
       name: "quayside",
       createdBy: bob.id,
     });
-    grantAccess(hub.database, shared.id, ada.id, "write", bob.id);
+    grantAccess(team.database, shared.id, ada.id, "write", bob.id);
 
     const asked = [
       resourceIdOf(hers.id),
       resourceIdOf(shared.id),
       resourceIdOf(his.id),
-      "urc-not-a-project-of-this-hub",
+      "urc-not-a-project-of-this-team",
     ];
 
-    expect(await hub.check(hub.bearer(ada), asked)).toEqual([
+    expect(await team.check(team.bearer(ada), asked)).toEqual([
       resourceIdOf(hers.id),
       resourceIdOf(shared.id),
     ]);
   });
 
   it("names the resource exactly as it was asked about", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
@@ -215,55 +215,55 @@ describe("CheckUserPermission", () => {
     // tell an echo from a reconstruction.
     const shouted = resourceIdOf(project.id).toUpperCase();
 
-    expect(await hub.check(hub.bearer(ada), [shouted])).toEqual([shouted]);
+    expect(await team.check(team.bearer(ada), [shouted])).toEqual([shouted]);
   });
 
   it("refuses everything for a token from a disabled account", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
     // Minted while the account was still in good standing, which is the only
     // interesting case: a token nobody can obtain proves nothing.
-    const token = hub.bearer(ada);
-    expect(await hub.check(token, [resourceIdOf(project.id)])).toEqual([resourceIdOf(project.id)]);
+    const token = team.bearer(ada);
+    expect(await team.check(token, [resourceIdOf(project.id)])).toEqual([resourceIdOf(project.id)]);
 
-    disableUser(hub.database, "ada");
+    disableUser(team.database, "ada");
 
-    expect(await hub.check(token, [resourceIdOf(project.id)])).toEqual([]);
-    expect(hub.log.at(-1)).toContain("the account is disabled");
+    expect(await team.check(token, [resourceIdOf(project.id)])).toEqual([]);
+    expect(team.log.at(-1)).toContain("the account is disabled");
   });
 
   it("refuses a token issued before the account's access was revoked", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
-    const token = hub.bearer(ada);
+    const token = team.bearer(ada);
 
     // Disabling bumps the epoch; enabling deliberately does not put it back, so
     // this is an account that may sign in again holding a token that is dead.
-    disableUser(hub.database, "ada");
-    enableUser(hub.database, "ada");
+    disableUser(team.database, "ada");
+    enableUser(team.database, "ada");
 
-    expect(await hub.check(token, [resourceIdOf(project.id)])).toEqual([]);
-    expect(hub.log.at(-1)).toContain("before the account's access was revoked");
+    expect(await team.check(token, [resourceIdOf(project.id)])).toEqual([]);
+    expect(team.log.at(-1)).toContain("before the account's access was revoked");
     // A token minted now is at the new epoch and works.
-    expect(await hub.check(hub.bearer(requireUser(hub.database, "ada")), [
+    expect(await team.check(team.bearer(requireUser(team.database, "ada")), [
       resourceIdOf(project.id),
     ])).toEqual([resourceIdOf(project.id)]);
   });
 
   it("refuses an expired token", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
@@ -272,22 +272,22 @@ describe("CheckUserPermission", () => {
     // days, and the sentence being checked is about a token past its `exp`.
     const lastYear = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
 
-    expect(await hub.check(hub.bearer(ada, { now: lastYear }), [resourceIdOf(project.id)])).toEqual(
+    expect(await team.check(team.bearer(ada, { now: lastYear }), [resourceIdOf(project.id)])).toEqual(
       [],
     );
-    expect(hub.log.at(-1)).toContain("the token has expired");
+    expect(team.log.at(-1)).toContain("the token has expired");
   });
 
   it("refuses a token whose claims were changed after it was signed", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const bob = await hub.user("bob");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const bob = await team.user("bob");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
-    const [header, , signature] = hub.bearer(ada).slice("Bearer ".length).split(".");
+    const [header, , signature] = team.bearer(ada).slice("Bearer ".length).split(".");
     const claims = Buffer.from(
       JSON.stringify({
         iss: config.issuer,
@@ -308,62 +308,62 @@ describe("CheckUserPermission", () => {
 
     const forged = `Bearer ${header}.${claims}.${signature}`;
 
-    expect(await hub.check(forged, [resourceIdOf(project.id)])).toEqual([]);
-    expect(hub.log.at(-1)).toContain("signature");
+    expect(await team.check(forged, [resourceIdOf(project.id)])).toEqual([]);
+    expect(team.log.at(-1)).toContain("signature");
   });
 
   it("refuses a call carrying no token at all", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
 
-    expect(await hub.check(undefined, [resourceIdOf(project.id)])).toEqual([]);
-    expect(hub.log.at(-1)).toContain("no bearer token");
+    expect(await team.check(undefined, [resourceIdOf(project.id)])).toEqual([]);
+    expect(team.log.at(-1)).toContain("no bearer token");
   });
 
   it("writes one line per decision, with the caller, the resource and the outcome", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
 
-    await hub.check(hub.bearer(ada), [resourceIdOf(project.id), "urc-something-else"]);
+    await team.check(team.bearer(ada), [resourceIdOf(project.id), "urc-something-else"]);
 
-    expect(hub.log).toEqual([
+    expect(team.log).toEqual([
       `auth: check ada ${resourceIdOf(project.id)}: allowed (owner)`,
-      "auth: check ada urc-something-else: denied, not a project on this Hub",
+      "auth: check ada urc-something-else: denied, not a project on this server",
     ]);
   });
 
   it("keeps the same decisions where something other than this process can read them", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
 
-    await hub.check(hub.bearer(ada), [resourceIdOf(project.id), "urc-something-else"]);
+    await team.check(team.bearer(ada), [resourceIdOf(project.id), "urc-something-else"]);
 
     // Under the project's name, not its resource id: this is what a person
     // reads, and it goes on saying which project it was about after the project
-    // is gone. A resource Hub knows nothing about keeps the id, because that is
+    // is gone. A resource Team knows nothing about keeps the id, because that is
     // all there is to know about it.
-    expect(listDecisions(hub.database)).toEqual([
+    expect(listDecisions(team.database)).toEqual([
       {
         at: expect.any(Number),
         username: "ada",
         resource: "urc-something-else",
         allowed: false,
-        detail: "not a project on this Hub",
+        detail: "not a project on this server",
       },
       {
         at: expect.any(Number),
@@ -376,64 +376,64 @@ describe("CheckUserPermission", () => {
   });
 
   it("keeps a refusal it cannot name anybody for", async () => {
-    const hub = await harness();
+    const team = await harness();
 
-    await hub.check(undefined, ["urc-anything"]);
+    await team.check(undefined, ["urc-anything"]);
 
-    expect(listDecisions(hub.database)).toMatchObject([
+    expect(listDecisions(team.database)).toMatchObject([
       { username: "unknown", resource: "urc-anything", allowed: false },
     ]);
     // The reason the log gave, kept with it. A refusal recorded as a refusal
     // and nothing else would make an expired token look like a missing grant.
-    expect(listDecisions(hub.database)[0]?.detail).toBe("the call carried no bearer token");
+    expect(listDecisions(team.database)[0]?.detail).toBe("the call carried no bearer token");
   });
 });
 
 describe("LookupUserPermissions", () => {
   it("answers each caller with their own projects", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const bob = await hub.user("bob");
-    const hers = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const bob = await team.user("bob");
+    const hers = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
-    const his = createProject(hub.database, {
+    const his = createProject(team.database, {
       id: newProjectId(),
       name: "lighthouse",
       createdBy: bob.id,
     });
-    grantAccess(hub.database, his.id, ada.id, "read", bob.id);
+    grantAccess(team.database, his.id, ada.id, "read", bob.id);
 
-    expect(await hub.lookup(hub.bearer(ada))).toEqual([
+    expect(await team.lookup(team.bearer(ada))).toEqual([
       resourceIdOf(hers.id),
       resourceIdOf(his.id),
     ]);
-    expect(await hub.lookup(hub.bearer(bob))).toEqual([resourceIdOf(his.id)]);
+    expect(await team.lookup(team.bearer(bob))).toEqual([resourceIdOf(his.id)]);
   });
 
   it("answers nobody with nothing", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    createProject(hub.database, { id: newProjectId(), name: "harbour", createdBy: ada.id });
+    const team = await harness();
+    const ada = await team.user("ada");
+    createProject(team.database, { id: newProjectId(), name: "harbour", createdBy: ada.id });
 
-    expect(await hub.lookup(undefined)).toEqual([]);
+    expect(await team.lookup(undefined)).toEqual([]);
   });
 });
 
 describe("the resource lifecycle calls", () => {
   it("records a repository loreserver says it created", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
 
     const reply = await unaryCall({
-      url: hub.server.url,
+      url: team.server.url,
       path: METHOD_CREATE_RESOURCE,
       message: encodeCreateResourceRequest({
         resourceId: resourceIdOf(project.id),
@@ -444,24 +444,24 @@ describe("the resource lifecycle calls", () => {
 
     // An empty message, which is what CreateResourceResponse is.
     expect(reply).toHaveLength(0);
-    expect(hub.log.at(-1)).toContain("the project harbour");
-    expect(findProject(hub.database, project.id)).toBeDefined();
+    expect(team.log.at(-1)).toContain("the project harbour");
+    expect(findProject(team.database, project.id)).toBeDefined();
   });
 
   it("forgets a project when its owner is behind the deletion, and not otherwise", async () => {
-    const hub = await harness();
-    const ada = await hub.user("ada");
-    const bob = await hub.user("bob");
-    const project = createProject(hub.database, {
+    const team = await harness();
+    const ada = await team.user("ada");
+    const bob = await team.user("bob");
+    const project = createProject(team.database, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada.id,
     });
-    grantAccess(hub.database, project.id, bob.id, "write", ada.id);
+    grantAccess(team.database, project.id, bob.id, "write", ada.id);
 
     const remove = async (authorization: string | undefined): Promise<void> => {
       await unaryCall({
-        url: hub.server.url,
+        url: team.server.url,
         path: METHOD_DELETE_RESOURCE,
         message: encodeDeleteResourceRequest({ resourceId: resourceIdOf(project.id) }),
         ...(authorization === undefined ? {} : { authorization }),
@@ -470,24 +470,24 @@ describe("the resource lifecycle calls", () => {
     };
 
     await remove(undefined);
-    expect(findProject(hub.database, project.id)).toBeDefined();
+    expect(findProject(team.database, project.id)).toBeDefined();
 
-    await remove(hub.bearer(bob));
-    expect(findProject(hub.database, project.id)).toBeDefined();
-    expect(hub.log.at(-1)).toContain("does not own it");
+    await remove(team.bearer(bob));
+    expect(findProject(team.database, project.id)).toBeDefined();
+    expect(team.log.at(-1)).toContain("does not own it");
 
-    await remove(hub.bearer(ada));
-    expect(findProject(hub.database, project.id)).toBeUndefined();
-    expect(accessLevel(hub.database, project.id, bob.id)).toBeUndefined();
+    await remove(team.bearer(ada));
+    expect(findProject(team.database, project.id)).toBeUndefined();
+    expect(accessLevel(team.database, project.id, bob.id)).toBeUndefined();
   });
 });
 
 describe("the rest of the protocol", () => {
   it("answers UNIMPLEMENTED for a method it does not serve", async () => {
-    const hub = await harness();
+    const team = await harness();
 
     const failure = await unaryCall({
-      url: hub.server.url,
+      url: team.server.url,
       path: "/epic_urc.UrcAuthApi/StartAuthSession",
       message: Buffer.alloc(0),
       timeoutMs: 5000,

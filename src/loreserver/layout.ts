@@ -1,13 +1,13 @@
 /**
  * Where everything belonging to one loreserver instance lives, and the
- * configuration file Hub writes for it.
+ * configuration file Team writes for it.
  *
  * An operator supplies one path — the storage root — and every other location
- * is derived from it, so that a Hub instance can be moved, backed up or
+ * is derived from it, so that a Team server instance can be moved, backed up or
  * deleted by acting on a single directory.
  *
  * The executable is the one thing that is not under it. A downloaded release is
- * about a version rather than about this Hub, and ./cache.ts sets out what
+ * about a version rather than about this Team server, and ./cache.ts sets out what
  * having a copy per storage root cost.
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -59,18 +59,18 @@ export interface InstanceLayout extends InstallLocation {
   /** The storage root itself, absolute. */
   readonly root: string;
   /**
-   * The same three paths under the storage root, where a Hub from before the
+   * The same three paths under the storage root, where a Team server from before the
    * binaries moved into the per-user cache put them.
    *
    * Derived for every layout whether or not anything is there, because it is
-   * the first place an install looks: a Hub that has already run must not
+   * the first place an install looks: a Team server that has already run must not
    * download a second copy of a binary it has, and must not be made to move one
    * it may be running.
    */
   readonly stored: InstallLocation;
   /** Directory loreserver is pointed at with `--config`. */
   readonly configDir: string;
-  /** The file Hub generates inside `configDir`. */
+  /** The file Team generates inside `configDir`. */
   readonly configPath: string;
   readonly immutableStoreDir: string;
   readonly mutableStoreDir: string;
@@ -99,7 +99,7 @@ export function instanceLayout(
   return {
     root: absoluteRoot,
     // Read as the layout is built rather than held from the start of the
-    // process, so that a container setting NLHUB_CACHE_DIR is obeyed by
+    // process, so that a container setting NLTEAM_CACHE_DIR is obeyed by
     // whatever is running now, not by whatever loaded this module first.
     ...installLocation(cachedInstallDir(PROGRAM, version), binaryName),
     stored: installLocation(storedInstallDir(absoluteRoot, PROGRAM, version), binaryName),
@@ -115,7 +115,7 @@ export function instanceLayout(
 /**
  * What loreserver has to be told before it will demand a token from a client.
  *
- * Every value here has a counterpart in the tokens Hub mints; src/identity's
+ * Every value here has a counterpart in the tokens Team mints; src/identity's
  * configuration is where both come from, so that the two copies cannot drift.
  */
 export interface LoreserverAuth {
@@ -126,13 +126,13 @@ export interface LoreserverAuth {
    * holds one of these.
    */
   readonly audience: readonly string[];
-  /** Where loreserver fetches Hub's public keys. */
+  /** Where loreserver fetches Team's public keys. */
   readonly jwksUrl: string;
   /**
    * Where a caller signs in, and where loreserver asks who a caller is.
    *
    * One setting, two readers. A client is handed this address and will not use
-   * anything but https, so this is Hub's TLS listener. loreserver connects to
+   * anything but https, so this is Team's TLS listener. loreserver connects to
    * the same address over gRPC, forwarding the caller's own `authorization`
    * header, before it lets anybody near a repository — and it verifies the
    * certificate, refusing an unknown authority with `tlsv1 alert unknown ca`.
@@ -198,7 +198,7 @@ function renderAuth(auth: LoreserverAuth): string[] {
  * here surfaces as a server that listens somewhere unexpected or stores data
  * somewhere unexpected.
  *
- * Without `auth`, the file is the one Hub has always written: a server that
+ * Without `auth`, the file is the one Team server has always written: a server that
  * asks nobody who they are.
  */
 export function renderConfig(
@@ -225,7 +225,7 @@ export function renderConfig(
 /**
  * Create the directories loreserver needs and write its configuration.
  *
- * The file is rewritten on every run: it is Hub's output, not an operator's,
+ * The file is rewritten on every run: it is Team's output, not an operator's,
  * and an edit made to it by hand would otherwise survive a change of ports
  * made on the command line.
  */

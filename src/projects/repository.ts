@@ -1,15 +1,15 @@
 /**
  * Asking loreserver to create or look up a repository.
  *
- * gRPC is the whole interface. Hub never opens a repository's store, and does
+ * gRPC is the whole interface. Team never opens a repository's store, and does
  * not link against lore's library to do it: loreserver holds an exclusive lock
  * on a store it is serving, and a second process opening the same directory
  * does not fail — it blocks, with no error and no timeout, for as long as the
  * server it is competing with keeps running.
  *
- * The call carries a token Hub minted for the operator, which is the same kind
+ * The call carries a token Team minted for the operator, which is the same kind
  * of token a Studio installation presents. loreserver checks its signature and
- * its audience, then turns round and asks Hub — over the service in ./service.ts
+ * its audience, then turns round and asks Team — over the service in ./service.ts
  * — whether that caller may have what they asked for.
  */
 import { randomUUID } from "node:crypto";
@@ -103,7 +103,7 @@ export interface RepositoryGetOptions {
 /**
  * Look a repository up by id or by name.
  *
- * This is the call that goes through the permission check: loreserver asks Hub
+ * This is the call that goes through the permission check: loreserver asks Team
  * about the repository before it answers, and a caller with no grant is told
  * the repository does not exist rather than that they may not have it.
  */

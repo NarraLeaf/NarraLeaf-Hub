@@ -21,7 +21,7 @@ import {
   withoutScheme,
   wrapText,
 } from "./format.js";
-import type { HubView, ProjectView, UserView } from "./hubview.js";
+import type { TeamView, ProjectView, UserView } from "./teamview.js";
 import type { Surface, TuiState } from "./state.js";
 import { SURFACES, SURFACE_NAMES } from "./state.js";
 import { BLANK, span, type Line, type Span } from "./text.js";
@@ -55,9 +55,9 @@ export function field(label: string, value: string | Line, pad = FIELD_PAD): Lin
   return typeof value === "string" ? [head, { text: value }] : [head, ...value];
 }
 
-export function headerLine(view: HubView, width: number): Line {
-  const left = `nlhub ${view.hubVersion}`;
-  // What this line carries is which Hub you are looking at. It used to carry
+export function headerLine(view: TeamView, width: number): Line {
+  const left = `nlteam ${view.teamVersion}`;
+  // What this line carries is which Team you are looking at. It used to carry
   // loreserver's version and a green word for its health as well, and both
   // were already on the first line of the dashboard — the health twice over,
   // since the same check is what "running" is worked out from. A screen that
@@ -92,7 +92,7 @@ const KEYS: Readonly<Record<Surface, string>> = {
  * `d` toggles, and a footer that reads "disable" over an account already
  * disabled is telling the operator the opposite of what the key will do.
  */
-export function footerLine(state: TuiState, view: HubView, width: number): Line {
+export function footerLine(state: TuiState, view: TeamView, width: number): Line {
   let keys = KEYS[state.surface];
   if (state.surface === "users") {
     const user = view.users[state.selection];
@@ -145,7 +145,7 @@ function quickLines(width: number): Line[] {
 }
 
 /** One decision out of the log, as one line. */
-function auditLine(entry: HubView["audit"][number], width: number): Line {
+function auditLine(entry: TeamView["audit"][number], width: number): Line {
   const verdict = `${entry.allowed ? "allowed" : "refused"} (${entry.detail})`;
   const text = ` ${clockTime(entry.at)}  ${entry.username.padEnd(5, " ")} ${entry.resource.padEnd(
     11,
@@ -155,12 +155,12 @@ function auditLine(entry: HubView["audit"][number], width: number): Line {
 }
 
 /** The log, newest first, which is the order somebody looking for a refusal reads in. */
-function newestFirst(view: HubView): HubView["audit"] {
+function newestFirst(view: TeamView): TeamView["audit"] {
   return [...view.audit].sort((left, right) => right.at - left.at);
 }
 
 /** When anybody last pushed to any project. */
-function lastPush(view: HubView): string {
+function lastPush(view: TeamView): string {
   const times = view.projects
     .map((project) => project.history.lastAt)
     .filter((at): at is number => at !== undefined);
@@ -171,8 +171,8 @@ function lastPush(view: HubView): string {
   return relativeTime(Math.max(...times), view.now);
 }
 
-/** What the projects add up to, counting only the ones Hub has a size for. */
-function projectBytes(view: HubView): number | undefined {
+/** What the projects add up to, counting only the ones Team has a size for. */
+function projectBytes(view: TeamView): number | undefined {
   const sizes = view.projects
     .map((project) => project.history.bytes)
     .filter((bytes): bytes is number => bytes !== undefined);
@@ -189,7 +189,7 @@ function projectBytes(view: HubView): number | undefined {
  * "fine" on every screen is one the reader stops seeing, which is exactly the
  * word you need them to notice on the day it changes.
  */
-function serverLine(view: HubView, wide: boolean): Line {
+function serverLine(view: TeamView, wide: boolean): Line {
   const { server } = view;
   const parts: Span[] = [{ text: " " + "loreserver".padEnd(FIELD_PAD, " "), dim: true }];
 
@@ -225,13 +225,13 @@ function serverLine(view: HubView, wide: boolean): Line {
  * tell a reader nothing they can act on, and the row has room for the words on
  * the narrowest terminal this interface supports.
  */
-function loopbackValue(view: HubView): string {
+function loopbackValue(view: TeamView): string {
   return view.reach.loopback
     .map((listener) => `${listener.port} ${listener.what}`)
     .join("   ");
 }
 
-export function dashboardLines(view: HubView, width: number, height: number): Line[] {
+export function dashboardLines(view: TeamView, width: number, height: number): Line[] {
   const wide = width >= FIELD_WIDE_FROM;
   const { server, reach } = view;
   const disabled = view.users.filter((user) => user.disabled).length;
@@ -277,7 +277,7 @@ export function dashboardLines(view: HubView, width: number, height: number): Li
   const room = Math.max(0, height - lines.length);
   const recent = newestFirst(view).slice(0, room);
   if (recent.length === 0 && room > 0) {
-    lines.push(span("  nothing has been asked of this Hub yet", { dim: true }));
+    lines.push(span("  nothing has been asked of this server yet", { dim: true }));
     return lines;
   }
   return [...lines, ...recent.map((entry) => auditLine(entry, width))];
@@ -305,7 +305,7 @@ export function userListHeader(width: number): Line {
   );
 }
 
-export function userRow(user: UserView, view: HubView, width: number, selected: boolean): Line {
+export function userRow(user: UserView, view: TeamView, width: number, selected: boolean): Line {
   const wide = width >= LIST_WIDE_FROM;
   const seen = relativeTime(user.lastSeenAt, view.now);
   // Disabled goes beside the name rather than in a column of its own: it is
@@ -333,7 +333,7 @@ export function userRow(user: UserView, view: HubView, width: number, selected: 
 
 export function userDetailLines(
   user: UserView,
-  view: HubView,
+  view: TeamView,
   width: number,
   heading: boolean,
 ): Line[] {
@@ -379,7 +379,7 @@ export function userDetailLines(
 /**
  * A project's size, and when it was last touched.
  *
- * A project with no revisions has neither, and that is not the same as Hub
+ * A project with no revisions has neither, and that is not the same as Team
  * failing to work them out: a dash is nothing, the word unknown is a gap.
  */
 function projectSize(project: ProjectView): string {
@@ -394,7 +394,7 @@ function revisionCount(project: ProjectView): string {
   return project.history.revisions === undefined ? "?" : String(project.history.revisions);
 }
 
-function projectLast(project: ProjectView, view: HubView): string {
+function projectLast(project: ProjectView, view: TeamView): string {
   if (project.history.lastAt !== undefined) {
     return relativeTime(project.history.lastAt, view.now);
   }
@@ -418,7 +418,7 @@ export function projectListHeader(width: number): Line {
 
 export function projectRow(
   project: ProjectView,
-  view: HubView,
+  view: TeamView,
   width: number,
   selected: boolean,
 ): Line {
@@ -445,7 +445,7 @@ export function projectRow(
 }
 
 /** What the revision history says, which does not depend on Studio at all. */
-function historyLines(project: ProjectView, view: HubView, width: number): Line[] {
+function historyLines(project: ProjectView, view: TeamView, width: number): Line[] {
   const { history } = project;
   const parts = [
     history.revisions === undefined ? UNKNOWN : plural(history.revisions, "revision"),
@@ -523,7 +523,7 @@ function fileLines(project: ProjectView, width: number): Line[] {
 
 export function projectDetailLines(
   project: ProjectView,
-  view: HubView,
+  view: TeamView,
   width: number,
   heading: boolean,
 ): Line[] {
@@ -563,7 +563,7 @@ export function projectDetailLines(
  * the selected one, and a group heading is a line that belongs to no row.
  */
 export function settingsLines(
-  view: HubView,
+  view: TeamView,
   width: number,
   selection: number,
 ): { lines: Line[]; rowLines: number[] } {

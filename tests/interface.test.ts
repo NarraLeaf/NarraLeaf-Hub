@@ -1,5 +1,5 @@
 // The half of the terminal interface that owns the database: what a command
-// line with no command means, what a view gathered from a real Hub says, and
+// line with no command means, what a view gathered from a real Team says, and
 // what the settings surface is allowed to write.
 import type { DatabaseSync } from "node:sqlite";
 
@@ -16,10 +16,10 @@ import { createUser, disableUser } from "../src/identity/users.js";
 import { readDuration } from "../src/interface.js";
 import { DEFAULT_PORTS } from "../src/loreserver/layout.js";
 import { createProject, grantAccess, newProjectId } from "../src/projects/registry.js";
-import { gatherHubView, settingRows, type ViewContext } from "../src/view.js";
+import { gatherTeamView, settingRows, type ViewContext } from "../src/view.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-interface-");
+const temporaryRoot = useTemporaryRoots("nlteam-interface-");
 
 const open: DatabaseSync[] = [];
 
@@ -29,8 +29,8 @@ afterEach(() => {
   }
 });
 
-/** A Hub with two accounts, a project and an invitation outstanding. */
-async function hub(): Promise<ViewContext> {
+/** A Team server with two accounts, a project and an invitation outstanding. */
+async function team(): Promise<ViewContext> {
   const root = await temporaryRoot();
   const database = await openMigratedDatabase(identityLayout(root).databasePath);
   open.push(database);
@@ -70,18 +70,18 @@ async function hub(): Promise<ViewContext> {
 
 describe("a command line that names no command", () => {
   it("opens the interface on a root", () => {
-    expect(parseArgs(["--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["--root", "/srv/team"])).toEqual({
       kind: "interface",
-      root: "/srv/hub",
+      root: "/srv/team",
       healthPort: DEFAULT_PORTS.healthPort,
       overrides: {},
     });
   });
 
   it("takes the identity settings, because the interface shows them", () => {
-    // A Hub brought up with a different data port is reached at that port
+    // A Team server brought up with a different data port is reached at that port
     // whether or not the screen showing the address was told about it.
-    const invocation = parseArgs(["--root", "/srv/hub", "--data-port", "41500"]);
+    const invocation = parseArgs(["--root", "/srv/team", "--data-port", "41500"]);
     expect(invocation.kind === "interface" && invocation.overrides.dataPort).toBe(41500);
   });
 
@@ -98,9 +98,9 @@ describe("a command line that names no command", () => {
   });
 });
 
-describe("the view a real Hub gathers", () => {
+describe("the view a real Team gathers", () => {
   it("says who is here, what they can reach, and which of them is disabled", async () => {
-    const view = await gatherHubView(await hub());
+    const view = await gatherTeamView(await team());
 
     expect(view.users.map((user) => user.username)).toEqual(["ada", "bob"]);
     expect(view.users.find((user) => user.username === "bob")?.disabled).toBe(true);
@@ -111,7 +111,7 @@ describe("the view a real Hub gathers", () => {
   });
 
   it("names the owner of a project and everybody with a grant on it", async () => {
-    const view = await gatherHubView(await hub());
+    const view = await gatherTeamView(await team());
     const harbour = view.projects[0];
 
     expect(harbour?.name).toBe("harbour");
@@ -126,7 +126,7 @@ describe("the view a real Hub gathers", () => {
     // The revision history and the project file belong to loreserver, which
     // holds an exclusive lock on the store it is serving. Absent is what the
     // interface draws as unknown; a zero here would be a claim.
-    const view = await gatherHubView(await hub());
+    const view = await gatherTeamView(await team());
     const harbour = view.projects[0];
 
     expect(harbour?.file.readable).toBe(false);
@@ -136,15 +136,15 @@ describe("the view a real Hub gathers", () => {
   });
 
   it("measures every relative time against the moment it was gathered", async () => {
-    const view = await gatherHubView(await hub());
+    const view = await gatherTeamView(await team());
     expect(view.now).toBeLessThanOrEqual(Date.now());
     expect(view.server.healthCheckedAt).toBe(view.now);
   });
 
   it("says when an account's tokens were last refused, where anything did that", async () => {
-    // bob was disabled while this Hub was being built; ada has never had a
+    // bob was disabled while this Team server was being built; ada has never had a
     // token refused, and absent is what the interface draws as unknown.
-    const view = await gatherHubView(await hub());
+    const view = await gatherTeamView(await team());
 
     expect(view.users.find((user) => user.username === "bob")?.tokensInvalidatedAt).toBeTypeOf(
       "number",
@@ -152,8 +152,8 @@ describe("the view a real Hub gathers", () => {
     expect(view.users.find((user) => user.username === "ada")?.tokensInvalidatedAt).toBeUndefined();
   });
 
-  it("carries the decisions Hub has made, newest first", async () => {
-    const context = await hub();
+  it("carries the decisions Team has made, newest first", async () => {
+    const context = await team();
     recordDecision(context.database, {
       at: Date.parse("2026-08-11T09:00:00Z"),
       username: "ada",
@@ -169,10 +169,10 @@ describe("the view a real Hub gathers", () => {
       detail: "no grant",
     });
 
-    const view = await gatherHubView(context);
+    const view = await gatherTeamView(context);
 
     // The screen that shows the last few decisions used to be blank on every
-    // real Hub, because this list was written as empty whatever had happened.
+    // real Team, because this list was written as empty whatever had happened.
     expect(view.audit).toEqual([
       {
         at: Date.parse("2026-08-11T10:00:00Z"),
@@ -191,16 +191,16 @@ describe("the view a real Hub gathers", () => {
     ]);
   });
 
-  it("says nothing has been asked of a Hub nothing has been asked of", async () => {
-    const view = await gatherHubView(await hub());
+  it("says nothing has been asked of a Team server nothing has been asked of", async () => {
+    const view = await gatherTeamView(await team());
 
     expect(view.audit).toEqual([]);
   });
 });
 
 describe("what the settings surface may change", () => {
-  it("marks a row editable only where Hub has somewhere to put the value", async () => {
-    const rows = settingRows(await hub());
+  it("marks a row editable only where Team has somewhere to put the value", async () => {
+    const rows = settingRows(await team());
     const editable = rows.filter((row) => row.editable).map((row) => row.label);
 
     // The rest are named on the command line that started up, so an editor
@@ -209,10 +209,10 @@ describe("what the settings surface may change", () => {
   });
 
   it("says of the repository token the one thing that is not obvious about it", async () => {
-    const rows = settingRows(await hub());
+    const rows = settingRows(await team());
     const repository = rows.find((row) => row.label === "repository token");
 
-    expect(repository?.caution).toContain("without asking Hub");
+    expect(repository?.caution).toContain("without asking Team");
   });
 });
 

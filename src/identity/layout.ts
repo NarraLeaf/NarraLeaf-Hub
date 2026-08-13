@@ -1,8 +1,8 @@
 /**
  * Where identity keeps its two pieces of state under the storage root.
  *
- * Both are derived from the same root the rest of Hub uses, so that copying
- * one directory copies a whole Hub — including the accounts and the signing
+ * Both are derived from the same root the rest of Team uses, so that copying
+ * one directory copies a whole Team — including the accounts and the signing
  * keys, which is worth knowing before choosing where to put it.
  */
 import { join, resolve } from "node:path";
@@ -28,7 +28,7 @@ export function identityLayout(root: string): IdentityLayout {
   const absoluteRoot = resolve(root);
   return {
     root: absoluteRoot,
-    databasePath: join(absoluteRoot, "hub.db"),
+    databasePath: join(absoluteRoot, "team.db"),
     keysDir: join(absoluteRoot, "keys"),
   };
 }

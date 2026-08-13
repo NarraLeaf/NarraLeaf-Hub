@@ -3,7 +3,7 @@
  *
  * This is the half of the interface that owns the database, the certificate
  * authority and the health check. It hands over a finished
- * {@link HubView} and nothing else, which is what lets src/tui be a thing that
+ * {@link TeamView} and nothing else, which is what lets src/tui be a thing that
  * draws rather than a second implementation of the rules.
  *
  * Everything gathered here is read from the database or from a file, and
@@ -15,7 +15,7 @@
  * "unknown", which is the same thing the interface does with a project written
  * by a newer Studio.
  *
- * What Hub cannot work out is left out, not guessed at.
+ * What Team cannot work out is left out, not guessed at.
  */
 import { stat, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -33,13 +33,13 @@ import { instanceLayout } from "./loreserver/layout.js";
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { listGrants, listProjects, listProjectsFor } from "./projects/registry.js";
 import type {
-  HubView,
+  TeamView,
   ProjectFileView,
   ProjectView,
   RevisionView,
   SettingView,
   UserView,
-} from "./tui/hubview.js";
+} from "./tui/teamview.js";
 import { VERSION } from "./version.js";
 
 import type { DatabaseSync } from "node:sqlite";
@@ -50,7 +50,7 @@ export interface ViewContext {
   readonly database: DatabaseSync;
   readonly config: IdentityConfig;
   readonly healthPort: number;
-  /** The fingerprint of this Hub's authority, absent until one exists. */
+  /** The fingerprint of this Team server's authority, absent until one exists. */
   readonly fingerprint: string | undefined;
   /**
    * What has been read out of the repositories so far.
@@ -89,7 +89,7 @@ const STORAGE_FILE_LIMIT = 50_000;
 const AUDIT_LIMIT = 100;
 
 /**
- * The labels of the two rows Hub has somewhere to write.
+ * The labels of the two rows Team has somewhere to write.
  *
  * Named here rather than typed twice, because the settings surface finds a row
  * by its position and the writer finds it by its label; two spellings of the
@@ -98,7 +98,7 @@ const AUDIT_LIMIT = 100;
 export const SIGN_IN_SETTING = "sign-in token";
 export const REPOSITORY_SETTING = "repository token";
 
-/** The word for a value Hub has but cannot show. */
+/** The word for a value Team has but cannot show. */
 const UNKNOWN_FINGERPRINT = "unknown";
 
 /**
@@ -154,7 +154,7 @@ function userView(database: DatabaseSync, user: ReturnType<typeof listUsers>[num
     // When somebody was last seen is still not written down anywhere, so it
     // stays absent and the interface draws it as unknown. When their tokens
     // were last refused is: it is absent only for an account whose tokens have
-    // never been refused, or one whose last refusal was before Hub kept the
+    // never been refused, or one whose last refusal was before Team kept the
     // moment.
     ...(user.tokensInvalidatedAt === undefined
       ? {}
@@ -175,7 +175,7 @@ function userView(database: DatabaseSync, user: ReturnType<typeof listUsers>[num
  */
 const NOT_READ_YET: { history: RevisionView; file: ProjectFileView } = {
   history: {},
-  file: { readable: false, reason: "Hub has not read this project's repository yet" },
+  file: { readable: false, reason: "Team has not read this project's repository yet" },
 };
 
 function projectView(
@@ -203,7 +203,7 @@ function projectView(
  * The settings surface, and the one place that decides what may be changed
  * from it.
  *
- * A row is editable only where Hub has somewhere to put the new value. The
+ * A row is editable only where Team has somewhere to put the new value. The
  * identity settings and the ports are named on the command line that started
  * `up`, so they are shown and marked read-only: an editor over a value that
  * would be thrown away is worse than no editor, because it looks like it
@@ -253,7 +253,7 @@ export function settingRows(context: ViewContext): SettingView[] {
 }
 
 /** Read everything the interface draws, and answer with it. */
-export async function gatherHubView(context: ViewContext): Promise<HubView> {
+export async function gatherTeamView(context: ViewContext): Promise<TeamView> {
   const { database, config } = context;
   const identity = identityLayout(context.root);
   const storageRoot = storageRootOf(context.root);
@@ -266,7 +266,7 @@ export async function gatherHubView(context: ViewContext): Promise<HubView> {
   try {
     signingKeys = (await KeyStore.open(identity.keysDir)).published.length;
   } catch {
-    // A Hub that has not run `up` yet has no keys directory. Nought is the
+    // A Team server that has not run `up` yet has no keys directory. Nought is the
     // truth about it, not a failure to read one.
   }
 
@@ -275,7 +275,7 @@ export async function gatherHubView(context: ViewContext): Promise<HubView> {
   ).length;
 
   return {
-    hubVersion: VERSION,
+    teamVersion: VERSION,
     root: identity.root,
     now,
     server: {
@@ -297,15 +297,15 @@ export async function gatherHubView(context: ViewContext): Promise<HubView> {
       fingerprint: context.fingerprint ?? UNKNOWN_FINGERPRINT,
       loopback: [
         { port: context.healthPort, what: "health" },
-        { port: config.hubPort, what: "jwks" },
+        { port: config.teamPort, what: "jwks" },
         { port: config.authPort, what: "authz" },
       ],
     },
     users: listUsers(database).map((user) => userView(database, user)),
     projects: listProjects(database).map((project) => projectView(context, project)),
     // The decisions themselves, as src/identity/audit.ts kept them. Empty here
-    // now means a Hub that has genuinely not been asked anything — a Hub with
-    // no `up` running, or one nobody has reached yet — rather than a Hub that
+    // now means a Team server that has genuinely not been asked anything — a Team server with
+    // no `up` running, or one nobody has reached yet — rather than a Team server that
     // makes decisions and keeps none.
     audit: listDecisions(database, AUDIT_LIMIT),
     settings: settingRows(context),

@@ -58,7 +58,7 @@ describe("verifyBinaryDigest", () => {
   async function installedFile(
     contents: string,
   ): Promise<{ path: string; sha256: string }> {
-    const dir = await mkdtemp(join(tmpdir(), "nlhub-identify-"));
+    const dir = await mkdtemp(join(tmpdir(), "nlteam-identify-"));
     temporaryDirs.push(dir);
     const path = join(dir, "loreserver");
     await writeFile(path, contents);
@@ -117,11 +117,11 @@ describe("verifyBinaryVersion", () => {
   });
 
   it("says plainly when the file cannot be run", async () => {
-    const missing = join(tmpdir(), "nlhub-no-such-binary");
+    const missing = join(tmpdir(), "nlteam-no-such-binary");
 
     await expect(verifyBinaryVersion(missing, "0.8.6")).rejects.toThrow(VersionMismatchError);
     await expect(verifyBinaryVersion(missing, "0.8.6")).rejects.toThrow(
-      /could not run .*nlhub-no-such-binary/,
+      /could not run .*nlteam-no-such-binary/,
     );
   });
 });

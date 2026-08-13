@@ -1,18 +1,18 @@
-// A Hub with enough going on in it to draw every surface.
+// A Team server with enough going on in it to draw every surface.
 //
 // Fixed timestamps, and a fixed `now` to measure them against, so that what
 // the interface draws is a function of this file and the terminal size and
 // nothing else.
-import type { HubView } from "../../src/tui/hubview.js";
+import type { TeamView } from "../../src/tui/teamview.js";
 
 const NOW = Date.parse("2026-08-12T14:03:00Z");
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-export const FIXTURE_VIEW: HubView = {
-  hubVersion: "0.1.0",
-  root: "/srv/hub",
+export const FIXTURE_VIEW: TeamView = {
+  teamVersion: "0.1.0",
+  root: "/srv/team",
   now: NOW,
   server: {
     version: "0.8.6",
@@ -23,11 +23,11 @@ export const FIXTURE_VIEW: HubView = {
     healthy: true,
     healthCheckedAt: NOW - 2000,
     storageBytes: 2_576_980_378,
-    storageRoot: "/srv/hub/loreserver/store",
+    storageRoot: "/srv/team/loreserver/store",
   },
   reach: {
-    signIn: "https://hub.example.com:41402",
-    data: "lore://hub.example.com:41337",
+    signIn: "https://team.example.com:41402",
+    data: "lore://team.example.com:41337",
     fingerprint: "SHA256:2f:a1:9c:7d:04:bb:31:e8:5a:c6:90:12:7f:3e:aa:58",
     loopback: [
       { port: 41339, what: "health" },
@@ -214,14 +214,14 @@ export const FIXTURE_VIEW: HubView = {
       value: "15 minutes",
       editable: true,
       caution:
-        "loreserver accepts this one without asking Hub, so revoking access cannot cut it short.",
+        "loreserver accepts this one without asking Team, so revoking access cannot cut it short.",
     },
-    { group: "identity", label: "issuer", value: "nlhub", editable: true, restartRequired: true },
+    { group: "identity", label: "issuer", value: "nlteam", editable: true, restartRequired: true },
     { group: "identity", label: "audience", value: "lore", editable: true, restartRequired: true },
     {
       group: "identity",
       label: "hostnames",
-      value: "hub.example.com",
+      value: "team.example.com",
       editable: true,
       restartRequired: true,
       caution:
@@ -229,7 +229,7 @@ export const FIXTURE_VIEW: HubView = {
     },
     { group: "loreserver", label: "pinned version", value: "0.8.6", editable: false },
     { group: "loreserver", label: "data port", value: "41337", editable: true, restartRequired: true },
-    { group: "loreserver", label: "storage root", value: "/srv/hub/loreserver/store", editable: false },
+    { group: "loreserver", label: "storage root", value: "/srv/team/loreserver/store", editable: false },
     {
       group: "authority",
       label: "fingerprint",
@@ -243,14 +243,14 @@ export const FIXTURE_VIEW: HubView = {
 };
 
 /**
- * The same Hub, except that the project everybody is looking at was written by
+ * The same Team, except that the project everybody is looking at was written by
  * a Studio newer than this one.
  *
  * What must survive: the revision history, who may reach it, and the fact that
  * the project exists. What must not happen: an error, an empty panel, or a
  * screen that refuses to draw.
  */
-export const FUTURE_SCHEMA_VIEW: HubView = {
+export const FUTURE_SCHEMA_VIEW: TeamView = {
   ...FIXTURE_VIEW,
   projects: FIXTURE_VIEW.projects.map((project) =>
     project.name === "harbour"
@@ -258,7 +258,7 @@ export const FUTURE_SCHEMA_VIEW: HubView = {
           ...project,
           file: {
             readable: false,
-            reason: "project.json is schema 4; Hub reads up to 3",
+            reason: "project.json is schema 4; Team reads up to 3",
           },
         }
       : project,

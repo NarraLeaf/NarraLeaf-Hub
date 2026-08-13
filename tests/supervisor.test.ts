@@ -24,7 +24,7 @@ const running: Supervisor[] = [];
 const temporaryDirs: string[] = [];
 
 async function temporaryDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "nlhub-supervisor-"));
+  const dir = await mkdtemp(join(tmpdir(), "nlteam-supervisor-"));
   temporaryDirs.push(dir);
   return dir;
 }
@@ -149,7 +149,7 @@ describe("Supervisor", () => {
     expect(firstPid).toBeGreaterThan(0);
 
     // Kill it the way an out-of-memory killer or an operator with the wrong
-    // window would: from outside, with no warning to Hub.
+    // window would: from outside, with no warning to Team.
     process.kill(firstPid as number, "SIGKILL");
 
     await waitUntil(
@@ -195,7 +195,7 @@ describe("Supervisor", () => {
 
     const log = await readFile(logPath, "utf8");
     expect(log).toContain(`stay-alive ${pid} running`);
-    // Hub's own notes go in the same file, so the log reads as one story.
+    // Team's own notes go in the same file, so the log reads as one story.
     expect(log).toContain(`started fixture, pid ${pid}`);
   }, 20_000);
 

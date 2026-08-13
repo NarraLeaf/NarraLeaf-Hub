@@ -58,7 +58,7 @@ async function listen(respond: (path: string) => { status: number; body?: Buffer
 }
 
 async function temporaryDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "nlhub-download-"));
+  const dir = await mkdtemp(join(tmpdir(), "nlteam-download-"));
   temporaryDirs.push(dir);
   return dir;
 }

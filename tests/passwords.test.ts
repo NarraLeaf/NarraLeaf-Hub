@@ -8,7 +8,7 @@ import {
 } from "../src/identity/passwords.js";
 
 /**
- * The parameters Hub actually uses cost a fifth of a second per hash, which is
+ * The parameters Team actually uses cost a fifth of a second per hash, which is
  * the point of them. The tests that are about the format rather than the cost
  * use a cheaper setting so that the suite is not mostly key derivation.
  */

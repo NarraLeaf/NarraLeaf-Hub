@@ -1,5 +1,5 @@
 /**
- * The `settings` commands: show what this Hub keeps in its database, and change
+ * The `settings` commands: show what this Team server keeps in its database, and change
  * one of them.
  *
  * The two token lifetimes were editable from the terminal interface and from
@@ -9,7 +9,7 @@
  * What is shown is what is in effect, which is not the same as what is stored:
  * a setting nobody has chosen has no row at all and the default answers for it,
  * so the listing says which of the two each value is. Changing one reaches a
- * Hub that is already running, because a lifetime is read as each token is
+ * Team that is already running, because a lifetime is read as each token is
  * minted rather than held from the moment `up` started.
  */
 import type { WriteText } from "./cli.js";
@@ -65,7 +65,7 @@ export async function settingsList(
     }
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -102,7 +102,7 @@ export async function settingsSet(
     }
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();

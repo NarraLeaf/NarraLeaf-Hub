@@ -1,5 +1,5 @@
-// The decisions Hub keeps: what one row holds, and what stops the table
-// growing for ever on a Hub that answers a permission question on every
+// The decisions Team keeps: what one row holds, and what stops the table
+// growing for ever on a Team server that answers a permission question on every
 // repository access.
 import type { DatabaseSync } from "node:sqlite";
 
@@ -17,7 +17,7 @@ import { openMigratedDatabase } from "../src/identity/database.js";
 import { identityLayout } from "../src/identity/layout.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-audit-");
+const temporaryRoot = useTemporaryRoots("nlteam-audit-");
 
 const open: DatabaseSync[] = [];
 
@@ -112,7 +112,7 @@ describe("recordDecision", () => {
 
     // A decision is written without waiting for the disk, and that is the whole
     // of what it applies to. A setting left relaxed would make every account,
-    // invitation and grant Hub writes afterwards less durable than the file was
+    // invitation and grant Team writes afterwards less durable than the file was
     // opened to be, and nothing would say so.
     expect(connection.prepare("PRAGMA synchronous").get()).toEqual(before);
   });
@@ -148,7 +148,7 @@ describe("the bound on how many are kept", () => {
 
     fillWithAllowances(connection, DECISION_LIMIT + 100);
 
-    // A Hub that trimmed on every decision would sit exactly on the limit, and
+    // A Team server that trimmed on every decision would sit exactly on the limit, and
     // would be paying for a DELETE on the path that answers every repository
     // access. Standing above it is what the slack buys.
     expect(countDecisions(connection)).toBeGreaterThan(DECISION_LIMIT);

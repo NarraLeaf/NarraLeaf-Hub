@@ -5,13 +5,13 @@
  * `/package.Service/Method`, the body is framed as src/grpc/framing.ts
  * describes, and the outcome is a `grpc-status` trailer rather than a status
  * code. That is the whole of what this implements, for calls of one message in
- * each direction — the only shape either service Hub serves uses.
+ * each direction — the only shape either service Team serves uses.
  *
  * Both transports are served, by two listeners over one set of methods, because
  * the two callers cannot use the same one:
  *
  *   - loreserver connects to the address in its `auth_url` over the loopback of
- *     the machine Hub started it on, and speaks h2c there with no certificate
+ *     the machine Team started it on, and speaks h2c there with no certificate
  *     involved. What travels is a token the caller already holds and a list of
  *     resource ids, over a socket nothing off the machine can reach.
  *   - A Studio installation refuses anything but TLS, and refuses a certificate
@@ -92,7 +92,7 @@ export interface GrpcServerOptions {
 export class GrpcListenError extends Error {
   constructor(address: string, cause: Error, portOption = "--auth-port") {
     super(
-      `Hub's authorization service could not listen on ${address}: ${cause.message}. ` +
+      `Team's authorization service could not listen on ${address}: ${cause.message}. ` +
         `Another program may hold that port; ${portOption} moves it.`,
       { cause },
     );
@@ -208,7 +208,7 @@ function handleStream(
       } catch (error) {
         // A method that raises has already decided nothing is being sent, so
         // the failure becomes the whole reply. Anything that is not a status
-        // of its own is INTERNAL: it is a fault in Hub, not in the request.
+        // of its own is INTERNAL: it is a fault in Team, not in the request.
         const status = error instanceof GrpcStatusError ? error.status : GRPC_INTERNAL;
         respondWithStatus(stream, status, describe(error));
         options.onError?.(error instanceof Error ? error : new Error(String(error)));
@@ -266,12 +266,12 @@ export class GrpcServer {
       // here rather than as an `error`. Unlistened it is dropped silently,
       // which is the wrong thing for exactly the failure this endpoint is
       // most likely to have: a client whose host has not been told to trust
-      // this Hub sees a connection error, and the server would say nothing.
+      // this Team server sees a connection error, and the server would say nothing.
       server.on("tlsClientError", (error: Error) => {
         options.onError?.(
           new Error(
             `a client could not complete a TLS handshake: ${error.message}. ` +
-              "If it says the certificate is unknown, that machine has not run nlhub trust.",
+              "If it says the certificate is unknown, that machine has not run nlteam trust.",
           ),
         );
       });

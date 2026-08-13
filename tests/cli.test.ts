@@ -37,7 +37,7 @@ describe("run", () => {
     expect(code).toBe(0);
     expect(err).toBe("");
     expect(out).toBe(`${USAGE}\n`);
-    expect(out).toContain("Usage: nlhub");
+    expect(out).toContain("Usage: nlteam");
   });
 
   it("documents taking an account's tokens away without disabling it", async () => {
@@ -82,7 +82,7 @@ describe("run", () => {
 
     expect(code).not.toBe(0);
     expect(out).toBe("");
-    expect(err).toBe("nlhub: unknown argument: --nonsense\n");
+    expect(err).toBe("nlteam: unknown argument: --nonsense\n");
   });
 
   it("rejects an unusable up command line before it touches anything", async () => {

@@ -11,7 +11,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 
 import { ellipsis } from "./format.js";
-import type { HubView } from "./hubview.js";
+import type { TeamView } from "./teamview.js";
 import { frameOf, RAIL_WIDTH, type Frame } from "./layout.js";
 import {
   dashboardLines,
@@ -140,7 +140,7 @@ function primaryWidth(surface: TuiState["surface"], frame: Frame): number {
 }
 
 /** The rows of the list on the left, or of the whole body when nothing is beside it. */
-function listLines(state: TuiState, view: HubView, frame: Frame): Line[] {
+function listLines(state: TuiState, view: TeamView, frame: Frame): Line[] {
   const width = primaryWidth(state.surface, frame);
   if (state.surface === "dashboard") {
     return dashboardLines(view, frame.bodyWidth, frame.bodyHeight);
@@ -175,7 +175,7 @@ function listLines(state: TuiState, view: HubView, frame: Frame): Line[] {
  * space is there whether or not it is used, and a panel that appears only on a
  * key press would leave a third of the screen blank for no reason.
  */
-function detailLines(state: TuiState, view: HubView, frame: Frame): Line[] | undefined {
+function detailLines(state: TuiState, view: TeamView, frame: Frame): Line[] | undefined {
   const width = frame.detailWidth;
   if (state.surface === "users") {
     const named = state.overlays.find(
@@ -203,7 +203,7 @@ function detailLines(state: TuiState, view: HubView, frame: Frame): Line[] | und
 export interface InterfaceProps {
   readonly state: TuiState;
   readonly size: TuiSize;
-  readonly view: HubView;
+  readonly view: TeamView;
   /** What is being typed into the setting editor, while one is open. */
   readonly draft?: string;
   /**

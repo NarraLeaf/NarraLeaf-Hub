@@ -2,7 +2,7 @@
  * Unpacking a release archive with the tar command the operating system
  * already provides.
  *
- * Hub has no runtime dependencies, so it does not carry an archive library.
+ * Team has no runtime dependencies, so it does not carry an archive library.
  * It does not need one: bsdtar has shipped in Windows since build 17063 and
  * reads both `.zip` and `.tar.gz`, and tar on Linux and macOS reads the
  * tarballs. Both spellings of the command accept the same `-xf ARCHIVE -C DIR`
@@ -71,7 +71,7 @@ export async function extractArchive(archivePath: string, directory: string): Pr
     if (isCommandMissing(error)) {
       throw new ExtractionFailedError(
         `cannot unpack ${archivePath}: no usable tar command was found. ` +
-          "Hub extracts release archives with the system tar — bsdtar on Windows 10 " +
+          "Team extracts release archives with the system tar — bsdtar on Windows 10 " +
           "build 17063 and later, tar on Linux and macOS. Install it, or put it on PATH, " +
           "and run this again.",
         { cause: error },

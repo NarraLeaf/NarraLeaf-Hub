@@ -1,5 +1,5 @@
 /**
- * Loading lorelib and binding the verbs Hub uses.
+ * Loading lorelib and binding the verbs Team uses.
  *
  * The one property of this module that matters more than any other: **nothing
  * happens at module evaluation.** `koffi.load()` runs inside
@@ -37,7 +37,7 @@ import {
  * Each one declares `os` and `cpu` in its manifest, so an install puts exactly
  * one of the four on disk and the other three are skipped rather than
  * downloaded and ignored. That is also why they are optional dependencies: a
- * host Epic ships no build for still installs Hub, and finds out at the point
+ * host Epic ships no build for still installs Team, and finds out at the point
  * it tries to read a repository rather than at the point it runs anything.
  */
 const PLATFORM_PACKAGES: Readonly<Record<string, string>> = {
@@ -49,7 +49,7 @@ const PLATFORM_PACKAGES: Readonly<Record<string, string>> = {
   "linux-arm64": "@lore-vcs/sdk-arm64-graviton-linux",
 };
 
-/** The environment variable that names a library Hub did not install. */
+/** The environment variable that names a library Team did not install. */
 export const LIBRARY_PATH_VARIABLE = "LORE_LIB_PATH";
 
 /** Raised when the shared library could not be found or loaded. */
@@ -63,7 +63,7 @@ export class LoreLibraryError extends Error {
   }
 }
 
-/** Raised when this build of lorelib does not export a symbol Hub binds. */
+/** Raised when this build of lorelib does not export a symbol Team binds. */
 export class LoreCapabilityError extends Error {
   constructor(
     readonly verb: LoreVerbName,
@@ -110,7 +110,7 @@ export function supportedLibraryTargets(): string[] {
  *
  * `LORE_LIB_PATH` wins and skips the platform check on purpose: it is there for
  * hosts Epic publishes no build for, where somebody who built lorelib
- * themselves should be able to point Hub at it rather than be told their
+ * themselves should be able to point Team at it rather than be told their
  * machine is unsupported by a table.
  */
 export function resolveLibraryPath(): string {
@@ -123,7 +123,7 @@ export function resolveLibraryPath(): string {
   const packageName = PLATFORM_PACKAGES[target];
   if (packageName === undefined) {
     throw new LoreLibraryError(
-      `no lorelib build is published for ${target}. Hub can read repositories on ` +
+      `no lorelib build is published for ${target}. Team can read repositories on ` +
         `${supportedLibraryTargets().join(", ")}; elsewhere, build lorelib and name it ` +
         `in ${LIBRARY_PATH_VARIABLE}.`,
     );
@@ -144,7 +144,7 @@ export function resolveLibraryPath(): string {
     }
     throw new LoreLibraryError(
       `cannot find ${packageName}, so this installation cannot read a repository. ` +
-        "It is an optional dependency; installing Hub's dependencies again is what puts it back.",
+        "It is an optional dependency; installing Team's dependencies again is what puts it back.",
       error,
     );
   }
@@ -197,7 +197,7 @@ function registerTypes(): NonNullable<typeof registered> {
 let library: LoreLibrary | null = null;
 
 /**
- * Load lorelib and bind Hub's verbs.
+ * Load lorelib and bind Team's verbs.
  *
  * Verbs are bound on demand and remembered: `lib.func` throws when a symbol is
  * absent, and binding at load time would turn one missing symbol into a

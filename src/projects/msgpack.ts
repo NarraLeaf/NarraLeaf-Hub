@@ -1,7 +1,7 @@
 /**
  * Reading MessagePack, because that is what a Studio project file is.
  *
- * Hub carries no parser library for this. The format it needs is small — maps,
+ * Team carries no parser library for this. The format it needs is small — maps,
  * arrays, strings, numbers, booleans and nil — and a hand-written reader that
  * refuses what it does not recognise is a better bargain here than a dependency
  * whose failure mode on a truncated file is somebody else's decision. Every
@@ -173,7 +173,7 @@ function readValue(reader: Reader, depth: number): unknown {
     case 0xdf:
       return readMap(reader, reader.u32(), depth);
     default:
-      // Extension types among them. Hub has no use for one and no way to know
+      // Extension types among them. Team has no use for one and no way to know
       // what it would mean, and skipping it would hand back a value with a
       // hole in it that nothing downstream could see.
       throw new MsgpackError(`the file uses a value type this reads nothing of (0x${type.toString(16)})`);

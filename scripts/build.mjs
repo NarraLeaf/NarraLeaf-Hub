@@ -1,4 +1,4 @@
-// Bundles src/nlhub.ts into dist/nlhub.js.
+// Bundles src/nlteam.ts into dist/nlteam.js.
 //
 // Not a self-contained file, and it cannot be one. Reading a repository needs
 // koffi, which is a native addon, and lorelib, which is a 29.5 MB shared
@@ -16,13 +16,13 @@ import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const outfile = join(root, "dist", "nlhub.js");
+const outfile = join(root, "dist", "nlteam.js");
 
 const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 
 /** @type {import("esbuild").BuildOptions} */
 const options = {
-  entryPoints: [join(root, "src", "nlhub.ts")],
+  entryPoints: [join(root, "src", "nlteam.ts")],
   outfile,
   bundle: true,
   platform: "node",
@@ -51,19 +51,19 @@ const options = {
   banner: {
     js: [
       "#!/usr/bin/env node",
-      'import { createRequire as __nlhubCreateRequire } from "node:module";',
-      "const require = __nlhubCreateRequire(import.meta.url);",
+      'import { createRequire as __nlteamCreateRequire } from "node:module";',
+      "const require = __nlteamCreateRequire(import.meta.url);",
     ].join("\n"),
   },
   // Replaces the identifier throughout the bundle with a literal, so the
   // finished executable carries its own version number. src/version.ts explains
   // why the number is not read from disk at startup.
-  define: { __NLHUB_VERSION__: JSON.stringify(manifest.version) },
+  define: { __NLTEAM_VERSION__: JSON.stringify(manifest.version) },
 };
 
 /**
  * Give the output the owner-execute bit, so that a POSIX shell will run
- * dist/nlhub.js through the shebang line. Windows ignores the mode; the call
+ * dist/nlteam.js through the shebang line. Windows ignores the mode; the call
  * still succeeds there, so it needs no guard.
  */
 async function makeExecutable() {

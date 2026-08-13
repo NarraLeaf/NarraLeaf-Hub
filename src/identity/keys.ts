@@ -1,5 +1,5 @@
 /**
- * The RSA keys Hub signs tokens with, and the JWKS it publishes them as.
+ * The RSA keys Team signs tokens with, and the JWKS it publishes them as.
  *
  * RS256 is the algorithm, because it is the one loreserver 0.8.6 has been shown
  * to accept end to end. Nothing here is written to be algorithm-agnostic: a
@@ -25,7 +25,7 @@ import {
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-/** The modulus size of the keys Hub generates. */
+/** The modulus size of the keys Team generates. */
 export const MODULUS_LENGTH = 2048;
 
 /** One public key, as a JWKS entry. */
@@ -45,8 +45,8 @@ export interface JwksDocument {
   readonly keys: readonly PublicJsonWebKey[];
 }
 
-/** One key pair Hub holds. */
-export interface HubKey {
+/** One key pair Team holds. */
+export interface TeamKey {
   /** Position in the sequence of keys; the highest is the newest. */
   readonly serial: number;
   /** RFC 7638 thumbprint of the public key. */
@@ -59,18 +59,18 @@ export interface HubKey {
   readonly path: string;
 }
 
-/** Raised when a file in the keys directory is not a private key Hub can use. */
+/** Raised when a file in the keys directory is not a private key Team can use. */
 export class UnusableKeyError extends Error {
   constructor(path: string, reason: string) {
     super(
       `${path} is not a usable signing key: ${reason}. Move it out of the keys directory; ` +
-        "Hub generates a new key when it finds none.",
+        "Team generates a new key when it finds none.",
     );
     this.name = "UnusableKeyError";
   }
 }
 
-/** Raised when every key Hub holds has been retired, leaving nothing to sign with. */
+/** Raised when every key Team holds has been retired, leaving nothing to sign with. */
 export class NoSigningKeyError extends Error {
   constructor(readonly keysDir: string) {
     super(
@@ -134,7 +134,7 @@ function toPublicJwk(publicKey: KeyObject, path: string): PublicJsonWebKey {
   return { kty: "RSA", n, e, kid: jwkThumbprint(n, e), alg: "RS256", use: "sig" };
 }
 
-async function readKey(keysDir: string, serial: number, retired: boolean): Promise<HubKey> {
+async function readKey(keysDir: string, serial: number, retired: boolean): Promise<TeamKey> {
   const path = join(keysDir, retired ? retiredFileName(serial) : activeFileName(serial));
   const pem = await readFile(path, "utf8");
 
@@ -156,14 +156,14 @@ async function readKey(keysDir: string, serial: number, retired: boolean): Promi
  * The keys under one directory.
  *
  * Opening is the only way to get one, and opening an empty directory generates
- * the first key: a Hub with no key cannot do its job, and there is nothing an
+ * the first key: a Team server with no key cannot do its job, and there is nothing an
  * operator would have to decide about it.
  */
 export class KeyStore {
   readonly #keysDir: string;
-  #keys: HubKey[];
+  #keys: TeamKey[];
 
-  private constructor(keysDir: string, keys: HubKey[]) {
+  private constructor(keysDir: string, keys: TeamKey[]) {
     this.#keysDir = keysDir;
     this.#keys = keys;
   }
@@ -182,9 +182,9 @@ export class KeyStore {
     return store;
   }
 
-  static async #load(keysDir: string): Promise<HubKey[]> {
+  static async #load(keysDir: string): Promise<TeamKey[]> {
     const names = await readdir(keysDir);
-    const keys: HubKey[] = [];
+    const keys: TeamKey[] = [];
     for (const name of names.sort()) {
       const active = ACTIVE_NAME.exec(name);
       if (active?.[1] !== undefined) {
@@ -196,7 +196,7 @@ export class KeyStore {
         keys.push(await readKey(keysDir, Number(retired[1]), true));
       }
       // Anything else in the directory is left alone rather than reported: an
-      // operator's backup copy beside the keys is not Hub's business.
+      // operator's backup copy beside the keys is not Team's business.
     }
     return keys.sort((left, right) => right.serial - left.serial);
   }
@@ -205,7 +205,7 @@ export class KeyStore {
    * Re-read the directory.
    *
    * A rotation is a file appearing, and it is normal for it to appear from
-   * another process — `nlhub key rotate` while `up` is running. Anything
+   * another process — `nlteam key rotate` while `up` is running. Anything
    * serving the JWKS has to look again rather than answer from what was there
    * when it started, or it would publish everything except the key that is
    * currently signing.
@@ -217,13 +217,13 @@ export class KeyStore {
     this.#keys = await KeyStore.#load(this.#keysDir);
   }
 
-  /** Every key Hub holds, newest first, retired ones included. */
-  get all(): readonly HubKey[] {
+  /** Every key Team holds, newest first, retired ones included. */
+  get all(): readonly TeamKey[] {
     return this.#keys;
   }
 
   /** The keys that are published and may verify a token, newest first. */
-  get published(): readonly HubKey[] {
+  get published(): readonly TeamKey[] {
     return this.#keys.filter((key) => !key.retired);
   }
 
@@ -234,7 +234,7 @@ export class KeyStore {
    * a rotation invisible to anyone holding a token — the old key keeps
    * verifying until it is retired.
    */
-  get signingKey(): HubKey {
+  get signingKey(): TeamKey {
     const key = this.published[0];
     if (key === undefined) {
       throw new NoSigningKeyError(this.#keysDir);
@@ -248,7 +248,7 @@ export class KeyStore {
   }
 
   /** Find a key by its `kid`, published or not. */
-  find(kid: string): HubKey | undefined {
+  find(kid: string): TeamKey | undefined {
     return this.#keys.find((key) => key.kid === kid);
   }
 
@@ -259,13 +259,13 @@ export class KeyStore {
    * rather than a key silently replaced — losing a private key that has signed
    * tokens would invalidate every one of them at once.
    */
-  async rotate(): Promise<HubKey> {
+  async rotate(): Promise<TeamKey> {
     const { privateKey } = await generateRsaKeyPair();
     const pem = privateKey.export({ type: "pkcs8", format: "pem" });
     const serial = (this.#keys[0]?.serial ?? 0) + 1;
     const path = join(this.#keysDir, activeFileName(serial));
 
-    // 0600: the file is the whole of Hub's authority to issue tokens, and any
+    // 0600: the file is the whole of Team's authority to issue tokens, and any
     // account that can read it can mint a token for anybody. Windows ignores
     // the mode — it has no such bits — which is a fact about that platform
     // rather than a reason to skip it elsewhere.
@@ -283,7 +283,7 @@ export class KeyStore {
    * purpose: tokens signed by it are still valid until they expire, so it has
    * to keep verifying for at least one token lifetime after it stops signing.
    */
-  async retire(kid: string): Promise<HubKey> {
+  async retire(kid: string): Promise<TeamKey> {
     const key = this.find(kid);
     if (key === undefined) {
       throw new Error(`no key with kid ${kid} is in ${this.#keysDir}`);
@@ -294,7 +294,7 @@ export class KeyStore {
     const path = join(this.#keysDir, retiredFileName(key.serial));
     await rename(key.path, path);
 
-    const retired: HubKey = { ...key, retired: true, path };
+    const retired: TeamKey = { ...key, retired: true, path };
     this.#keys = this.#keys.map((existing) => (existing.kid === kid ? retired : existing));
     return retired;
   }

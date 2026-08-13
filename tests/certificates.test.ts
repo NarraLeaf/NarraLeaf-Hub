@@ -14,7 +14,7 @@ import {
 import { colonHex, encodeIpAddress, subjectNameOf } from "../src/tls/x509.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-tls-");
+const temporaryRoot = useTemporaryRoots("nlteam-tls-");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -69,8 +69,8 @@ describe("the certificate authority", () => {
     const { ca } = await freshRoot();
 
     expect(ca.subject).toBe(ca.issuer);
-    expect(ca.subject).toContain("O=NarraLeaf Hub");
-    expect(ca.subject).toContain("CN=NarraLeaf Hub CA on ");
+    expect(ca.subject).toContain("O=NarraLeaf Team");
+    expect(ca.subject).toContain("CN=NarraLeaf Team CA on ");
     expect(ca.ca).toBe(true);
     expect(ca.verify(ca.publicKey)).toBe(true);
 
@@ -148,9 +148,9 @@ describe("the auth endpoint's certificate", () => {
   });
 
   it("carries a host name the operator supplied", async () => {
-    const { leaf } = await freshRoot(["hub.example.com", "10.0.0.7"]);
+    const { leaf } = await freshRoot(["team.example.com", "10.0.0.7"]);
 
-    expect(leaf.subjectAltName).toContain("DNS:hub.example.com");
+    expect(leaf.subjectAltName).toContain("DNS:team.example.com");
     // An address given as a host name still has to be written as an address:
     // a client dialling 10.0.0.7 matches iPAddress entries and no others.
     expect(leaf.subjectAltName).toContain("IP Address:10.0.0.7");
@@ -216,7 +216,7 @@ describe("a real handshake", () => {
         });
         client.on("error", settle);
       });
-      // This is the state a Studio installation is in before `nlhub trust`, and
+      // This is the state a Studio installation is in before `nlteam trust`, and
       // the reason that command exists at all.
       expect(failure.message).toMatch(/self-signed|unable to (verify|get)/i);
     } finally {
@@ -241,14 +241,14 @@ describe("issuing again", () => {
     const root = await temporaryRoot();
     const first = await ensureCertificates(root);
     // A name that was not asked for last time is the ordinary reason: an
-    // operator has decided people will reach this Hub by a name.
-    const second = await ensureCertificates(root, { hostnames: ["hub.example.com"] });
+    // operator has decided people will reach this Team server by a name.
+    const second = await ensureCertificates(root, { hostnames: ["team.example.com"] });
 
-    expect(second.issuedLeafBecause).toContain("hub.example.com");
+    expect(second.issuedLeafBecause).toContain("team.example.com");
     expect(second.authority.fingerprint256).toBe(first.authority.fingerprint256);
     expect(second.leafCertificate.serialNumber).not.toBe(first.leafCertificate.serialNumber);
     expect(second.leafCertificate.verify(first.authority.certificate.publicKey)).toBe(true);
-    expect(second.leafCertificate.subjectAltName).toContain("DNS:hub.example.com");
+    expect(second.leafCertificate.subjectAltName).toContain("DNS:team.example.com");
   });
 
   it("replaces the endpoint's certificate as it approaches its expiry", async () => {
@@ -269,7 +269,7 @@ describe("issuing again", () => {
     await writeFile(tlsLayout(root).leafCertPath, stranger.leafCertPem, "utf8");
 
     const second = await ensureCertificates(root);
-    expect(second.issuedLeafBecause).toContain("not signed by this Hub's authority");
+    expect(second.issuedLeafBecause).toContain("not signed by this server's authority");
     expect(second.authority.fingerprint256).toBe(first.authority.fingerprint256);
     expect(second.leafCertificate.verify(first.authority.certificate.publicKey)).toBe(true);
   });
@@ -318,7 +318,7 @@ describe("addresses in a subjectAltName", () => {
 
   it("refuses what is not an address", () => {
     expect(() => encodeIpAddress("300.1.1.1")).toThrow();
-    expect(() => encodeIpAddress("hub.example.com")).toThrow();
+    expect(() => encodeIpAddress("team.example.com")).toThrow();
     expect(() => encodeIpAddress("::1::2")).toThrow();
   });
 });

@@ -1,5 +1,5 @@
 /**
- * The `up` command: from nothing to a running, healthy loreserver, with Hub's
+ * The `up` command: from nothing to a running, healthy loreserver, with Team's
  * own endpoint beside it.
  *
  * Every step announces itself, because the first one can take a minute on a
@@ -42,25 +42,25 @@ import {
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { Supervisor, describeExit } from "./loreserver/supervisor.js";
 import { startAuthorizationService } from "./projects/service.js";
-import { ensureCertificates, type HubAuthority } from "./tls/authority.js";
+import { ensureCertificates, type TeamAuthority } from "./tls/authority.js";
 import { trustCommandFor } from "./tls/trust.js";
 import { VERSION } from "./version.js";
 
 export interface UpOptions extends LoreserverPorts {
-  /** The storage root; everything Hub writes goes underneath it. */
+  /** The storage root; everything Team writes goes underneath it. */
   readonly root: string;
   /**
-   * True to configure loreserver to demand a Hub token. Without it the server
-   * asks nobody who they are, which is what it did before Hub could issue
+   * True to configure loreserver to demand a Team server token. Without it the server
+   * asks nobody who they are, which is what it did before Team could issue
    * tokens at all.
    */
   readonly identity?: boolean;
   /**
    * Identity settings an operator named; the rest keep their defaults.
    *
-   * `hostnames` among them: the names people reach this Hub by go into the auth
+   * `hostnames` among them: the names people reach this Team server by go into the auth
    * endpoint's certificate and into every token's audience, and taking both
-   * from one setting is what stops a Hub whose certificate names a host issuing
+   * from one setting is what stops a Team server whose certificate names a host issuing
    * tokens that do not.
    */
   readonly overrides?: Partial<IdentityConfig>;
@@ -72,7 +72,7 @@ export interface UpOptions extends LoreserverPorts {
 }
 
 /**
- * How long the code printed for a Hub with no accounts lasts.
+ * How long the code printed for a Team server with no accounts lasts.
  *
  * A day: long enough that an operator who started the server and walked away
  * can still use it, short enough that one left in a terminal's scrollback is
@@ -101,7 +101,7 @@ function describeError(error: unknown): string {
 }
 
 /**
- * The environment that lets loreserver reach Hub's https auth endpoint.
+ * The environment that lets loreserver reach Team's https auth endpoint.
  *
  * `auth_url` serves two callers at once. It is where a client is told to sign
  * in, so it has to be the https origin — and it is also where loreserver itself
@@ -114,23 +114,23 @@ function describeError(error: unknown): string {
  *     cannot be created, and no repository can be opened.
  *   - Its TLS client is rustls with `rustls-native-certs`, which reads
  *     `SSL_CERT_FILE` before it reads the platform's own store.
- *   - With `SSL_CERT_FILE` naming Hub's authority, the handshake completes and
- *     the whole flow works: `nlhub project create` succeeds and Hub logs the
+ *   - With `SSL_CERT_FILE` naming Team's authority, the handshake completes and
+ *     the whole flow works: `nlteam project create` succeeds and Team logs the
  *     `CreateResource` call arriving on the TLS listener.
  *
  * So the authority is handed to loreserver directly rather than by asking an
  * operator to install it on the server machine as well. It is narrower than a
  * trust store change in both directions: only this process is affected, and
- * only for as long as Hub is running it.
+ * only for as long as Team is running it.
  *
- * The one thing it costs is that loreserver, while Hub supervises it, trusts
- * Hub's authority and no other. Everything a Hub-configured loreserver reaches
+ * The one thing it costs is that loreserver, while Team supervises it, trusts
+ * Team's authority and no other. Everything a Team server-configured loreserver reaches
  * is on this machine — the JWKS over the loopback in plain HTTP, and this
  * endpoint — so there is nothing else for it to verify. A configuration that
  * gave it a remote store or a telemetry endpoint over https would need the
  * public roots back, and this is the line that would have to change.
  */
-function loreserverTrustAnchor(authority: HubAuthority): Record<string, string> {
+function loreserverTrustAnchor(authority: TeamAuthority): Record<string, string> {
   return { SSL_CERT_FILE: authority.layout.caCertPath };
 }
 
@@ -141,7 +141,7 @@ function loreserverAuth(config: IdentityConfig): LoreserverAuth {
     // One entry: this is the audience loreserver requires, not the whole of
     // what a token carries. A token is accepted when its `aud` array holds it.
     audience: [config.audience],
-    jwksUrl: jwksUrl(config.hubPort),
+    jwksUrl: jwksUrl(config.teamPort),
     // The https origin, because `auth_url` is what a client is told to sign in
     // at as well as where loreserver asks about a token. src/loreserver/layout.ts
     // records what that means for loreserver's own calls.
@@ -186,9 +186,9 @@ export async function up(
     database = await openMigratedDatabase(identity.databasePath);
     const keys = await KeyStore.open(identity.keysDir);
     endpoint = await IdentityEndpoint.start({
-      port: config.hubPort,
+      port: config.teamPort,
       // The keys directory is read again on every request, so that a
-      // `nlhub key rotate` in another terminal is published without this
+      // `nlteam key rotate` in another terminal is published without this
       // process being restarted. It is a handful of small files, and the
       // document is fetched rarely.
       jwks: async () => {
@@ -212,7 +212,7 @@ export async function up(
       // restart.
       namedLifetimes: namedTokenLifetimes(options.overrides ?? {}),
       log: (line: string) => stdout(`${line}\n`),
-      onError: (error: Error) => stderr(`nlhub: authorization service: ${error.message}\n`),
+      onError: (error: Error) => stderr(`nlteam: authorization service: ${error.message}\n`),
     };
     authorization = await startAuthorizationService({ ...service, port: config.authPort });
     stdout(`authorization service on ${authorization.url}\n`);
@@ -250,8 +250,9 @@ export async function up(
     );
     stdout(`its certificate authority is ${certificates.authority.fingerprint256}\n`);
     stdout(
-      "a machine that has not trusted this Hub cannot connect: compare that fingerprint with\n" +
-        `      nlhub trust --root ${identity.root}\n` +
+      "a machine that has not trusted this server cannot connect: compare\n" +
+        "that fingerprint with\n" +
+        `      nlteam trust --root ${identity.root}\n` +
         `      and then run ${trustCommandFor(certificates.authority.layout.caCertPath)}\n`,
     );
 
@@ -279,7 +280,7 @@ export async function up(
           stdout(`kept lorelib ${LORELIB_VERSION}'s license and notices in ${notices.directory}\n`);
         }
       } catch (error) {
-        stderr(`nlhub: could not fetch lorelib's license and notices: ${describeError(error)}\n`);
+        stderr(`nlteam: could not fetch lorelib's license and notices: ${describeError(error)}\n`);
       }
     }
 
@@ -302,7 +303,7 @@ export async function up(
       stdout(`clients are told to sign in at ${auth.authUrl}\n`);
       // The remotes a token authorises, spelled out. A client will not send its
       // token to a remote its audience does not name, so an operator whose
-      // collaborators connect by a name that is missing here has a Hub that
+      // collaborators connect by a name that is missing here has a Team server that
       // works from its own machine and nowhere else.
       stdout(
         `tokens are good for ${audienceHosts(config)
@@ -312,7 +313,7 @@ export async function up(
       stdout(
         `loreserver reaches that endpoint too, and is given ${
           certificates.authority.layout.caCertPath
-        }\n      as the only authority it trusts while Hub runs it\n`,
+        }\n      as the only authority it trusts while Team runs it\n`,
       );
     }
 
@@ -336,12 +337,12 @@ export async function up(
             break;
           case "exited":
             if (!event.deliberate) {
-              stderr(`nlhub: loreserver exited: ${describeExit(event.code, event.signal)}\n`);
+              stderr(`nlteam: loreserver exited: ${describeExit(event.code, event.signal)}\n`);
             }
             break;
           case "restarting":
             stderr(
-              `nlhub: restarting loreserver in ${(event.delayMs / 1000).toFixed(2)}s ` +
+              `nlteam: restarting loreserver in ${(event.delayMs / 1000).toFixed(2)}s ` +
                 `after ${event.consecutiveFailures} failure(s)\n`,
             );
             break;
@@ -378,7 +379,7 @@ export async function up(
     await supervisor.stop();
 
     if (failure !== undefined) {
-      stderr(`nlhub: ${failure.message}\n`);
+      stderr(`nlteam: ${failure.message}\n`);
       return 1;
     }
     stdout("stopped loreserver\n");
@@ -390,7 +391,7 @@ export async function up(
     if (supervisor !== undefined) {
       await supervisor.stop();
     }
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     // Both servers hold a listening socket and the database a file handle; any
@@ -411,7 +412,7 @@ export async function up(
 /**
  * Print a code for the first account, if there is no account yet.
  *
- * A fresh code is made on every start that finds an empty Hub, because Hub
+ * A fresh code is made on every start that finds an empty Team, because Team
  * cannot reprint the previous one — it only ever held its hash. Any earlier
  * unused one is withdrawn at the same time, so exactly one code is live rather
  * than one per start. Once an account exists, nothing is printed again.
@@ -432,6 +433,6 @@ function printBootstrapInvite(
   });
 
   stdout("\n");
-  stdout("This Hub has no accounts. Make the first one with this invite code:\n");
+  stdout("This server has no accounts. Make the first one with this invite code:\n");
   stdout(renderInvite(code, invite.role, invite.expiresAt, root));
 }

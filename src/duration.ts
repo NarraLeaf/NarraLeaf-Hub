@@ -1,7 +1,7 @@
 /**
  * Writing a duration the way somebody would say it.
  *
- * Every duration Hub prints to a person is a setting they may have chosen, so
+ * Every duration Team prints to a person is a setting they may have chosen, so
  * it has to come out in the unit they would have chosen it in. Minutes were
  * right while there was one token lifetime and it was fifteen of them, and
  * wrong the moment there was one of thirty days: the same arithmetic renders

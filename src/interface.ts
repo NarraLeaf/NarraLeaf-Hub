@@ -1,5 +1,5 @@
 /**
- * The command behind a bare `nlhub`: open the terminal interface on a storage
+ * The command behind a bare `nlteam`: open the terminal interface on a storage
  * root.
  *
  * Everything the interface asks for is carried out here, by calling what the
@@ -33,12 +33,12 @@ import { loreserverUrl, repositoryCreate } from "./projects/repository.js";
 import { requireUser } from "./identity/users.js";
 import { disableUser, enableUser, revokeUserTokens } from "./identity/users.js";
 import { ProjectReadings } from "./projects/refresh.js";
-import type { HubView } from "./tui/hubview.js";
+import type { TeamView } from "./tui/teamview.js";
 import { runInterface } from "./tui/run.js";
 import type { Action } from "./tui/state.js";
 import { readAuthority } from "./tls/authority.js";
 import {
-  gatherHubView,
+  gatherTeamView,
   settingRows,
   REPOSITORY_SETTING,
   SIGN_IN_SETTING,
@@ -86,7 +86,7 @@ export function readDuration(text: string): number | string {
 /** What the interface is told after somebody's tokens were refused. */
 function revokedMessage(database: DatabaseSync, username: string): string {
   const lifetimes = storedTokenLifetimes(database);
-  // The same two facts `nlhub user revoke-tokens` prints, for the same reason:
+  // The same two facts `nlteam user revoke-tokens` prints, for the same reason:
   // "every token" is read as including a session somebody has open, and it
   // does not.
   return (
@@ -197,7 +197,7 @@ async function perform(context: ViewContext, action: Action): Promise<string> {
       return `${action.username} can no longer reach ${action.project}, from their next request`;
     }
     case "restart-loreserver":
-      return "loreserver belongs to the nlhub up that started it; stop and start that";
+      return "loreserver belongs to the nlteam up that started it; stop and start that";
     case "quit":
     case "refresh":
       // Neither reaches here: the interface acts on both itself.
@@ -221,12 +221,12 @@ export async function terminalInterface(
   try {
     database = await openMigratedDatabase(layout.databasePath);
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   }
 
   try {
-    // A Hub that has not been brought up yet has no authority, which is a
+    // A Team server that has not been brought up yet has no authority, which is a
     // thing to say on screen rather than a reason to refuse to draw one.
     let fingerprint: string | undefined;
     try {
@@ -239,7 +239,7 @@ export async function terminalInterface(
     // beside the interface rather than in front of it: the first view is
     // gathered from the database and drawn at once, and each project's history
     // and file replace the word unknown as it arrives.
-    const listeners = new Set<(view: HubView) => void>();
+    const listeners = new Set<(view: TeamView) => void>();
     const readings = new ProjectReadings({
       root: layout.root,
       database,
@@ -261,7 +261,7 @@ export async function terminalInterface(
      *
      * Coalesced, and that matters: a pass reads every project in turn, and
      * gathering measures the whole storage root each time. One gather per short
-     * window turns a Hub with forty projects from forty walks of the store into
+     * window turns a Team server with forty projects from forty walks of the store into
      * a handful, and the screen still fills in as the readings land.
      */
     let scheduled: NodeJS.Timeout | undefined;
@@ -271,7 +271,7 @@ export async function terminalInterface(
       }
       scheduled = setTimeout(() => {
         scheduled = undefined;
-        void gatherHubView(context)
+        void gatherTeamView(context)
           .then((view) => {
             for (const listener of listeners) {
               listener(view);
@@ -290,12 +290,12 @@ export async function terminalInterface(
 
     readings.start();
     try {
-      await runInterface(await gatherHubView(context), {
+      await runInterface(await gatherTeamView(context), {
         refresh: () => {
           // Somebody asking for a refresh means the repositories too, and
           // waiting for them is exactly what this must not do.
           readings.request();
-          return gatherHubView(context);
+          return gatherTeamView(context);
         },
         perform: (action) => perform(context, action),
         subscribe: (listen) => {
@@ -313,7 +313,7 @@ export async function terminalInterface(
     }
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();

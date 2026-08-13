@@ -9,7 +9,7 @@ import { createUser, findUser } from "../src/identity/users.js";
 import { userDisable, userRevokeTokens } from "../src/user.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-revoke-");
+const temporaryRoot = useTemporaryRoots("nlteam-revoke-");
 
 /** Cheap parameters: these tests are about what is said, not what it costs. */
 const CHEAP: ScryptParameters = { cost: 2 ** 12, blockSize: 8, parallelism: 1, keyLength: 32 };
@@ -18,7 +18,7 @@ const hasher = new ScryptPasswordHasher(CHEAP);
 const PASSWORD = "a password nobody guesses";
 
 /** A storage root holding one account, and whatever a test wants stored. */
-async function hubWithAda(lifetimes: Partial<TokenLifetimes> = {}): Promise<string> {
+async function teamWithAda(lifetimes: Partial<TokenLifetimes> = {}): Promise<string> {
   const root = await temporaryRoot();
   const database = await openMigratedDatabase(identityLayout(root).databasePath);
   try {
@@ -58,7 +58,7 @@ async function invoke(
 
 describe("user revoke-tokens", () => {
   it("bumps the epoch and leaves the account able to sign in", async () => {
-    const root = await hubWithAda();
+    const root = await teamWithAda();
 
     const { code } = await invoke(userRevokeTokens, root);
 
@@ -76,13 +76,13 @@ describe("user revoke-tokens", () => {
   });
 
   it("says how far it reaches, and does not say it reaches further", async () => {
-    const root = await hubWithAda();
+    const root = await teamWithAda();
 
     const { out } = await invoke(userRevokeTokens, root);
 
     // Pinned in full. The middle sentence is the one an operator is entitled
-    // to: Hub refuses everything it issued, and a connection already open is
-    // checked by something Hub is not asked to speak to.
+    // to: Team refuses everything it issued, and a connection already open is
+    // checked by something Team is not asked to speak to.
     expect(out).toBe(
       "revoked the tokens of ada\n" +
         "Tokens already issued are refused from now on; a connection already open may last " +
@@ -91,16 +91,16 @@ describe("user revoke-tokens", () => {
     );
   });
 
-  it("states the bound this Hub is set to, not the one it was built with", async () => {
-    const root = await hubWithAda({ repositoryTokenLifetimeSeconds: 2 * 60 * 60 });
+  it("states the bound this Team server is set to, not the one it was built with", async () => {
+    const root = await teamWithAda({ repositoryTokenLifetimeSeconds: 2 * 60 * 60 });
 
     const { out } = await invoke(userRevokeTokens, root);
 
     expect(out).toContain("at most 2 hours from now");
   });
 
-  it("names an account this Hub does not have, and fails", async () => {
-    const root = await hubWithAda();
+  it("names an account this Team server does not have, and fails", async () => {
+    const root = await teamWithAda();
 
     const { code, out, err } = await invoke(userRevokeTokens, root, "nobody");
 
@@ -112,7 +112,7 @@ describe("user revoke-tokens", () => {
 
 describe("user disable", () => {
   it("states the same bound, in the unit the setting is written in", async () => {
-    const root = await hubWithAda();
+    const root = await teamWithAda();
 
     const { code, out } = await invoke(userDisable, root);
 

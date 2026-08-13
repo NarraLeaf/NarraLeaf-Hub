@@ -10,7 +10,7 @@ import { ensureCertificates, tlsLayout } from "../src/tls/authority.js";
 import { installPlan, removePlan } from "../src/tls/trust.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-trust-");
+const temporaryRoot = useTemporaryRoots("nlteam-trust-");
 
 /** Everything under a directory, with what each file holds and when it changed. */
 async function snapshot(directory: string): Promise<Record<string, string>> {
@@ -25,7 +25,7 @@ async function snapshot(directory: string): Promise<Record<string, string>> {
 }
 
 /** Run one command line, collecting both streams. */
-async function nlhub(argv: readonly string[]): Promise<{
+async function nlteam(argv: readonly string[]): Promise<{
   code: number;
   out: string;
   err: string;
@@ -44,14 +44,14 @@ async function nlhub(argv: readonly string[]): Promise<{
   return { code, out, err };
 }
 
-describe("nlhub trust, with no arguments", () => {
+describe("nlteam trust, with no arguments", () => {
   it("prints the fingerprint, and changes nothing", async () => {
     const root = await temporaryRoot();
     const certificates = await ensureCertificates(root);
     const layout = tlsLayout(root);
     const before = await snapshot(layout.tlsDir);
 
-    const { code, out, err } = await nlhub(["trust", "--root", root]);
+    const { code, out, err } = await nlteam(["trust", "--root", root]);
 
     expect(code).toBe(0);
     expect(err).toBe("");
@@ -70,11 +70,11 @@ describe("nlhub trust, with no arguments", () => {
     await ensureCertificates(root);
     const plan = installPlan(tlsLayout(root).caCertPath);
 
-    const { out } = await nlhub(["trust", "--root", root]);
+    const { out } = await nlteam(["trust", "--root", root]);
 
     expect(out).toContain(plan.command);
     if (plan.support === "runs-here") {
-      expect(out).toContain("nlhub trust --install runs that for you.");
+      expect(out).toContain("nlteam trust --install runs that for you.");
     }
   });
 
@@ -84,7 +84,7 @@ describe("nlhub trust, with no arguments", () => {
     const layout = tlsLayout(root);
     const certificate = new X509Certificate(await readFile(layout.caCertPath, "utf8"));
 
-    const { out } = await nlhub(["trust", "--root", root]);
+    const { out } = await nlteam(["trust", "--root", root]);
 
     expect(out).toContain(certificate.fingerprint256);
   });
@@ -92,7 +92,7 @@ describe("nlhub trust, with no arguments", () => {
   it("says so when there is no authority, rather than making one", async () => {
     const root = await temporaryRoot();
 
-    const { code, err } = await nlhub(["trust", "--root", root]);
+    const { code, err } = await nlteam(["trust", "--root", root]);
 
     expect(code).toBe(1);
     expect(err).toContain("has no certificate authority");
@@ -106,24 +106,24 @@ describe("the trust command line", () => {
   it("needs a root, like everything that keeps state", () => {
     expect(parseArgs(["trust"])).toEqual({
       kind: "error",
-      message: "trust needs --root <path>, the directory Hub keeps its files in",
+      message: "trust needs --root <path>, the directory Team keeps its files in",
     });
   });
 
   it("takes one of --install and --remove", () => {
-    expect(parseArgs(["trust", "--root", "/srv/hub"])).toEqual({
+    expect(parseArgs(["trust", "--root", "/srv/team"])).toEqual({
       kind: "trust",
-      root: "/srv/hub",
+      root: "/srv/team",
       install: false,
       remove: false,
     });
-    expect(parseArgs(["trust", "--root", "/srv/hub", "--install"])).toEqual({
+    expect(parseArgs(["trust", "--root", "/srv/team", "--install"])).toEqual({
       kind: "trust",
-      root: "/srv/hub",
+      root: "/srv/team",
       install: true,
       remove: false,
     });
-    expect(parseArgs(["trust", "--root", "/srv/hub", "--install", "--remove"])).toEqual({
+    expect(parseArgs(["trust", "--root", "/srv/team", "--install", "--remove"])).toEqual({
       kind: "error",
       message: "trust takes --install or --remove, not both",
     });
@@ -149,7 +149,7 @@ describe("what each platform is asked to do", () => {
           "Root",
           layout.caCertPath,
         ]);
-        // By thumbprint, because two Hubs on one machine share a subject and
+        // By thumbprint, because two Team servers on one machine share a subject and
         // deleting by name would take out whichever was found first.
         expect(remove.argv).toEqual([
           "certutil",

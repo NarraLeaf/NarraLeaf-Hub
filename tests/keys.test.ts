@@ -6,14 +6,14 @@ import { identityLayout } from "../src/identity/layout.js";
 import { jwkThumbprint, KeyStore, MODULUS_LENGTH } from "../src/identity/keys.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-keys-");
+const temporaryRoot = useTemporaryRoots("nlteam-keys-");
 
 async function store(): Promise<KeyStore> {
   return await KeyStore.open(identityLayout(await temporaryRoot()).keysDir);
 }
 
 describe("KeyStore", () => {
-  it("generates a key the first time, because a Hub without one cannot work", async () => {
+  it("generates a key the first time, because a Team server without one cannot work", async () => {
     const keys = await store();
 
     expect(keys.all).toHaveLength(1);
@@ -106,7 +106,7 @@ describe("KeyStore.reload", () => {
     const rotating = await KeyStore.open(keysDir);
 
     // Two handles on one directory is the ordinary case: `up` is serving the
-    // JWKS while `nlhub key rotate` runs in another terminal.
+    // JWKS while `nlteam key rotate` runs in another terminal.
     const added = await rotating.rotate();
     expect(serving.jwks().keys).toHaveLength(1);
 

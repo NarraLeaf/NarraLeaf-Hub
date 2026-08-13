@@ -1,13 +1,13 @@
 /**
- * The typed operations Hub calls, and the only surface above this layer.
+ * The typed operations Team calls, and the only surface above this layer.
  *
  * Every wrapper fills in each field of its args struct rather than leaving koffi
  * to zero what is omitted: a struct literal naming all its fields is also the
  * documentation of what the verb accepts, and it makes an added field a
  * question the compiler asks rather than a silent default.
  *
- * There is nothing here that writes a revision. Hub clones, syncs, and reads;
- * a repository is written by the people using Studio, and a Hub that could
+ * There is nothing here that writes a revision. Team clones, syncs, and reads;
+ * a repository is written by the people using Studio, and a Team server that could
  * commit would be a second author nobody asked for.
  */
 import {
@@ -126,7 +126,7 @@ export async function cloneRepository(
  * Both the clone and the sync report the branch they worked on, so nothing has
  * to ask for it. Asking is what the obvious verb would do, and `branchList`
  * costs 642 ms of a 717 ms read — it dials the remote to enumerate branches
- * there, whatever it is told about being offline. A name Hub already has is
+ * there, whatever it is told about being offline. A name Team already has is
  * not worth six sevenths of a refresh.
  */
 export interface SyncResult {
@@ -144,7 +144,7 @@ export interface SyncResult {
  * a subtree a clone left out reports no files and transfers nothing, which
  * reads exactly like a repository that has not moved.
  *
- * `forwardChanges` and `reset` are both off. Hub never edits a checkout, so
+ * `forwardChanges` and `reset` are both off. Team never edits a checkout, so
  * there is nothing to carry forward and nothing to throw away; either flag
  * would turn this into a merge.
  *
@@ -211,7 +211,7 @@ export interface RevisionEntry {
  * Every revision on the current branch, newest last by revision number.
  *
  * An empty list is a real answer: a repository created and never pushed to has
- * no revisions, which is a different fact from a history Hub failed to read.
+ * no revisions, which is a different fact from a history Team failed to read.
  */
 export async function revisionHistory(globals: LoreGlobals): Promise<RevisionEntry[]> {
   const result = await invoke("revisionHistory", globals, {
@@ -236,7 +236,7 @@ export interface RevisionDetails {
 }
 
 /**
- * Lore's own metadata keys, whose spelling is Lore's rather than Hub's.
+ * Lore's own metadata keys, whose spelling is Lore's rather than Team's.
  *
  * `committed-by` rather than `created-by`: a revision carries both and they
  * differ once a revision has been rewritten, and what a history wants is who
@@ -290,7 +290,7 @@ export async function revisionDetails(
  * is the difference between a 2.4 KB directory that can hand back an 8 MB
  * asset in 7 ms and one that cannot describe its own revision.
  *
- * The path opened must be a checkout of Hub's own. Opening the store loreserver
+ * The path opened must be a checkout of Team's own. Opening the store loreserver
  * is serving does not fail — it waits for a lock that will not be released
  * while the server runs, with nothing logged and no timeout to reach.
  */

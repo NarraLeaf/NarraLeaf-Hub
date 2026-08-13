@@ -1,12 +1,12 @@
 /**
- * The decisions Hub has made, kept rather than only logged.
+ * The decisions Team has made, kept rather than only logged.
  *
  * Every authorization question loreserver asks is answered in
  * src/projects/service.ts, and until this table existed the answer went to the
  * log of the `up` process and nowhere else. That is fine for somebody watching
  * the terminal it is running in and no use to anybody else: the log is gone
  * when the process is restarted, the screen that shows the last few decisions
- * had nothing to show, and a Hub could not answer "who reached this project,
+ * had nothing to show, and a Team server could not answer "who reached this project,
  * and who was refused".
  *
  * What is kept is what a person reads: when, which account, which resource,
@@ -23,7 +23,7 @@ export interface Decision {
   /** Milliseconds since the epoch. */
   readonly at: number;
   readonly username: string;
-  /** The project's name where Hub knew it, and the resource id where it did not. */
+  /** The project's name where Team knew it, and the resource id where it did not. */
   readonly resource: string;
   readonly allowed: boolean;
   /** The short reason, as the log line says it: `owner`, `no grant`, `expired`. */
@@ -44,7 +44,7 @@ export interface NewDecision {
  * What an account is called here when there is nobody to name.
  *
  * The same word the interface uses for anything it could not work out, which is
- * what this is: a caller whose token was missing, expired or not one of Hub's.
+ * what this is: a caller whose token was missing, expired or not one of Team's.
  * Short enough to sit in the column a username is drawn in — a longer word runs
  * into the resource beside it, with no space between the two.
  */
@@ -53,13 +53,13 @@ export const UNIDENTIFIED_ACCOUNT = "unknown";
 /**
  * How many decisions are kept.
  *
- * A busy Hub answers a permission question on every repository access, so this
- * table is the one thing in `hub.db` that would otherwise grow without anybody
+ * A busy Team answers a permission question on every repository access, so this
+ * table is the one thing in `team.db` that would otherwise grow without anybody
  * doing anything: an afternoon of one team working is thousands of rows, and
  * there is no point at which it stops.
  *
  * Two thousand, and a count rather than an age. An age bound sounds fairer and
- * behaves worse at both ends: a Hub used twice a month would have its whole
+ * behaves worse at both ends: a Team server used twice a month would have its whole
  * history deleted between visits and show an empty screen, while a busy one
  * would keep hundreds of thousands of rows inside any window worth calling
  * recent. A count bounds the file the same way on both — at roughly a hundred
@@ -87,10 +87,10 @@ export const DECISION_TRIM_SLACK = 500;
  * Decisions written on each connection since it last trimmed.
  *
  * Held against the connection rather than in a plain counter so that a second
- * database — a test's, or a second Hub in the same process — is counted
+ * database — a test's, or a second Team in the same process — is counted
  * separately, and so that nothing is kept alive by being counted.
  *
- * A connection that has never trimmed counts as due, so a Hub restarted every
+ * A connection that has never trimmed counts as due, so a Team server restarted every
  * few hundred decisions still trims once per run rather than never.
  */
 const writesSinceTrim = new WeakMap<DatabaseSync, number>();
@@ -107,7 +107,7 @@ function synchronousSetting(database: DatabaseSync): number {
  * SQLite commits every statement outside a transaction on its own, and at the
  * default `synchronous = FULL` every commit is an fsync. Measured on Windows
  * that is 2.2ms, which would be 2.2ms added to every repository access on the
- * Hub — for one row of a log. At `NORMAL`, in the WAL mode ./database.ts opens
+ * Team — for one row of a log. At `NORMAL`, in the WAL mode ./database.ts opens
  * with, the same insert is 0.02ms.
  *
  * What that trades is documented and small: WAL with `NORMAL` cannot corrupt
@@ -117,10 +117,10 @@ function synchronousSetting(database: DatabaseSync): number {
  * alternative, which is decisions that were never written down at all, and
  * against what it would cost to make every access wait for a platter, that is
  * the right side to be on. The setting is put back straight afterwards, so
- * nothing else Hub writes — an account, an invitation, a grant — is affected by
+ * nothing else Team writes — an account, an invitation, a grant — is affected by
  * it.
  *
- * Restored to whatever it was rather than to `FULL`, so a Hub whose connection
+ * Restored to whatever it was rather than to `FULL`, so a Team server whose connection
  * was opened at some other setting keeps it. SQLite ignores this pragma inside
  * a transaction; a caller that wrapped this in one would get a fully synced
  * write, which is slow rather than wrong.
@@ -162,8 +162,8 @@ export function countDecisions(database: DatabaseSync): number {
  * Allowances go first. When the bound forces a choice, an allowance is the
  * routine outcome — it is what every working repository access produces — and a
  * refusal is the row somebody will come looking for. So the oldest allowances
- * are dropped before any refusal is, and a refusal is only dropped on a Hub
- * whose refusals alone have filled the table, which is a Hub with a problem
+ * are dropped before any refusal is, and a refusal is only dropped on a Team server
+ * whose refusals alone have filled the table, which is a Team server with a problem
  * worth noticing.
  */
 export function trimDecisions(database: DatabaseSync): number {
@@ -191,7 +191,7 @@ export function trimDecisions(database: DatabaseSync): number {
  * neither of which waits for the disk, for the reason set out above
  * {@link withoutWaitingForTheDisk}.
  *
- * A failure is not swallowed. A Hub that cannot write to its own database has a
+ * A failure is not swallowed. A Team server that cannot write to its own database has a
  * larger problem than the access it is about to refuse, and quietly carrying on
  * would put back exactly the gap this table exists to close: decisions made and
  * kept nowhere.

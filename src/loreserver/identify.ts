@@ -2,7 +2,7 @@
  * Establishing that the file about to be run really is the pinned loreserver.
  *
  * A file at the expected path is not proof of anything: it may have been
- * replaced by hand, left behind by an older Hub, restored from a backup taken
+ * replaced by hand, left behind by an older Team, restored from a backup taken
  * when a different version was pinned, or damaged since it was installed.
  *
  * Two questions are asked, in this order. What are its bytes, and what does it
@@ -25,11 +25,11 @@ export class BinaryContentsError extends Error {
     readonly actual: string,
   ) {
     super(
-      `${binaryPath} is not the loreserver build Hub pins.\n` +
+      `${binaryPath} is not the loreserver build Team pins.\n` +
         `  expected sha256 ${expected}\n` +
         `  actual   sha256 ${actual}\n` +
         "Its contents have changed since it was installed, or it was never the " +
-        "pinned build. Hub will not run it. Remove the file and run this again " +
+        "pinned build. Team will not run it. Remove the file and run this again " +
         "to reinstall it.",
     );
     this.name = "BinaryContentsError";
@@ -129,7 +129,7 @@ export async function verifyBinaryVersion(
   }
   if (reported !== expectedVersion) {
     throw new VersionMismatchError(
-      `${binaryPath} is loreserver ${reported}, but this version of Hub runs loreserver ` +
+      `${binaryPath} is loreserver ${reported}, but this version of Team runs loreserver ` +
         `${expectedVersion}. Remove the file and run this again to reinstall it.`,
     );
   }

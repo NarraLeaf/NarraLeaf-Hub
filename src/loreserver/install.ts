@@ -3,7 +3,7 @@
  *
  * The result of a successful install is a directory holding the executable
  * alongside the two files Epic Games ships with it. Those two are kept, not
- * discarded: Hub redistributes somebody else's binary, and `LICENSE.txt` and
+ * discarded: Team redistributes somebody else's binary, and `LICENSE.txt` and
  * `THIRD-PARTY-NOTICES.txt` are the terms it is redistributed under.
  */
 import { chmod, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
@@ -30,7 +30,7 @@ export interface InstallResult {
    *
    * Read this rather than working it out from the layout: it is the per-user
    * cache for anything installed since binaries moved there, and the storage
-   * root for a Hub that had one before.
+   * root for a Team server that had one before.
    */
   readonly binaryPath: string;
   /** The directory it and the two licence files are in. */
@@ -70,15 +70,15 @@ function isUnpacked(location: InstallLocation): boolean {
  * answer with the executable to run.
  *
  * A new install goes to the per-user cache. An install a previous version of
- * Hub left under the storage root is used where it lies: it is not moved, and
+ * Team left under the storage root is used where it lies: it is not moved, and
  * it is not downloaded again.
  *
  * Not moved, because this is the path a supervised loreserver was started
  * from, and renaming a directory holding a running executable fails outright on
- * Windows — an upgrade would then fail on exactly the Hubs that were working.
+ * Windows — an upgrade would then fail on exactly the Team servers that were working.
  * Leaving it costs that one machine one copy of a binary it already has, and no
  * firewall prompt it has not already answered. A machine that wants the copy
- * gone can delete `<root>/bin` while Hub is stopped, and the next start fetches
+ * gone can delete `<root>/bin` while Team is stopped, and the next start fetches
  * one into the cache.
  *
  * Everything else happens in a temporary directory beside the destination and
@@ -121,7 +121,7 @@ export async function ensureInstalled(
       if (!existsSync(join(unpacked, name))) {
         throw new ArchiveContentsError(
           `${artifact.asset} did not contain ${name}. The release assets are not laid out ` +
-            "the way this version of Hub expects.",
+            "the way this version of Team expects.",
         );
       }
     }

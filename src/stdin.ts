@@ -5,8 +5,8 @@
  * list, and it stays in the shell's history afterwards. A password therefore
  * arrives on standard input:
  *
- *     nlhub user create ada --root /srv/hub --invite CODE < password.txt
- *     printf '%s' "$PASSWORD" | nlhub token mint ada --root /srv/hub
+ *     nlteam user create ada --root /srv/team --invite CODE < password.txt
+ *     printf '%s' "$PASSWORD" | nlteam token mint ada --root /srv/team
  */
 
 /** Raised when nothing was piped in and there is nothing to read. */

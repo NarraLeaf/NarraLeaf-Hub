@@ -19,7 +19,7 @@ import { ScryptPasswordHasher, type ScryptParameters } from "../src/identity/pas
 import { countUsers, UsernameTakenError } from "../src/identity/users.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-invites-");
+const temporaryRoot = useTemporaryRoots("nlteam-invites-");
 
 const CHEAP: ScryptParameters = { cost: 2 ** 12, blockSize: 8, parallelism: 1, keyLength: 32 };
 const hasher = new ScryptPasswordHasher(CHEAP);

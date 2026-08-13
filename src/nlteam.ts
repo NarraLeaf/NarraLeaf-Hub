@@ -1,6 +1,6 @@
 /**
- * Entry point of the `nlhub` executable. The build bundles this file into
- * dist/nlhub.js and gives it a `#!/usr/bin/env node` line.
+ * Entry point of the `nlteam` executable. The build bundles this file into
+ * dist/nlteam.js and gives it a `#!/usr/bin/env node` line.
  *
  * Everything here is process wiring; the behaviour lives in ./cli.ts.
  */
@@ -10,13 +10,13 @@ import { join } from "node:path";
 import { run } from "./cli.js";
 
 /**
- * The Hub a bare `nlhub` opens the terminal interface on, if there is one.
+ * The Team server a bare `nlteam` opens the terminal interface on, if there is one.
  *
- * `NLHUB_ROOT` first, then the working directory, and only when it already
- * holds a Hub: opening the database is what creates it, and a bare `nlhub`
- * typed in somebody's home directory must not leave a hub.db behind in it.
+ * `NLTEAM_ROOT` first, then the working directory, and only when it already
+ * holds a Team server: opening the database is what creates it, and a bare `nlteam`
+ * typed in somebody's home directory must not leave a team.db behind in it.
  *
- * Both streams have to be a terminal. `nlhub | less` and `nlhub > notes` are
+ * Both streams have to be a terminal. `nlteam | less` and `nlteam > notes` are
  * asking for text, and an interface would give them a screenful of escape
  * sequences instead of the usage they expected.
  */
@@ -24,12 +24,12 @@ function impliedRoot(): string | undefined {
   if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
     return undefined;
   }
-  const named = process.env["NLHUB_ROOT"];
+  const named = process.env["NLTEAM_ROOT"];
   if (named !== undefined && named !== "") {
     return named;
   }
   const here = process.cwd();
-  return existsSync(join(here, "hub.db")) ? here : undefined;
+  return existsSync(join(here, "team.db")) ? here : undefined;
 }
 
 const argv = process.argv.slice(2);
@@ -37,7 +37,7 @@ const implied = argv.length === 0 ? impliedRoot() : undefined;
 
 // A command that runs until it is stopped needs to hear about Ctrl-C. Handling
 // the signal rather than letting it kill the process is what allows loreserver
-// to be shut down before Hub exits; installing a handler also suppresses
+// to be shut down before Team exits; installing a handler also suppresses
 // node's default of terminating at once, so the handler must always lead to
 // the program ending by itself.
 const interrupted = new AbortController();

@@ -87,7 +87,7 @@ export interface AuthorizationContext {
   readonly keys: KeyStore;
   readonly config: IdentityConfig;
   /**
-   * Token lifetimes named on the command line this Hub was started with.
+   * Token lifetimes named on the command line this Team server was started with.
    *
    * Absent is the ordinary case, and then the stored settings decide. What an
    * operator typed has to outrank them, or `up --token-lifetime` would stop
@@ -103,7 +103,7 @@ export interface AuthorizationContext {
  * the database at this moment.
  *
  * Read per mint rather than kept from the start, so that shortening a lifetime
- * reaches a Hub that is already running instead of waiting for somebody to
+ * reaches a Team server that is already running instead of waiting for somebody to
  * restart it. It is one row fetched by primary key out of a local SQLite file,
  * beside the several queries each of these calls already makes.
  */
@@ -136,7 +136,7 @@ const NOTHING = "nothing";
  * from the other: the line is a sentence for somebody watching a terminal, and
  * the record is five fields for somebody looking at a screen a week later.
  * Writing both at one call site is what stops either being forgotten; the two
- * calls that stay on `context.log` alone are the ones where Hub decided
+ * calls that stay on `context.log` alone are the ones where Team decided
  * nothing, and each of them says so.
  */
 function decided(context: AuthorizationContext, line: string, decision: NewDecision): void {
@@ -149,7 +149,7 @@ function decided(context: AuthorizationContext, line: string, decision: NewDecis
  *
  * Resolved as the decision is made rather than as the log is read, so that the
  * record still says which project it was about after that project has been
- * deleted from this Hub. A resource Hub knows nothing about keeps its resource
+ * deleted from this Team server. A resource Team knows nothing about keeps its resource
  * id, which is all there is to say about it.
  *
  * It costs one lookup by primary key in a local SQLite file, on a call that has
@@ -170,7 +170,7 @@ function resourceName(context: AuthorizationContext, resourceId: string): string
  * to a different question.
  *
  * A `kid` this process has not seen sends it back to the keys directory once. A
- * key can be rotated while Hub is running, by `nlhub key rotate` in another
+ * key can be rotated while Team is running, by `nlteam key rotate` in another
  * terminal, and the tokens signed by the new one are valid from the moment it
  * exists.
  */
@@ -234,7 +234,7 @@ async function checkUserPermission(
     );
     if (level === undefined) {
       denied.push({ resourceId, permission: [] });
-      const why = projectId === undefined ? "not a project on this Hub" : "no grant";
+      const why = projectId === undefined ? "not a project on this server" : "no grant";
       decided(context, `auth: check ${caller.user.username} ${resourceId}: denied, ${why}`, {
         username: caller.user.username,
         resource: resourceName(context, resourceId),
@@ -277,7 +277,7 @@ async function lookupUserPermissions(
     return encodeLookupUserPermissionsResponse({ permissions: [] });
   }
 
-  // The filter is honoured only when it names one resource outright. Hub has
+  // The filter is honoured only when it names one resource outright. Team has
   // one kind of resource — a project — so a filter that is anything else, a
   // wildcard or a category name, would be a pattern language guessed at rather
   // than agreed, and guessing wrong here silently shortens somebody's listing.
@@ -315,7 +315,7 @@ async function lookupUserPermissions(
  *
  * This is the one method a Studio installation calls before it can do anything
  * else, and the reason the TLS listener exists at all. What a client presents
- * is a token this Hub minted — `nlhub token mint`, which is what a person is
+ * is a token this Team server minted — `nlteam token mint`, which is what a person is
  * given after proving who they are with their password — and what it gets back
  * is a fresh one.
  *
@@ -335,7 +335,7 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
   // The token is taken from the request, not from the `authorization` header:
   // a client signing in has nothing to put in that header yet, and the field is
   // where its library puts what it was given. `token_type` is passed through by
-  // the client and read by nobody; Hub knows only one kind of token.
+  // the client and read by nobody; Team knows only one kind of token.
   const presented = request.externalToken === "" ? undefined : request.externalToken;
   const caller = identifyToken(context.database, context.keys, context.config, presented);
 
@@ -409,12 +409,12 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
  * resources it is about to use, and it presents that token on the QUIC storage
  * connection rather than the one it signed in with. Without this method the
  * sequence gets remarkably far and then stops: the client signs in, resolves
- * the repository over gRPC — which Hub allows, and logs as allowed — and then
+ * the repository over gRPC — which Team allows, and logs as allowed — and then
  * fails with "Not connected to remote: Not authorized to access repository",
  * while loreserver records `MissingToken` against a `StorageAuthorizeTask`.
  * Nothing in either message says a method is missing.
  *
- * Hub answers by checking every resource the client named and minting a fresh
+ * Team answers by checking every resource the client named and minting a fresh
  * token, because a token minted now carries the account's state now. The scope
  * is not written into the token: loreserver goes on asking
  * {@link checkUserPermission} about every access, so a token that named
@@ -461,7 +461,7 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
         ? undefined
         : accessLevel(context.database, projectId, caller.user.id);
     if (level === undefined) {
-      const why = projectId === undefined ? "not a project on this Hub" : "no grant";
+      const why = projectId === undefined ? "not a project on this server" : "no grant";
       decided(
         context,
         `auth: multiresource ${caller.user.username} ${resourceId}: denied, ${why}`,
@@ -501,7 +501,7 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
   // storage connection reads.
   // The repository lifetime, which is the short one, and this is the call that
   // makes the pair worth having. What is minted here is presented on the data
-  // connection, to loreserver's data plane, and Hub is not necessarily asked
+  // connection, to loreserver's data plane, and Team is not necessarily asked
   // about it again — so the expiry is the only thing that ends it.
   const minted = mintToken(caller.user, context.keys.signingKey, mintingConfig(context), {
     purpose: "repository",
@@ -520,13 +520,13 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
 /**
  * `RebacApi/CreateResource`: loreserver saying a repository now exists.
  *
- * It arrives just after `nlhub project create` asked for the repository, so the
+ * It arrives just after `nlteam project create` asked for the repository, so the
  * project is already recorded and its owner already granted — this is a second
- * telling of something Hub caused. It is recorded in the log and nothing is
+ * telling of something Team caused. It is recorded in the log and nothing is
  * written, because a project row needs a creator and this call names nobody.
  *
- * A resource Hub has never heard of is logged and otherwise let be: it is a
- * repository created by something other than Hub, and inventing a project for
+ * A resource Team has never heard of is logged and otherwise let be: it is a
+ * repository created by something other than Team, and inventing a project for
  * it would be inventing an owner.
  *
  * Nothing is recorded as a decision, because nothing was decided: no caller is
@@ -540,7 +540,7 @@ function createResource(context: AuthorizationContext, call: GrpcCall): Buffer {
 
   context.log(
     `auth: create resource ${request.resourceId} "${request.resourceName}": ${
-      project === undefined ? "no project of this Hub" : `the project ${project.name}`
+      project === undefined ? "no project of this server" : `the project ${project.name}`
     }`,
   );
   return EMPTY_MESSAGE;
@@ -567,7 +567,7 @@ async function deleteResource(context: AuthorizationContext, call: GrpcCall): Pr
   const who = caller.kind === "identified" ? caller.user.username : UNIDENTIFIED;
 
   if (project === undefined) {
-    context.log(`auth: delete resource ${who} ${request.resourceId}: no project of this Hub`);
+    context.log(`auth: delete resource ${who} ${request.resourceId}: no project of this Team server`);
     return EMPTY_MESSAGE;
   }
   const level =

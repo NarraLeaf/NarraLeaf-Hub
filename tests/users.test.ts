@@ -21,7 +21,7 @@ import {
 } from "../src/identity/users.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-users-");
+const temporaryRoot = useTemporaryRoots("nlteam-users-");
 
 /** Cheap parameters: these tests are about the records, not the cost. */
 const CHEAP: ScryptParameters = { cost: 2 ** 12, blockSize: 8, parallelism: 1, keyLength: 32 };
@@ -203,10 +203,10 @@ describe("revokeUserTokens", () => {
     expect(revoked.disabledAt).toBeUndefined();
   });
 
-  it("says nothing about a bump made before Hub kept the moment", async () => {
+  it("says nothing about a bump made before Team kept the moment", async () => {
     const connection = await database();
     await createUser(connection, hasher, { username: "ada", password: PASSWORD });
-    // The row as a Hub older than this column left it: the epoch moved, and
+    // The row as a Team server older than this column left it: the epoch moved, and
     // there was nowhere to write when. There is no honest timestamp for it, so
     // the record carries none and the screen says unknown.
     connection

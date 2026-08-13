@@ -1,8 +1,8 @@
 /**
- * The settings a Hub keeps in its database rather than in its source.
+ * The settings a Team server keeps in its database rather than in its source.
  *
  * There are two, both token lifetimes, and both are read where a token is
- * minted rather than held from the moment the process started. A Hub that read
+ * minted rather than held from the moment the process started. A Team server that read
  * them once would go on issuing month-long tokens after somebody shortened the
  * setting, and the only way to discover that would be to restart it and watch.
  *
@@ -45,7 +45,7 @@ export const SETTING_KEYS = [SIGN_IN_LIFETIME_KEY, REPOSITORY_LIFETIME_KEY] as c
 /** One of the keys above. */
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
-/** True when `key` is a setting this Hub has. */
+/** True when `key` is a setting this Team server has. */
 export function isSettingKey(key: string): key is SettingKey {
   return SETTING_KEYS.some((known) => known === key);
 }
@@ -58,7 +58,7 @@ export function isSettingKey(key: string): key is SettingKey {
  * terminal interface say it and two copies would drift.
  */
 export const REPOSITORY_LIFETIME_CAUTION =
-  "loreserver accepts this one without asking Hub, so revoking access cannot cut it short.";
+  "loreserver accepts this one without asking Team, so revoking access cannot cut it short.";
 
 /**
  * The range a stored lifetime has to fall in.
@@ -75,7 +75,7 @@ export const MINIMUM_TOKEN_LIFETIME_SECONDS = 60;
 /** The longest a stored lifetime may be; see the floor above for why. */
 export const MAXIMUM_TOKEN_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
 
-/** Raised when a setting is not a value Hub can use. */
+/** Raised when a setting is not a value Team can use. */
 export class InvalidSettingError extends Error {
   constructor(
     readonly key: string,
@@ -111,7 +111,7 @@ function readSetting(database: DatabaseSync, key: string): string | undefined {
  * cannot be the whole of it: the file is SQLite and whoever has the storage
  * root can write to it with anything, and a lifetime that came back as NaN
  * would reach a token's `exp` and put it at the epoch — a token issued already
- * expired, from a Hub that says nothing is wrong.
+ * expired, from a Team server that says nothing is wrong.
  */
 function lifetimeOf(database: DatabaseSync, key: string, fallback: number): number {
   const stored = readSetting(database, key);

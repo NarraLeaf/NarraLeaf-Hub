@@ -1,12 +1,12 @@
-// The rule that decides the shape of everything Hub reads: it never opens the
+// The rule that decides the shape of everything Team reads: it never opens the
 // store loreserver is serving.
 //
 // That is not a preference. A repository lock is exclusive, and opening a store
 // a running loreserver holds does not fail — it waits, for ever, at no CPU,
-// with nothing logged and no timeout to reach. A Hub that did it once would
+// with nothing logged and no timeout to reach. A Team server that did it once would
 // stop reading anything, and there would be no error anywhere to say why.
 //
-// So the checks below are about where paths come from. Hub reads its own
+// So the checks below are about where paths come from. Team reads its own
 // checkouts and nothing else, and the two assertions here are that those
 // checkouts are somewhere else entirely, and that no module outside the two
 // that own them is in a position to hand Lore a path at all.
@@ -26,7 +26,7 @@ import { readProject } from "../src/projects/read.js";
 import { storageRootOf } from "../src/view.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-cache-");
+const temporaryRoot = useTemporaryRoots("nlteam-cache-");
 
 /** Every module under src, with its text. */
 async function sources(directory: string): Promise<Array<{ path: string; text: string }>> {
@@ -48,8 +48,8 @@ function contains(outer: string, inner: string): boolean {
   return between === "" || (!between.startsWith("..") && !between.startsWith(`..${sep}`));
 }
 
-describe("where Hub's checkouts are", () => {
-  const ROOTS = ["/srv/hub", "D:\\hub", "./relative", "/srv/hub with spaces", "/srv/hub/"];
+describe("where Team's checkouts are", () => {
+  const ROOTS = ["/srv/team", "D:\\team", "./relative", "/srv/team with spaces", "/srv/team/"];
 
   it("is never inside the store loreserver is serving, and never holds it", () => {
     for (const root of ROOTS) {
@@ -65,8 +65,8 @@ describe("where Hub's checkouts are", () => {
   it("keys a checkout by the repository, not by the name it is shown under", () => {
     // A renamed project is the same repository. A directory named after the
     // old name would be a second checkout of it rather than the same one.
-    const first = projectCheckoutPath("/srv/hub", "0123456789abcdef0123456789abcdef");
-    const second = projectCheckoutPath("/srv/hub", "fedcba9876543210fedcba9876543210");
+    const first = projectCheckoutPath("/srv/team", "0123456789abcdef0123456789abcdef");
+    const second = projectCheckoutPath("/srv/team", "fedcba9876543210fedcba9876543210");
 
     expect(first).not.toBe(second);
     expect(first).toContain("0123456789abcdef0123456789abcdef");
@@ -128,7 +128,7 @@ describe("who is in a position to open a store", () => {
  * that has to go through the whole reader to happen at all.
  *
  * It contacts nothing: the port is one on the loopback that nothing is
- * listening on, which is what an operator's Hub looks like when loreserver has
+ * listening on, which is what an operator's Team looks like when loreserver has
  * stopped. Skipped where lorelib will not load, since there is then nothing to
  * drive — and the load is attempted rather than the path merely resolved,
  * because a package being on disk is not the same as a library this machine can
@@ -150,7 +150,7 @@ describe.skipIf(!libraryPresent)("a project whose repository cannot be reached",
       root,
       projectId: "0123456789abcdef0123456789abcdef",
       projectName: "harbour",
-      // Chosen away from every port Hub uses, so that a Hub running on this
+      // Chosen away from every port Team uses, so that a Team server running on this
       // machine cannot accidentally answer.
       remote: "lore://127.0.0.1:41938",
     });

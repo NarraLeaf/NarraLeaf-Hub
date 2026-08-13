@@ -1,20 +1,20 @@
 /**
- * The lorelib build Hub reads repositories with, and the terms it comes under.
+ * The lorelib build Team reads repositories with, and the terms it comes under.
  *
  * lorelib is the shared library behind loreserver, released from the same
- * repository. Hub pins the version its loreserver pin names, so that one
- * release of Hub speaks to its own server with the library that server was
+ * repository. Team pins the version its loreserver pin names, so that one
+ * release of Team speaks to its own server with the library that server was
  * built alongside.
  *
  * The library itself arrives through npm rather than from here: Epic publish
- * one package per platform, each declaring `os` and `cpu`, so installing Hub's
+ * one package per platform, each declaring `os` and `cpu`, so installing Team's
  * dependencies puts exactly one of them on disk. What is here is the part npm
  * does not deliver.
  *
  * Those packages list `*Licenses.txt` and `*.THIRD-PARTY-NOTICES.txt` among
  * their `files`, and neither is in the published package — checked against
  * 0.8.6, where the tarball holds the library, two entry points and a README.
- * So a Hub that shipped only what npm installed would be redistributing
+ * So a Team server that shipped only what npm installed would be redistributing
  * somebody else's work with the notices for it missing. The same two files are
  * in the release archive, which is what this fetches: the archive is
  * downloaded, checked against a pinned digest, and the two files are kept.
@@ -30,7 +30,7 @@ import { extractArchive } from "../loreserver/extract.js";
 import { LICENSE_FILE_NAME, LORESERVER_VERSION, NOTICES_FILE_NAME } from "../loreserver/pin.js";
 
 /**
- * The lorelib version Hub reads with.
+ * The lorelib version Team reads with.
  *
  * The same number as the server: they are one release, and a library that
  * disagreed with the server about a wire format would be a thing to debug
@@ -49,9 +49,9 @@ export interface LorelibArtifact {
   /**
    * SHA-256 of the archive, as lower-case hex, checked as it is downloaded.
    *
-   * Hub's own, produced by downloading the asset and hashing it, because
+   * Team's own, produced by downloading the asset and hashing it, because
    * upstream publishes neither checksums nor signatures. It attests that the
-   * archive is the one this release of Hub was built against; it attests
+   * archive is the one this release of Team was built against; it attests
    * nothing about who built it. Re-hash from the release page before changing
    * one.
    */
@@ -104,17 +104,17 @@ export function resolveLorelibArtifact(
  * Not literally beside the library, which npm put inside `node_modules` — that
  * directory belongs to the installer and is rewritten by it. The version is in
  * the name for the same reason it is in loreserver's: a changed pin adds a
- * directory rather than overwriting what a running Hub was started with.
+ * directory rather than overwriting what a running Team was started with.
  *
  * The terms follow the binaries. They are the terms one release is
- * redistributed under, not something about one Hub, and a copy per storage root
+ * redistributed under, not something about one Team server, and a copy per storage root
  * was a copy of the same two files for every instance on the machine.
  */
 export function lorelibNoticesDir(version: string = LORELIB_VERSION): string {
   return cachedInstallDir("lorelib", version);
 }
 
-/** Where a Hub older than that change kept them, which is still read first. */
+/** Where a Team server older than that change kept them, which is still read first. */
 export function storedLorelibNoticesDir(
   root: string,
   version: string = LORELIB_VERSION,
@@ -149,7 +149,7 @@ export interface NoticesResult {
  * machine that cannot reach GitHub still reads its projects, which is why the
  * caller is expected to let a failure here pass rather than refuse to work.
  *
- * `root` is here only so that a copy an older Hub left under the storage root
+ * `root` is here only so that a copy an older Team left under the storage root
  * can be found; nothing new is written there.
  */
 export async function ensureLorelibNotices(
@@ -158,9 +158,9 @@ export async function ensureLorelibNotices(
   reporter: DownloadReporter = {},
 ): Promise<NoticesResult> {
   // The storage root first, for the same reason the binary is used where it
-  // lies: a Hub that already fetched these has them, and fetching a second copy
+  // lies: a Team server that already fetched these has them, and fetching a second copy
   // to satisfy a change of directory would be a download nobody asked for on
-  // every Hub that upgrades.
+  // every Team server that upgrades.
   for (const candidate of [storedLorelibNoticesDir(root), lorelibNoticesDir()]) {
     const found = presentIn(candidate);
     if (found !== undefined) {
@@ -191,7 +191,7 @@ export async function ensureLorelibNotices(
       if (!existsSync(source)) {
         throw new Error(
           `${artifact.asset} did not contain ${name}. The release assets are not laid out the ` +
-            "way this version of Hub expects.",
+            "way this version of Team expects.",
         );
       }
       await rename(source, join(kept, name));

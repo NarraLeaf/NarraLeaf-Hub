@@ -1,4 +1,4 @@
-// Where a downloaded loreserver goes, and what happens to a Hub that already
+// Where a downloaded loreserver goes, and what happens to a Team server that already
 // has one under its storage root.
 //
 // The rule this is about is not tidiness. Every storage root used to get a copy
@@ -24,7 +24,7 @@ import { instanceLayout } from "../src/loreserver/layout.js";
 import { LORESERVER_VERSION, resolveArtifact } from "../src/loreserver/pin.js";
 import { useTemporaryRoots } from "./temporary.js";
 
-const temporaryRoot = useTemporaryRoots("nlhub-binaries-");
+const temporaryRoot = useTemporaryRoots("nlteam-binaries-");
 
 /**
  * The variable as this process found it.
@@ -49,7 +49,7 @@ const BARE: NodeJS.ProcessEnv = {};
 describe("binariesCacheDir", () => {
   it("is under LOCALAPPDATA on Windows", () => {
     expect(binariesCacheDir({ LOCALAPPDATA: "C:\\Users\\ada\\AppData\\Local" }, "win32")).toBe(
-      join("C:\\Users\\ada\\AppData\\Local", "nlhub", "cache"),
+      join("C:\\Users\\ada\\AppData\\Local", "nlteam", "cache"),
     );
   });
 
@@ -57,28 +57,28 @@ describe("binariesCacheDir", () => {
     // A service account can be running with an environment block that carries
     // almost nothing. The path is the same one Windows would have named.
     expect(binariesCacheDir(BARE, "win32", "C:\\Users\\ada")).toBe(
-      join("C:\\Users\\ada", "AppData", "Local", "nlhub", "cache"),
+      join("C:\\Users\\ada", "AppData", "Local", "nlteam", "cache"),
     );
   });
 
   it("is under Library/Caches on macOS", () => {
     expect(binariesCacheDir(BARE, "darwin", "/Users/ada")).toBe(
-      join("/Users/ada", "Library", "Caches", "nlhub"),
+      join("/Users/ada", "Library", "Caches", "nlteam"),
     );
   });
 
   it("follows XDG_CACHE_HOME on Linux, and falls back to ~/.cache", () => {
     expect(binariesCacheDir({ XDG_CACHE_HOME: "/var/cache/ada" }, "linux", "/home/ada")).toBe(
-      join("/var/cache/ada", "nlhub"),
+      join("/var/cache/ada", "nlteam"),
     );
-    expect(binariesCacheDir(BARE, "linux", "/home/ada")).toBe(join("/home/ada", ".cache", "nlhub"));
+    expect(binariesCacheDir(BARE, "linux", "/home/ada")).toBe(join("/home/ada", ".cache", "nlteam"));
   });
 
   it("ignores a relative XDG_CACHE_HOME, as the specification says to", () => {
     // Resolving one against the working directory would put the binaries
-    // wherever the operator happened to be standing when they started Hub.
+    // wherever the operator happened to be standing when they started Team.
     expect(binariesCacheDir({ XDG_CACHE_HOME: "cache" }, "linux", "/home/ada")).toBe(
-      join("/home/ada", ".cache", "nlhub"),
+      join("/home/ada", ".cache", "nlteam"),
     );
   });
 
@@ -87,8 +87,8 @@ describe("binariesCacheDir", () => {
     // path chosen when the image was built, with nothing to download and no
     // per-user directory to depend on.
     for (const platform of ["win32", "darwin", "linux"]) {
-      expect(binariesCacheDir({ [CACHE_DIRECTORY_ENV]: "/opt/nlhub" }, platform)).toBe(
-        resolve("/opt/nlhub"),
+      expect(binariesCacheDir({ [CACHE_DIRECTORY_ENV]: "/opt/nlteam" }, platform)).toBe(
+        resolve("/opt/nlteam"),
       );
     }
   });
@@ -115,7 +115,7 @@ describe("cachedInstallDir", () => {
 });
 
 describe("the layout of a storage root", () => {
-  it("puts the binary outside it, so two Hubs on one machine share one copy", async () => {
+  it("puts the binary outside it, so two Team servers on one machine share one copy", async () => {
     const cache = join(await temporaryRoot(), "cache");
     process.env[CACHE_DIRECTORY_ENV] = cache;
     const first = instanceLayout(await temporaryRoot(), "loreserver");
@@ -128,7 +128,7 @@ describe("the layout of a storage root", () => {
     expect(first.binDir).toBe(cachedInstallDir("loreserver", LORESERVER_VERSION, cache));
   });
 
-  it("still knows where a Hub from before that put it", async () => {
+  it("still knows where a Team server from before that put it", async () => {
     const root = await temporaryRoot();
     const layout = instanceLayout(root, "loreserver");
 
@@ -137,8 +137,8 @@ describe("the layout of a storage root", () => {
   });
 });
 
-describe("a Hub that already has the binary under its storage root", () => {
-  /** Put the three files an unpacked release leaves where the older Hub had them. */
+describe("a Team server that already has the binary under its storage root", () => {
+  /** Put the three files an unpacked release leaves where the older Team had them. */
   async function unpackStored(root: string, binaryName: string): Promise<void> {
     const layout = instanceLayout(root, binaryName);
     await mkdir(layout.stored.binDir, { recursive: true });
@@ -179,7 +179,7 @@ describe("a Hub that already has the binary under its storage root", () => {
 
     // Moving it would mean renaming a directory whose executable may be the one
     // a supervised loreserver was started from, which Windows refuses outright:
-    // the upgrade would fail on exactly the Hubs that were working.
+    // the upgrade would fail on exactly the Team servers that were working.
     expect(existsSync(layout.stored.binaryPath)).toBe(true);
   });
 
@@ -197,8 +197,8 @@ describe("a Hub that already has the binary under its storage root", () => {
 
     const install = await ensureInstalled(layout, artifact);
 
-    // The one this Hub has been running is the one it goes on running. Both are
-    // the same pinned build, and swapping the path under a Hub in the middle of
+    // The one this Team server has been running is the one it goes on running. Both are
+    // the same pinned build, and swapping the path under a Team server in the middle of
     // an upgrade buys nothing.
     expect(install.binaryPath).toBe(layout.stored.binaryPath);
   });

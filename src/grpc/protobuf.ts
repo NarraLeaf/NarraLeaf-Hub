@@ -1,8 +1,8 @@
 /**
- * Reading and writing protocol buffers, in the amount Hub needs.
+ * Reading and writing protocol buffers, in the amount Team needs.
  *
- * loreserver speaks gRPC and nothing else, in both directions: it asks Hub who
- * a caller is, and Hub asks it to create a repository. What that costs is this
+ * loreserver speaks gRPC and nothing else, in both directions: it asks Team who
+ * a caller is, and Team asks it to create a repository. What that costs is this
  * file and the framing beside it, because the messages involved are a dozen
  * flat records of strings, bytes and integers. A generated stub and its runtime
  * would bring proto2, proto3, JSON mapping, reflection, descriptors and gRPC's
@@ -12,7 +12,7 @@
  * fields, and the repeated forms of both. The fixed-width wire types are
  * understood only far enough to step over one, which is deliberate — a field
  * this code has never heard of is skipped rather than refused, so a later
- * loreserver adding one does not stop Hub reading the rest of the message.
+ * loreserver adding one does not stop Team reading the rest of the message.
  *
  * Proto3 has no way to tell a field holding its type's default from a field
  * that was never written, and nothing here pretends otherwise: an encoder omits

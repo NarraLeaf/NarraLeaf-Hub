@@ -1,20 +1,20 @@
 /**
  * What a revision of a project says about itself.
  *
- * This is the whole of what Hub understands about Studio's files, and it is
+ * This is the whole of what Team understands about Studio's files, and it is
  * deliberately shallow: the project file, the names and sizes in the directory
  * tree, the asset registers and the list of scenes in a story. Nothing here
- * looks inside a scene. What a scene means is Studio's, and a Hub that had to
- * know it would be a Hub that had to be upgraded whenever Studio was — which
+ * looks inside a scene. What a scene means is Studio's, and a Team server that had to
+ * know it would be a Team server that had to be upgraded whenever Studio was — which
  * is the one thing it was built not to be.
  *
  * The degradation rule, which every function below obeys
  * ------------------------------------------------------
- * Hub reads as far as it understands and says nothing about the rest. A file
+ * Team reads as far as it understands and says nothing about the rest. A file
  * from a newer Studio, a file that was half written, a file that is not what
  * its name says, a project with no file at all: each of them leaves
  * `readable` false and a sentence somebody can act on. **None of them is an
- * error, a crash, an empty panel or a stack trace on screen.** The counts Hub
+ * error, a crash, an empty panel or a stack trace on screen.** The counts Team
  * did work out survive; the ones it did not are absent, and absent draws as
  * unknown.
  *
@@ -24,7 +24,7 @@
  */
 import { decodeMsgpack, MsgpackError } from "./msgpack.js";
 
-import type { ProjectFileView } from "../tui/hubview.js";
+import type { ProjectFileView } from "../tui/teamview.js";
 
 /** One file in a revision, as the directory tree reports it. */
 export interface RevisionFile {
@@ -34,7 +34,7 @@ export interface RevisionFile {
 }
 
 /**
- * A revision Hub can look at.
+ * A revision Team can look at.
  *
  * `read` is expected to be expensive — over a sparse checkout it is a fetch
  * from the remote — so everything below reads as few files as it can and
@@ -46,7 +46,7 @@ export interface RevisionSource {
 }
 
 /**
- * The project file schema Hub reads.
+ * The project file schema Team reads.
  *
  * A file that declares a higher number is not read at all, rather than read
  * for the fields that happen to still be in the same place: a schema is raised
@@ -116,7 +116,7 @@ export async function readProjectFile(source: RevisionSource): Promise<ProjectFi
   if (schema !== undefined && schema > PROJECT_FILE_SCHEMA) {
     return {
       readable: false,
-      reason: `${configFile.path} is schema ${schema}; Hub reads up to ${PROJECT_FILE_SCHEMA}. A newer Studio wrote this project.`,
+      reason: `${configFile.path} is schema ${schema}; Team reads up to ${PROJECT_FILE_SCHEMA}. A newer Studio wrote this project.`,
     };
   }
 

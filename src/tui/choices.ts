@@ -11,7 +11,7 @@
  * the code that decides what a keypress chose. Two lists built separately would
  * agree until one of them was filtered.
  */
-import type { HubView } from "./hubview.js";
+import type { TeamView } from "./teamview.js";
 
 /** One row of a picker: what it is, and what is true of it now. */
 export interface Choice {
@@ -26,7 +26,7 @@ export const LEVELS: readonly Choice[] = [
   { name: "write", note: "and push to it" },
 ];
 
-function projectOf(view: HubView, project: string): HubView["projects"][number] | undefined {
+function projectOf(view: TeamView, project: string): TeamView["projects"][number] | undefined {
   return view.projects.find((candidate) => candidate.name === project);
 }
 
@@ -37,7 +37,7 @@ function projectOf(view: HubView, project: string): HubView["projects"][number] 
  * question of where they went, and a list that answers it is shorter than the
  * support conversation.
  */
-export function accountsFor(view: HubView, project: string): Choice[] {
+export function accountsFor(view: TeamView, project: string): Choice[] {
   const record = projectOf(view, project);
   if (record === undefined) {
     return [];
@@ -57,7 +57,7 @@ export function accountsFor(view: HubView, project: string): Choice[] {
 }
 
 /** Whether a name in {@link accountsFor} is one a grant can be given to. */
-export function canBeGranted(view: HubView, project: string, username: string): boolean {
+export function canBeGranted(view: TeamView, project: string, username: string): boolean {
   const record = projectOf(view, project);
   const grant = record?.access.find((entry) => entry.username === username);
   return grant?.level !== "owner";
@@ -67,9 +67,9 @@ export function canBeGranted(view: HubView, project: string, username: string): 
  * The people whose access to a project can be taken away.
  *
  * The owner is not among them. Taking a project from the person it belongs to
- * would leave it reachable by nobody, and nothing in Hub hands it on.
+ * would leave it reachable by nobody, and nothing in Team hands it on.
  */
-export function holdersOf(view: HubView, project: string): Choice[] {
+export function holdersOf(view: TeamView, project: string): Choice[] {
   const record = projectOf(view, project);
   if (record === undefined) {
     return [];
@@ -80,7 +80,7 @@ export function holdersOf(view: HubView, project: string): Choice[] {
 }
 
 /** Every project, and what the named account may do to each. */
-export function projectsFor(view: HubView, username: string): Choice[] {
+export function projectsFor(view: TeamView, username: string): Choice[] {
   return view.projects.map((project) => {
     const grant = project.access.find((entry) => entry.username === username);
     const note =

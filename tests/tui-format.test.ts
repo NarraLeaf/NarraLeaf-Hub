@@ -100,8 +100,8 @@ describe("shortening", () => {
   });
 
   it("takes the scheme off an address, keeping what somebody has to type", () => {
-    expect(withoutScheme("lore://hub.example.com:41337")).toBe("hub.example.com:41337");
-    expect(withoutScheme("hub.example.com:41402")).toBe("hub.example.com:41402");
+    expect(withoutScheme("lore://team.example.com:41337")).toBe("team.example.com:41337");
+    expect(withoutScheme("team.example.com:41402")).toBe("team.example.com:41402");
   });
 });
 

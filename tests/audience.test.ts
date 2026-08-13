@@ -41,7 +41,7 @@ describe("the audience of a minted token", () => {
   });
 
   it("names the auth endpoint, so a client will sign in", () => {
-    const config = identityConfig({ authOrigin: "hub.example.com:41402" });
+    const config = identityConfig({ authOrigin: "team.example.com:41402" });
     const auth = authUrl(config);
 
     // Both spellings: the client's own message about a mismatch has been seen
@@ -51,30 +51,30 @@ describe("the audience of a minted token", () => {
   });
 
   it("names the data remote, which is where the work actually happens", () => {
-    const config = identityConfig({ authOrigin: "hub.example.com:41402", dataPort: 41337 });
+    const config = identityConfig({ authOrigin: "team.example.com:41402", dataPort: 41337 });
     const audience = tokenAudience(config);
 
     // Without these the client signs in, stores the token, and then fails every
     // repository operation with "Failed to resolve repository: No token
     // stored" — which reads like a missing token rather than a token the client
     // has decided it may not use here.
-    for (const [reason, entry] of Object.entries(spellingsOf("hub.example.com", 41337))) {
+    for (const [reason, entry] of Object.entries(spellingsOf("team.example.com", 41337))) {
       expect(audience, `the audience is missing ${reason}`).toContain(entry);
     }
   });
 
   it("names the data remote for every host the operator supplied", () => {
     const config = identityConfig({
-      authOrigin: "hub.example.com:41402",
-      hostnames: ["hub.example.com", "hub.internal", "10.0.0.7"],
+      authOrigin: "team.example.com:41402",
+      hostnames: ["team.example.com", "team.internal", "10.0.0.7"],
       dataPort: 41337,
     });
     const audience = tokenAudience(config);
 
     // A collaborator does not connect on 127.0.0.1. A token whose audience
-    // names only the host the Hub was configured with works on the Hub machine
+    // names only the host the Team server was configured with works on the Team server machine
     // and nowhere else, which passes every check that can be made locally.
-    for (const host of ["hub.example.com", "hub.internal", "10.0.0.7"]) {
+    for (const host of ["team.example.com", "team.internal", "10.0.0.7"]) {
       for (const [reason, entry] of Object.entries(spellingsOf(host, 41337))) {
         expect(audience, `the audience is missing ${reason}, for ${host}`).toContain(entry);
       }
@@ -82,10 +82,10 @@ describe("the audience of a minted token", () => {
   });
 
   it("follows the data port it was configured with", () => {
-    const config = identityConfig({ authOrigin: "hub.example.com:41402", dataPort: 42_000 });
+    const config = identityConfig({ authOrigin: "team.example.com:41402", dataPort: 42_000 });
 
-    expect(tokenAudience(config)).toContain("lore://hub.example.com:42000");
-    expect(tokenAudience(config)).not.toContain("lore://hub.example.com:41337");
+    expect(tokenAudience(config)).toContain("lore://team.example.com:42000");
+    expect(tokenAudience(config)).not.toContain("lore://team.example.com:41337");
   });
 
   it("covers the loopback when the operator named no host at all", () => {
@@ -99,9 +99,9 @@ describe("the audience of a minted token", () => {
 
   it("repeats nothing, because a repeated audience says nothing extra", () => {
     const config = identityConfig({
-      authOrigin: "hub.example.com:41402",
+      authOrigin: "team.example.com:41402",
       // The auth origin's own host named again, which an operator will do.
-      hostnames: ["hub.example.com", "hub.example.com"],
+      hostnames: ["team.example.com", "team.example.com"],
     });
     const audience = tokenAudience(config);
 
@@ -122,14 +122,14 @@ describe("the hosts an audience is written for", () => {
   it("is the auth origin's host, plus everything --hostname named", () => {
     expect(
       audienceHosts(
-        identityConfig({ authOrigin: "hub.example.com:41402", hostnames: ["hub.internal"] }),
+        identityConfig({ authOrigin: "team.example.com:41402", hostnames: ["team.internal"] }),
       ),
-    ).toEqual(["hub.example.com", "hub.internal"]);
+    ).toEqual(["team.example.com", "team.internal"]);
   });
 
   it("takes the host out of an origin however the origin is written", () => {
-    expect(hostOf("hub.example.com:41402")).toBe("hub.example.com");
-    expect(hostOf("hub.example.com")).toBe("hub.example.com");
+    expect(hostOf("team.example.com:41402")).toBe("team.example.com");
+    expect(hostOf("team.example.com")).toBe("team.example.com");
     expect(hostOf("127.0.0.1:41402")).toBe("127.0.0.1");
     // The brackets are what tell an address's colons from the port's.
     expect(hostOf("[::1]:41402")).toBe("[::1]");
@@ -137,7 +137,7 @@ describe("the hosts an audience is written for", () => {
   });
 
   it("writes the data remote as a client does", () => {
-    expect(dataRemoteUrl("hub.example.com", 41337)).toBe("lore://hub.example.com:41337");
+    expect(dataRemoteUrl("team.example.com", 41337)).toBe("lore://team.example.com:41337");
     expect(dataRemoteUrl("::1", 41337)).toBe("lore://[::1]:41337");
     expect(dataRemoteUrl("[::1]", 41337)).toBe("lore://[::1]:41337");
   });

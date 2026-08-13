@@ -19,22 +19,22 @@ import { Supervisor } from "../src/loreserver/supervisor.js";
  * The whole lifecycle against a real loreserver: download, checksum, unpack,
  * configure, run, poll for health, stop.
  *
- * It is skipped unless NLHUB_TEST_LORESERVER_ROOT names a directory it may
+ * It is skipped unless NLTEAM_TEST_LORESERVER_ROOT names a directory it may
  * write to, because it downloads tens of megabytes from GitHub and listens on
  * two ports. Nothing in the default test run does either.
  *
- *   NLHUB_TEST_LORESERVER_ROOT=/tmp/nlhub-it node node_modules/vitest/vitest.mjs run
+ *   NLTEAM_TEST_LORESERVER_ROOT=/tmp/nlteam-it node node_modules/vitest/vitest.mjs run
  *
  * The directory is created if it is not there, and each run works inside a
  * fresh subdirectory of it. Leaving one run's downloads in place across runs
  * is the point of naming a directory rather than using a temporary one: the
  * second run reuses the archive instead of fetching it again.
  */
-const configuredRoot = process.env["NLHUB_TEST_LORESERVER_ROOT"] ?? "";
+const configuredRoot = process.env["NLTEAM_TEST_LORESERVER_ROOT"] ?? "";
 
 // The binaries live in a per-user cache, and this test installs one, corrupts
 // it and deletes it. It must not do any of that to the copy an operator's own
-// Hub on this machine is running, so the cache is pointed inside the directory
+// Team on this machine is running, so the cache is pointed inside the directory
 // the test was given. Beside the per-run directories rather than inside one, so
 // that the reuse the comment above promises is what actually happens.
 if (configuredRoot !== "") {
@@ -68,7 +68,7 @@ describe.skipIf(configuredRoot === "")("loreserver, end to end", () => {
     // run on purpose, so a second run finds the build already unpacked.
     expect(install.binaryPath).toBe(layout.binaryPath);
     expect((await stat(layout.binaryPath)).isFile()).toBe(true);
-    // Epic Games' terms travel with the binary Hub redistributes.
+    // Epic Games' terms travel with the binary Team redistributes.
     expect((await stat(layout.licensePath)).size).toBeGreaterThan(0);
     expect((await stat(layout.noticesPath)).size).toBeGreaterThan(0);
 

@@ -4,9 +4,9 @@
  *
  * The ones that change something say what they did and what they did not do.
  * An operator who has just disabled somebody is entitled to know how far that
- * reaches, and it is not the same distance everywhere: Hub refuses every token
+ * reaches, and it is not the same distance everywhere: Team refuses every token
  * it has issued them from that moment on, while a data connection already open
- * is checked by loreserver's data plane rather than by Hub and may last until
+ * is checked by loreserver's data plane rather than by Team and may last until
  * the token it was opened with expires. src/identity/tokens.ts is where the two
  * lifetimes are set out, and why they are two.
  */
@@ -77,7 +77,7 @@ export async function userList(
     }
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -95,7 +95,7 @@ export async function userCreate(
   try {
     password = await readPassword();
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 2;
   }
 
@@ -112,7 +112,7 @@ export async function userCreate(
     stdout(`groups: ${user.groups.join(", ")}\n`);
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -142,7 +142,7 @@ export async function userDisable(
     );
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -162,7 +162,7 @@ export async function userEnable(
     stdout(`enabled ${user.username}\n`);
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
@@ -200,7 +200,7 @@ export async function userRevokeTokens(
     );
     return 0;
   } catch (error) {
-    stderr(`nlhub: ${describeError(error)}\n`);
+    stderr(`nlteam: ${describeError(error)}\n`);
     return 1;
   } finally {
     database.close();
