@@ -86,6 +86,9 @@ describe("mintToken", () => {
       sub: ADA.id,
       env: "local",
       name: "Ada Lovelace",
+      // The address a client writes into a revision beside the name. Absent
+      // from a token for an account that has none recorded, rather than empty.
+      email: "ada@example.com",
       preferred_username: "ada",
       groups: ["admin", "authors"],
       is_service_account: false,
@@ -217,4 +220,19 @@ describe("mintToken", () => {
 
     expect(verifyAgainstJwks(before.token, keys.jwks())).toBe(false);
   });
+  it("carries the account's address when it has one, and nothing when it does not", async () => {
+    // A client that takes its authorship from this token can write only what
+    // the token carries, and a revision's author is a name and an address
+    // everywhere else.
+    const keys = await store();
+    const config = identityConfig({ authOrigin: "hub.example.com" });
+
+    const withAddress = mintToken({ ...ADA, email: "ada@example.com" }, keys.signingKey, config);
+    expect(withAddress.claims.email).toBe("ada@example.com");
+
+    const without = mintToken({ ...ADA, email: undefined }, keys.signingKey, config);
+    expect(without.claims.email).toBeUndefined();
+    expect(Object.keys(without.claims)).not.toContain("email");
+  });
+
 });
