@@ -42,6 +42,8 @@ export interface TokenClaims {
   readonly sub: string;
   readonly env: string;
   readonly name: string;
+  /** The account's address, absent when it has none recorded. */
+  readonly email?: string;
   readonly preferred_username: string;
   readonly groups: readonly string[];
   readonly is_service_account: boolean;
@@ -213,6 +215,12 @@ export function mintToken(
     sub: user.id,
     env: config.env,
     name: user.displayName,
+    // Written only when the account has one. A revision's author is a name and
+    // an address by convention everywhere else, and a client that takes its
+    // authorship from this token can only write what the token carries: an
+    // account with no address recorded here authors as a bare name, which is
+    // true, rather than as a name and an invented address, which would not be.
+    ...(user.email === undefined ? {} : { email: user.email }),
     preferred_username: user.username,
     groups: user.groups,
     is_service_account: user.isServiceAccount,
