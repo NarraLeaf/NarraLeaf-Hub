@@ -12,6 +12,12 @@
  * The token goes to standard output on its own, so a script can capture it. The
  * description of what was minted goes to standard error, where it does not end
  * up inside an Authorization header.
+ *
+ * This is the only mint that writes the authority's fingerprint into the token,
+ * and the reason is where the token goes next: out of this machine, to somebody
+ * whose computer has never heard of this Hub. Carrying the fingerprint means
+ * the person pasting it is not also asked to obtain one, compare it by eye, and
+ * run a command against a file that only exists on the server.
  */
 import type { WriteText } from "./cli.js";
 import { identityConfig, type IdentityConfig } from "./identity/config.js";
@@ -23,6 +29,7 @@ import { storedTokenLifetimes } from "./identity/settings.js";
 import { mintToken } from "./identity/tokens.js";
 import { authenticate, SIGN_IN_REFUSED_MESSAGE } from "./identity/users.js";
 import { readPassword } from "./stdin.js";
+import { readAuthority } from "./tls/authority.js";
 
 export interface TokenMintOptions {
   readonly root: string;
@@ -67,7 +74,17 @@ export async function tokenMint(
     }
 
     const keys = await KeyStore.open(layout.keysDir);
-    const minted = mintToken(result.user, keys.signingKey, config);
+    // A Hub that has never been brought up has no authority to name. That is
+    // not a reason to refuse a token: the claim is a convenience for whoever
+    // pastes it, not something the token is invalid without, and the sign-in
+    // it is for would fail on a certificate long before the claim mattered.
+    const authority = await readAuthority(options.root).catch(() => undefined);
+    const minted = mintToken(
+      result.user,
+      keys.signingKey,
+      config,
+      authority === undefined ? {} : { authorityFingerprint: authority.fingerprint256 },
+    );
 
     stdout(`${minted.token}\n`);
     stderr(`header ${JSON.stringify(minted.header, null, 2)}\n`);

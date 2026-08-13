@@ -7,6 +7,7 @@ import { KeyStore, type JwksDocument } from "../src/identity/keys.js";
 import { identityLayout } from "../src/identity/layout.js";
 import { decodeToken, DisabledAccountError, mintToken } from "../src/identity/tokens.js";
 import type { UserRecord } from "../src/identity/users.js";
+import { ensureCertificates, readAuthority } from "../src/tls/authority.js";
 import { useTemporaryRoots } from "./temporary.js";
 
 const temporaryRoot = useTemporaryRoots("nlhub-tokens-");
@@ -127,6 +128,41 @@ describe("mintToken", () => {
     const { claims } = decodeToken(mintToken(robot, keys.signingKey, identityConfig()).token);
 
     expect(claims).toMatchObject({ is_service_account: true, groups: [] });
+  });
+
+  it("carries the fingerprint of a real authority, in the spelling trust prints", async () => {
+    const root = await temporaryRoot();
+    await ensureCertificates(root);
+    const authority = await readAuthority(root);
+    const keys = await store();
+
+    const { claims } = decodeToken(
+      mintToken(ADA, keys.signingKey, identityConfig(), {
+        authorityFingerprint: authority.fingerprint256,
+      }).token,
+    );
+
+    // Studio compares this against a fingerprint it computes from the
+    // certificate the endpoint presented, and a person may compare it against
+    // what `nlhub trust` printed. Both comparisons are of strings, so the
+    // spelling is part of the contract: colon-separated upper-case hex.
+    expect((claims as { authority_sha256?: string }).authority_sha256).toBe(
+      authority.fingerprint256,
+    );
+    expect(authority.fingerprint256).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+  });
+
+  it("leaves the fingerprint out of a token minted for Hub's own use", async () => {
+    const keys = await store();
+
+    const { claims } = decodeToken(
+      mintToken(ADA, keys.signingKey, identityConfig(), { purpose: "repository" }).token,
+    );
+
+    // Absent rather than empty. The claim exists for one reader on another
+    // machine; a token that never leaves this process has no such reader, and
+    // an empty string would look to Studio like an authority it should match.
+    expect(claims).not.toHaveProperty("authority_sha256");
   });
 
   it("expires a lifetime after it was issued, and says which epoch it was minted under", async () => {

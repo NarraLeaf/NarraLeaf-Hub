@@ -17,14 +17,20 @@
  *     idp                 which identity provider vouched for the user
  *     iat, exp
  *
- * One claim is Hub's own:
+ * Two claims are Hub's own:
  *
  *     token_epoch         the account's `token_epoch` when this was signed
+ *     authority_sha256    the fingerprint of this Hub's certificate authority
  *
- * It is there because Hub is a verifier too — it is the service loreserver asks
- * about a caller — and the epoch is what makes tokens minted before a
- * revocation refusable without keeping a list of every token ever issued.
- * loreserver ignores a claim it does not know.
+ * The first is there because Hub is a verifier too — it is the service
+ * loreserver asks about a caller — and the epoch is what makes tokens minted
+ * before a revocation refusable without keeping a list of every token ever
+ * issued. loreserver ignores a claim it does not know.
+ *
+ * The second is read by Studio, and it is what turns trusting this Hub from a
+ * paragraph of instructions into a decision somebody can make. See
+ * {@link MintOptions.authorityFingerprint} for why a fingerprint carried this
+ * way is worth as much as one read down a telephone.
  *
  * Nothing else is added. An extra claim is not refused, but one no verifier
  * reads would be something every token carries for nobody.
@@ -53,6 +59,15 @@ export interface TokenClaims {
   readonly exp: number;
   /** The account's `token_epoch` at the moment this was signed. */
   readonly token_epoch: number;
+  /**
+   * SHA-256 of this Hub's certificate authority, colon-separated upper-case
+   * hex — the same string `nlhub trust` prints.
+   *
+   * Absent on a token minted where no authority could be read, and on every
+   * token minted for Hub's own use: it is written for the one reader outside
+   * this program.
+   */
+  readonly authority_sha256?: string;
   /**
    * What the bearer may do to which resources.
    *
@@ -146,6 +161,27 @@ export interface MintOptions {
    * anything else opens no data connection and names none.
    */
   readonly resources?: readonly ResourceClaim[];
+  /**
+   * The fingerprint of this Hub's authority, for a token that is going to
+   * leave the building.
+   *
+   * Written by `nlhub token mint` and by nothing else, because the token that
+   * command prints is the only one that travels to a machine which may not yet
+   * trust this Hub. Every other mint here happens on a connection that already
+   * exists, and a fingerprint on those would be carried for nobody.
+   *
+   * **Why a fingerprint in a token is not circular reasoning.** Nothing
+   * verifies this claim's signature before acting on it — the key that would
+   * verify it is published behind the very certificate in question. What makes
+   * it worth something is where the token has been: an operator minted it and
+   * handed it to one person, over a telephone, a chat window or a piece of
+   * paper. That is the same out-of-band channel a spoken fingerprint would
+   * travel down, so a token carrying one is worth exactly what the spoken one
+   * was worth, and asks nobody to compare 95 characters by eye. Anything able
+   * to tamper with a token in transit could equally have dictated a
+   * fingerprint of its own.
+   */
+  readonly authorityFingerprint?: string;
 }
 
 /**
@@ -228,6 +264,12 @@ export function mintToken(
     iat: issuedAt,
     exp: issuedAt + lifetimeSeconds,
     token_epoch: user.tokenEpoch,
+    // Written only when the caller had an authority to name. A Hub whose
+    // storage root holds no certificates yet still mints tokens; they simply
+    // carry no fingerprint, and Studio falls back to asking a person for one.
+    ...(options.authorityFingerprint === undefined
+      ? {}
+      : { authority_sha256: options.authorityFingerprint }),
     // Written only when there are resources to name. An empty array is not the
     // same as an absent claim to a reader that treats the field as optional,
     // and a token for signing in is good for no resources rather than for none.

@@ -80,6 +80,16 @@ export async function trust(
       if (plan.support === "runs-here") {
         stdout("nlhub trust --install runs that for you.\n");
       }
+      // Said here because this is where an operator comes to find out what to
+      // send somebody, and the answer is that they have already sent it: a
+      // token from `nlhub token mint` carries this fingerprint, and Studio
+      // compares it against what the server presents and offers to install the
+      // authority itself. The command above is for machines without Studio on
+      // them - this one, another server, a script.
+      stdout(
+        "Studio does not need any of this. A token from nlhub token mint carries the\n" +
+          "fingerprint above, and Studio asks the person signing in for one confirmation.\n\n",
+      );
       stdout("Nothing has been changed.\n");
       return 0;
     }
