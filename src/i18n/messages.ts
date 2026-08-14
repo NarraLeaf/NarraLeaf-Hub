@@ -72,6 +72,13 @@ export interface PageMessages {
     readonly dismiss: string;
     readonly reconnecting: string;
     readonly language: string;
+    /**
+     * The two things the button on the rail does, and the two names it goes
+     * under. It is one button in one place, so it is labelled with what it is
+     * about to do rather than with what it is looking at.
+     */
+    readonly foldRail: string;
+    readonly unfoldRail: string;
   };
   readonly overview: {
     readonly projects: string;

@@ -7,15 +7,8 @@
  * machine that came set to English chose that, and reopening the tab must not
  * undo it.
  *
- * Kept in `localStorage` rather than in a cookie, because the server does not
- * need it: the page names its language on every request it makes (see
- * `LANGUAGE_HEADER`), and a cookie would send it on requests for the script and
- * the styles as well, which are the same bytes in every language.
- *
- * Nothing here throws. `localStorage` is unreachable in a few real situations —
- * a browser with storage switched off, a page opened in a way that makes it
- * unavailable — and a language switch that took the whole interface down with
- * it would be a poor trade for remembering a preference.
+ * A choice is remembered where this browser remembers things; see storage.ts
+ * for why that is `localStorage` and why nothing there can throw.
  */
 import { messagesFor } from "../../i18n/index.js";
 import {
@@ -26,11 +19,13 @@ import {
   type Locale,
 } from "../../i18n/locales.js";
 
+import { recall, remember } from "./storage.js";
+
 import type { Messages } from "../../i18n/messages.js";
 
 /** The language to open in. */
 export function openingLocale(): Locale {
-  const remembered = read(LANGUAGE_STORAGE_KEY);
+  const remembered = recall(LANGUAGE_STORAGE_KEY);
   if (isLocale(remembered)) {
     return remembered;
   }
@@ -56,22 +51,10 @@ export function openingLocale(): Locale {
  */
 export function rememberLocale(locale: Locale): void {
   document.documentElement.lang = locale;
-  try {
-    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
-  } catch {
-    // Not remembered, which costs one choice the next time this tab is opened.
-  }
+  remember(LANGUAGE_STORAGE_KEY, locale);
 }
 
 /** The catalogue for a locale, which is all any screen needs of this file. */
 export function languageOf(locale: Locale): Messages {
   return messagesFor(locale);
-}
-
-function read(key: string): string | undefined {
-  try {
-    return window.localStorage.getItem(key) ?? undefined;
-  } catch {
-    return undefined;
-  }
 }

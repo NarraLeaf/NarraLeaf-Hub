@@ -187,6 +187,11 @@ function isError(value: unknown): value is { error: string } {
   return typeof value === "object" && value !== null && typeof (value as { error?: unknown }).error === "string";
 }
 
+/** One header's value, where a repeated one would arrive as a list. */
+function headerText(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 /**
  * Whether a request that means to change something came from this interface.
  *
@@ -200,7 +205,12 @@ function originIsOurs(request: IncomingMessage): boolean {
   if (origin === undefined || origin === "null") {
     return origin === undefined;
   }
-  const host = request.headers.host;
+  // `host` over HTTP/1.1 and `:authority` over h2: one field under two names,
+  // and which one arrives is decided by the connection rather than by the
+  // request. Reading only the first refused every write from a browser, since
+  // a browser offered h2 takes it — and refused it as cross-site, which was
+  // the one explanation that could not be acted on.
+  const host = request.headers.host ?? headerText(request.headers[":authority"]);
   if (host === undefined) {
     return false;
   }

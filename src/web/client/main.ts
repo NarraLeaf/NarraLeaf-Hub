@@ -16,6 +16,7 @@ import {
   currentSession,
   fetchView,
   newDraft,
+  rememberRail,
   sendAction,
   signIn,
   signOut,
@@ -94,9 +95,9 @@ async function attemptSignIn(username: string, password: string): Promise<void> 
   }
 
   operator = answer.value.operator;
-  // A fresh draft, carrying the one part of the old one that is about the
+  // A fresh draft, carrying the two parts of the old one that are about the
   // person rather than about what they were doing.
-  draft = newDraft(draft.locale);
+  draft = newDraft(draft.locale, draft.railOpen);
   draw();
   await load();
 }
@@ -205,6 +206,14 @@ const handlers: Handlers = {
   },
   signOut: () => {
     void signOut(draft.locale).then(() => signedOut());
+  },
+  toggleRail: () => {
+    draft.railOpen = !draft.railOpen;
+    // Remembered here rather than in the draft, so that a browser that will not
+    // keep it still folds the rail: the preference is written down as a side
+    // effect of the state changing, and the state is what is drawn.
+    rememberRail(draft.railOpen);
+    draw();
   },
   setLocale: (locale: Locale) => {
     draft.locale = locale;

@@ -65,12 +65,16 @@ export interface GrpcTlsOptions {
 export interface GrpcServerOptions {
   readonly port: number;
   /**
-   * Answer HTTP/1.1 requests on this listener as well, with this handler.
+   * Answer what is not a gRPC call on this listener as well, with this handler.
    *
-   * Set only on the TLS endpoint, and only for the discovery document: a server that
-   * hands out one address has to answer something at it before the caller has a token,
-   * a session, or a reason to believe anything it is told. gRPC is untouched - it
-   * negotiates h2 and arrives as a stream, which this never sees.
+   * Set only on the TLS endpoint: a server that hands out one address has to answer
+   * something at it before the caller has a token, a session, or a reason to believe
+   * anything it is told — the discovery document, and the web interface behind it.
+   *
+   * Not "HTTP/1.1 requests". A browser offered h2 takes it, every time, so a
+   * handler that only saw HTTP/1.1 would never see a browser: what decides is
+   * whether a request is a gRPC call, not which version of HTTP carried it.
+   * See {@link isGrpcCall}.
    */
   readonly http1?: (request: IncomingMessage, response: ServerResponse) => void;
   /** Interface to listen on; the loopback by default. */
@@ -115,6 +119,25 @@ function headerValue(headers: IncomingHttpHeaders, name: string): string | undef
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Whether a request is a gRPC call, as opposed to something for {@link
+ * GrpcServerOptions.http1}.
+ *
+ * The protocol's own definition, and the only thing on this listener that can
+ * tell the two apart: a gRPC call is a POST whose content type is
+ * `application/grpc`, with or without a suffix naming its encoding. Everything
+ * else arriving here — a browser asking for the page, a Studio installation
+ * reading the discovery document, a health checker — is not one, whether it
+ * came over HTTP/1.1 or over h2.
+ *
+ * The version cannot be the test. Both protocols are offered on this port and
+ * h2 is offered first, so a browser negotiates h2 and its GET arrives as a
+ * stream beside the gRPC calls.
+ */
+function isGrpcCall(method: string | undefined, contentType: string | undefined): boolean {
+  return method === "POST" && (contentType ?? "").startsWith("application/grpc");
+}
+
 /** End a call with a status and no message. */
 function respondWithStatus(stream: ServerHttp2Stream, status: number, message: string): void {
   if (stream.destroyed || stream.headersSent) {
@@ -140,6 +163,17 @@ function respondWithMessage(stream: ServerHttp2Stream, message: Uint8Array): voi
   if (stream.destroyed || stream.headersSent) {
     return;
   }
+  // Ours has to be the only listener for that event. Where this listener also
+  // answers something other than gRPC it is created with `allowHTTP1`, and node
+  // then builds its HTTP/1.1 compatibility objects for every stream — including
+  // the gRPC ones, which nothing here hands to them. One of those objects
+  // attaches its own `wantTrailers` listener, which sends an empty set of
+  // trailers the moment a body ends. It runs first, because it was attached
+  // first, and then this one throws ERR_HTTP2_TRAILERS_ALREADY_SENT from inside
+  // node with nothing to catch it: the whole server goes down on the first call
+  // that answers with a message. The empty trailers would be wrong anyway — a
+  // gRPC client reads its status out of them and would have got none.
+  stream.removeAllListeners("wantTrailers");
   stream.respond({ ":status": 200, "content-type": "application/grpc" }, { waitForTrailers: true });
   stream.once("wantTrailers", () => {
     stream.sendTrailers({ "grpc-status": String(GRPC_OK) });
@@ -161,6 +195,15 @@ function handleStream(
   const method = options.methods[path];
   const assembler = new FrameAssembler();
   const messages: Buffer[] = [];
+
+  // Not a gRPC call, on a listener that has something else to answer with: it
+  // is left alone here and served by the `request` listener below, which is
+  // where an HTTP/1.1 request of the same kind arrives. Without this a browser
+  // — which takes the h2 on offer — would be told its GET is not a POST, in
+  // trailers it has no idea how to read, and the page would never load.
+  if (options.http1 !== undefined && !isGrpcCall(headerValue(headers, ":method"), headerValue(headers, "content-type"))) {
+    return;
+  }
 
   // A stream can fail at any point — the peer going away mid-call is ordinary.
   // Without this listener the failure is thrown at the process instead.
@@ -291,15 +334,18 @@ export class GrpcServer {
       handleStream(stream, headers, options);
     });
 
-    // Guarded on the version rather than trusted to fire only for HTTP/1.1: the compat
-    // layer emits `request` for an h2 stream as well, and that stream has already been
-    // answered by the handler above.
+    // The compat layer emits `request` for an h2 stream as well as for an
+    // HTTP/1.1 one, which is what makes this the one place both are answered.
+    // What is guarded against is answering a gRPC call twice: those arrive as
+    // streams, have already been answered above, and are the only requests here
+    // this handler must not see.
     const http1 = options.http1;
     if (http1 !== undefined) {
       server.on("request", (request, response) => {
-        if (request.httpVersionMajor === 1) {
-          http1(request as unknown as IncomingMessage, response as unknown as ServerResponse);
+        if (isGrpcCall(request.method, request.headers["content-type"])) {
+          return;
         }
+        http1(request as unknown as IncomingMessage, response as unknown as ServerResponse);
       });
     }
 

@@ -55,6 +55,8 @@ export const zh: Messages = {
       dismiss: "知道了",
       reconnecting: "正在重连",
       language: "语言",
+      foldRail: "收起侧栏",
+      unfoldRail: "展开侧栏",
     },
     overview: {
       projects: "个项目",

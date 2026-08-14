@@ -17,6 +17,7 @@ import { LANGUAGE_HEADER, type Locale } from "../../i18n/locales.js";
 import type { TeamView } from "../../tui/teamview.js";
 import type { Action } from "../../tui/state.js";
 import { openingLocale } from "./language.js";
+import { recall, remember } from "./storage.js";
 
 /** Who is signed in, as the server describes them. */
 export interface Operator {
@@ -41,6 +42,16 @@ export interface Draft {
    * its own is what lets a screen stay a function of the view and the draft.
    */
   locale: Locale;
+  /**
+   * Whether the rail is showing its words as well as its marks.
+   *
+   * Draft state, and remembered between tabs for the same reason the language
+   * is: it is about the person rather than about the server, and somebody who
+   * folded the rail away wants it folded the next time as well. A person who
+   * knows the five screens by their marks gets the room back; a person who does
+   * not never has to find out that a fold exists.
+   */
+  railOpen: boolean;
   /** What the last action answered with, shown until the next one. */
   notice?: string;
   /** Why the last thing asked for did not happen. */
@@ -55,17 +66,34 @@ export interface Draft {
   expanded: Set<string>;
 }
 
+/** Where a browser remembers whether the rail was folded down to its marks. */
+const RAIL_STORAGE_KEY = "nlteam.rail";
+
+/** The rail's state to open on, which is folded only if somebody folded it. */
+export function openingRail(): boolean {
+  return recall(RAIL_STORAGE_KEY) !== "folded";
+}
+
+/** Remember how the rail was left. */
+export function rememberRail(open: boolean): void {
+  remember(RAIL_STORAGE_KEY, open ? "open" : "folded");
+}
+
 /**
  * A draft with nothing in it, which is what a page starts on.
  *
- * The language is the one thing carried over when this is called again — after
- * signing in, for instance — because it is the only part of a draft that is
- * about the person rather than about what they were doing.
+ * The language and the rail are the two things carried over when this is called
+ * again — after signing in, for instance — because they are the only parts of a
+ * draft that are about the person rather than about what they were doing.
  */
-export function newDraft(locale: Locale = openingLocale()): Draft {
+export function newDraft(
+  locale: Locale = openingLocale(),
+  railOpen: boolean = openingRail(),
+): Draft {
   return {
     screen: "overview",
     locale,
+    railOpen,
     busy: false,
     live: false,
     fields: new Map(),
