@@ -1,4 +1,5 @@
-import { request as httpsRequest } from "node:https";
+import { request as httpsRequest, type RequestOptions } from "node:https";
+import type { ConnectionOptions } from "node:tls";
 
 import { describe, expect, it } from "vitest";
 
@@ -26,9 +27,19 @@ const DOCUMENT: DiscoveryDocument = {
  * the fixture. What the certificate is worth is `certificates.test.ts`.
  */
 function fetchOverTls(port: number, path: string): Promise<{ status: number; body: string; alpn: string }> {
+    // Typed as both halves on purpose: `https.request` hands its options to
+    // `tls.connect`, so `ALPNProtocols` is honoured, but @types/node describes
+    // https.RequestOptions without it and rejects it as an unknown property.
+    const options: RequestOptions & ConnectionOptions = {
+        host: "127.0.0.1",
+        port,
+        path,
+        rejectUnauthorized: false,
+        ALPNProtocols: ["http/1.1"],
+    };
     return new Promise((resolve, reject) => {
         const call = httpsRequest(
-            { host: "127.0.0.1", port, path, rejectUnauthorized: false, ALPNProtocols: ["http/1.1"] },
+            options,
             (response) => {
                 // Read while the socket is still attached: by `end` it is detached and null.
                 const alpn = (response.socket as { alpnProtocol?: string } | null)?.alpnProtocol ?? "";
