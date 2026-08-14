@@ -117,6 +117,16 @@ export interface SettingView {
   readonly group: string;
   readonly label: string;
   readonly value: string;
+  /**
+   * The number `value` was written from, where it was written from one.
+   *
+   * Present on the two lifetimes and nowhere else. It is here because the web
+   * interface writes a duration in its own language — "30 天" — and cannot get
+   * there from the words "30 days" without taking them apart again. The value
+   * stays the English the terminal interface draws, so nothing that reads this
+   * view has to learn a second way to read a row.
+   */
+  readonly seconds?: number;
   readonly editable: boolean;
   readonly restartRequired?: boolean;
   /** Why this value is worth thinking about, shown when it is being changed. */

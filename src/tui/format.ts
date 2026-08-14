@@ -5,13 +5,23 @@
  * measured against the moment the view was gathered, and a date is written in
  * UTC, so that a drawn screen is a function of the view it was drawn from. A
  * screen that depended on either could not be compared with anything.
+ *
+ * The few functions here that produce words rather than digits take a language,
+ * and default to English. Both interfaces draw from these: the terminal one is
+ * English and passes nothing, the web one passes whatever it is being read in.
+ * Splitting them into two sets would have been two answers to "how long ago was
+ * that", which is exactly the drift this file exists to prevent.
  */
+import { en } from "../i18n/en.js";
+
+import type { Messages } from "../i18n/messages.js";
 
 /**
  * What is drawn where a value is missing.
  *
  * One word everywhere, because the alternative is a screen where a blank cell
- * sometimes means nothing and sometimes means Team could not work it out.
+ * sometimes means nothing and sometimes means Team could not work it out. The
+ * other languages spell it in `format.unknown`, which is the same word.
  */
 export const UNKNOWN = "unknown";
 
@@ -36,39 +46,50 @@ function pad2(value: number): string {
  * clock a few seconds out is far more likely than a real event ahead of the
  * view, and "in -3s" helps nobody.
  */
-export function relativeTime(at: number | undefined, now: number): string {
+export function relativeTime(
+  at: number | undefined,
+  now: number,
+  messages: Messages = en,
+): string {
+  const words = messages.format;
   if (at === undefined) {
-    return UNKNOWN;
+    return words.unknown;
   }
   const elapsed = Math.max(0, now - at);
   if (elapsed < MINUTE) {
     const seconds = Math.floor(elapsed / SECOND);
-    return seconds === 0 ? "just now" : `${seconds}s ago`;
+    return seconds === 0 ? words.justNow : words.secondsAgo(seconds);
   }
   if (elapsed < HOUR) {
-    return `${Math.floor(elapsed / MINUTE)}m ago`;
+    return words.minutesAgo(Math.floor(elapsed / MINUTE));
   }
   if (elapsed < DAY) {
-    return `${Math.floor(elapsed / HOUR)}h ago`;
+    return words.hoursAgo(Math.floor(elapsed / HOUR));
   }
   if (elapsed < 2 * DAY) {
-    return "yesterday";
+    return words.yesterday;
   }
-  return `${Math.floor(elapsed / DAY)}d ago`;
+  return words.daysAgo(Math.floor(elapsed / DAY));
 }
 
-/** A date as 2026-07-02, in UTC. */
-export function shortDate(at: number | undefined): string {
+/**
+ * A date as 2026-07-02, in UTC.
+ *
+ * The digits are the same in every language, and deliberately so: this is the
+ * one date on screen somebody may have to hold up against a log line or a
+ * filename, and a locale that wrote it as 2026年7月2日 would break that.
+ */
+export function shortDate(at: number | undefined, messages: Messages = en): string {
   if (at === undefined) {
-    return UNKNOWN;
+    return messages.format.unknown;
   }
   return new Date(at).toISOString().slice(0, 10);
 }
 
 /** A time of day as 14:02:11, in UTC. */
-export function clockTime(at: number | undefined): string {
+export function clockTime(at: number | undefined, messages: Messages = en): string {
   if (at === undefined) {
-    return UNKNOWN;
+    return messages.format.unknown;
   }
   return new Date(at).toISOString().slice(11, 19);
 }
@@ -106,9 +127,9 @@ export function shortUptime(milliseconds: number): string {
  * The multiplier is 1024 throughout, which is what every other tool an
  * operator has open on the same directory reports.
  */
-export function fileSize(bytes: number | undefined): string {
+export function fileSize(bytes: number | undefined, messages: Messages = en): string {
   if (bytes === undefined) {
-    return UNKNOWN;
+    return messages.format.unknown;
   }
   if (bytes >= GIBIBYTE) {
     return `${(bytes / GIBIBYTE).toFixed(1)} GB`;

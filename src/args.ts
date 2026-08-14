@@ -61,6 +61,8 @@ export type Invocation =
       readonly healthPort: number;
       /** True when loreserver is to be told to demand a Team server token. */
       readonly identity: boolean;
+      /** True to serve the web interface on the TLS listener as well. */
+      readonly web: boolean;
       readonly overrides: IdentityOverrides;
     }
   /** Make an invitation and print its code once. */
@@ -453,7 +455,7 @@ function parseUp(argv: readonly string[]): Invocation {
   const result = readTokens(
     argv,
     ["--root", "--health-port", ...IDENTITY_OPTIONS],
-    ["--identity"],
+    ["--identity", "--web"],
     IDENTITY_LIST_OPTIONS,
   );
   if (result.kind !== "tokens") {
@@ -513,6 +515,7 @@ function parseUp(argv: readonly string[]): Invocation {
     dataPort,
     healthPort,
     identity: tokens.flags.has("--identity"),
+    web: tokens.flags.has("--web"),
     overrides,
   };
 }

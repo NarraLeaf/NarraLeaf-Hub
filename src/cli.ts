@@ -86,6 +86,8 @@ Every command takes --root <path>, the directory Team keeps its files in.
 Options for up:
       --health-port <port>  loreserver's HTTP health check port (default ${DEFAULT_PORTS.healthPort})
       --identity            Configure loreserver to demand a Team token
+      --web                 Serve the web interface on the auth endpoint, for
+                            accounts in the admin group
 
 Options for trust:
       --install             Trust this authority in this account's trust store
@@ -187,6 +189,7 @@ export async function run(
           dataPort: invocation.dataPort,
           healthPort: invocation.healthPort,
           identity: invocation.identity,
+          web: invocation.web,
           overrides: invocation.overrides,
           ...(options.signal === undefined ? {} : { signal: options.signal }),
         },

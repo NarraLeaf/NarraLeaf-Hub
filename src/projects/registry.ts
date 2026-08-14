@@ -119,12 +119,24 @@ const PROJECT_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
 /** Raised when a name cannot be a project name. */
 export class InvalidProjectNameError extends Error {
-  constructor(name: string) {
+  /**
+   * The name that was refused.
+   *
+   * Kept beside the message rather than only inside it, as every error here
+   * keeps its subject, so that something showing this to a person can write its
+   * own sentence about it — which is what the web interface does in a language
+   * that is not English. It cannot be called `name`: that is what an Error
+   * calls its class.
+   */
+  readonly projectName: string;
+
+  constructor(projectName: string) {
     super(
-      `"${name}" cannot be a project name. A project name is 1 to 64 characters of ` +
+      `"${projectName}" cannot be a project name. A project name is 1 to 64 characters of ` +
         "letters, digits, dot, dash and underscore, and starts with a letter or a digit.",
     );
     this.name = "InvalidProjectNameError";
+    this.projectName = projectName;
   }
 }
 

@@ -59,8 +59,17 @@ describe("parseArgs, up", () => {
       // Identity is off unless it is asked for: a loreserver that suddenly
       // demanded a token would lock out every client an operator already has.
       identity: false,
+      // And so is the web interface, for the same shape of reason: everything
+      // else `up` starts is something another program needs, and switching a
+      // page on by default would widen what an existing deployment answers on
+      // its public port without anybody deciding to.
+      web: false,
       overrides: {},
     });
+  });
+
+  it("serves the web interface when it is asked for", () => {
+    expect(parseArgs(["up", "--root", "/srv/team", "--web"])).toMatchObject({ web: true });
   });
 
   it("switches identity on, and carries the settings that go with it", () => {

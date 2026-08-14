@@ -27,5 +27,9 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests", "vitest.config.ts"]
+  "include": ["src", "tests", "vitest.config.ts"],
+
+  // The browser half is checked by tsconfig.web.json instead, which is the only
+  // place the DOM exists. See the note at the top of that file.
+  "exclude": ["src/web/client"]
 }

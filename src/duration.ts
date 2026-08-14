@@ -7,10 +7,18 @@
  * wrong the moment there was one of thirty days: the same arithmetic renders
  * that as 43200 minutes, which is correct and which nobody can compare with
  * what they set.
+ *
+ * The arithmetic is the same in every language; only the words differ, so the
+ * words come from a catalogue and the choosing of the unit stays here. English
+ * unless a caller says otherwise, because everything except the web interface —
+ * the commands, the terminal interface, the log — is English.
  */
+import { en } from "./i18n/en.js";
+
+import type { DurationUnit, Messages } from "./i18n/messages.js";
 
 /** The units a duration is written in, largest first. */
-const UNITS: readonly (readonly [string, number])[] = [
+const UNITS: readonly (readonly [DurationUnit, number])[] = [
   ["day", 24 * 60 * 60],
   ["hour", 60 * 60],
   ["minute", 60],
@@ -24,12 +32,11 @@ const UNITS: readonly (readonly [string, number])[] = [
  * minutes here and not "2 hours", because the reader may be holding it up
  * against a number they typed.
  */
-export function describeDuration(seconds: number): string {
+export function describeDuration(seconds: number, messages: Messages = en): string {
   for (const [unit, size] of UNITS) {
     if (seconds >= size && seconds % size === 0) {
-      const amount = seconds / size;
-      return `${amount} ${unit}${amount === 1 ? "" : "s"}`;
+      return messages.format.duration(seconds / size, unit);
     }
   }
-  return `${seconds} seconds`;
+  return messages.format.duration(seconds, "second");
 }

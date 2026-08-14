@@ -19,7 +19,7 @@ import {
   type IdentityConfig,
 } from "./identity/config.js";
 import { openMigratedDatabase } from "./identity/database.js";
-import { serveDiscovery } from "./identity/discovery.js";
+import type { DiscoveryDocument } from "./identity/discovery.js";
 import { IdentityEndpoint } from "./identity/endpoint.js";
 import { createInvite, withdrawUnusedBootstrapInvites } from "./identity/invites.js";
 import { KeyStore } from "./identity/keys.js";
@@ -44,9 +44,13 @@ import {
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { Supervisor, describeExit } from "./loreserver/supervisor.js";
 import { startAuthorizationService } from "./projects/service.js";
+import { ViewPublisher } from "./publisher.js";
 import { ensureCertificates, type TeamAuthority } from "./tls/authority.js";
 import { trustCommandFor } from "./tls/trust.js";
 import { VERSION } from "./version.js";
+import { OPERATOR_ROLE, type ApiOptions } from "./web/api.js";
+import { webHandler } from "./web/router.js";
+import { SessionStore } from "./web/sessions.js";
 
 export interface UpOptions extends LoreserverPorts {
   /** The storage root; everything Team writes goes underneath it. */
@@ -66,6 +70,17 @@ export interface UpOptions extends LoreserverPorts {
    * tokens that do not.
    */
   readonly overrides?: Partial<IdentityConfig>;
+  /**
+   * True to serve the web interface on the TLS listener beside the auth
+   * endpoint.
+   *
+   * Off unless asked for. Everything else this command starts is something
+   * loreserver or a Studio installation needs; the web interface is something a
+   * person opens, and switching one on by default would widen what an existing
+   * deployment answers on its public port without anybody deciding to. The
+   * discovery document is served either way.
+   */
+  readonly web?: boolean;
   /**
    * Aborted to bring the command down. Without one, `up` runs until
    * loreserver can no longer be kept alive.
@@ -173,6 +188,7 @@ export async function up(
   let authorization: GrpcServer | undefined;
   let authorizationTls: GrpcServer | undefined;
   let database: DatabaseSync | undefined;
+  let publisher: ViewPublisher | undefined;
 
   try {
     const artifact = resolveArtifact();
@@ -235,6 +251,46 @@ export async function up(
       );
     }
 
+    // The one address an author is given resolves to the listener below. It
+    // answers before they have an account, which is the point: a server that
+    // cannot say where to sign in is a server somebody has to be told about in
+    // a chat message.
+    const discovery: DiscoveryDocument = {
+      protocol: 1,
+      name: hostOf(config.authOrigin),
+      auth: { required: options.identity === true, url: authUrl(config) },
+      data: { url: dataRemoteUrl(hostOf(config.authOrigin), config.dataPort) },
+      authority: { sha256: certificates.authority.fingerprint256 },
+      version: VERSION,
+    };
+
+    // The web interface goes on that same listener rather than a port of its
+    // own, so that the certificate an operator has already been asked to trust
+    // is the one their browser is asked about. src/web/router.ts sets out what
+    // else that decides. It reads the same views the terminal interface draws
+    // and carries out the same actions, through src/publisher.ts and
+    // src/actions.ts, so there is no second account of this server anywhere.
+    let api: ApiOptions | undefined;
+    if (options.web === true) {
+      const views = new ViewPublisher({
+        root: options.root,
+        database,
+        config,
+        healthPort: ports.healthPort,
+        fingerprint: certificates.authority.fingerprint256,
+      });
+      publisher = views;
+      api = {
+        context: views.context,
+        sessions: new SessionStore(),
+        gather: () => views.gather(),
+        request: () => views.request(),
+        subscribe: (listen) => views.subscribe(listen),
+        log: (line) => stdout(`${line}\n`),
+      };
+      views.start();
+    }
+
     authorizationTls = await startAuthorizationService({
       ...service,
       port: config.authTlsPort,
@@ -245,27 +301,20 @@ export async function up(
       anyInterface: true,
       portOption: "--auth-tls-port",
       tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
-      // The one address an author is given resolves here. It answers before they have
-      // an account, which is the point: a server that cannot say where to sign in is a
-      // server somebody has to be told about in a chat message.
-      http1: (request, response) =>
-        serveDiscovery(
-          {
-            protocol: 1,
-            name: hostOf(config.authOrigin),
-            auth: { required: options.identity === true, url: authUrl(config) },
-            data: { url: dataRemoteUrl(hostOf(config.authOrigin), config.dataPort) },
-            authority: { sha256: certificates.authority.fingerprint256 },
-            version: VERSION,
-          },
-          request,
-          response,
-        ),
+      http1: webHandler(discovery, api === undefined ? {} : { api }),
     });
     stdout(
       `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +
         `reached as ${authUrl(config)}\n`,
     );
+    if (api === undefined) {
+      stdout("the web interface is off; --web serves it on that same port\n");
+    } else {
+      stdout(
+        `the web interface is on ${authUrl(config)}, for accounts in the ` +
+          `${OPERATOR_ROLE} group\n`,
+      );
+    }
     stdout(`its certificate authority is ${certificates.authority.fingerprint256}\n`);
     stdout(
       "a machine that has not trusted this server cannot connect: compare\n" +
@@ -423,6 +472,9 @@ export async function up(
     if (authorizationTls !== undefined) {
       await authorizationTls.close();
     }
+    // It holds a timer and a reader that would go on reading repositories
+    // through a database that is about to be closed under it.
+    publisher?.stop();
     database?.close();
   }
 }
