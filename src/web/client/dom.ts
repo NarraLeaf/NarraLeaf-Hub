@@ -43,6 +43,15 @@ export interface Attributes {
   readonly expanded?: boolean;
   /** That there is a list behind it at all, as `aria-haspopup`. */
   readonly haspopup?: boolean;
+  /**
+   * What this control is called, as `aria-label`.
+   *
+   * For the controls whose word is not on screen: a rail folded down to icons,
+   * and the button that folds it. Everything else names itself with the text
+   * inside it, and an `aria-label` there would be a second name that could
+   * drift from the first.
+   */
+  readonly label?: string;
   readonly autocomplete?: string;
   readonly autofocus?: boolean;
   /** Named so a redraw can put the cursor back where it was. */
@@ -104,6 +113,9 @@ export function h(tag: string, attributes: Attributes = {}, ...children: Child[]
   if (attributes.haspopup === true) {
     element.setAttribute("aria-haspopup", "true");
   }
+  if (attributes.label !== undefined) {
+    element.setAttribute("aria-label", attributes.label);
+  }
   // Set as a property rather than an attribute: an input's attribute is its
   // starting value, and a redraw that set it would leave a field showing one
   // thing and holding another.
@@ -157,12 +169,32 @@ const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
  * the text it sits beside — `currentColor` in the stylesheet — so it is right
  * in both themes without being drawn twice.
  *
- * `aria-hidden`, always: every icon here sits beside the word it illustrates,
- * and an icon a screen reader also announced would say that word twice.
+ * `aria-hidden`, always: an icon here either sits beside the word it
+ * illustrates, and one a screen reader also announced would say that word
+ * twice, or it stands alone on a control that carries the word as its
+ * {@link Attributes.label}, where the mark is the thing that is not the name.
  */
 export function icon(className: string, ...paths: readonly string[]): SVGSVGElement {
+  return iconIn(ICON_GRID, className, ...paths);
+}
+
+/** The grid the marks drawn for this interface are laid out on. */
+const ICON_GRID = "0 0 16 16";
+
+/**
+ * The same, on a grid of its own.
+ *
+ * One mark here is not ours to redraw: the logo arrives with the coordinates it
+ * was drawn at, and it keeps them. Rescaling a brand mark by hand onto somebody
+ * else's grid is how a logo ends up nearly right.
+ */
+export function iconIn(
+  viewBox: string,
+  className: string,
+  ...paths: readonly string[]
+): SVGSVGElement {
   const svg = document.createElementNS(SVG_NAMESPACE, "svg");
-  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("viewBox", viewBox);
   svg.setAttribute("class", className);
   svg.setAttribute("aria-hidden", "true");
   for (const definition of paths) {

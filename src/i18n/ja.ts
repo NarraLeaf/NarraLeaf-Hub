@@ -50,6 +50,8 @@ export const ja: Messages = {
       dismiss: "閉じる",
       reconnecting: "再接続中",
       language: "言語",
+      foldRail: "サイドバーを折りたたむ",
+      unfoldRail: "サイドバーを開く",
     },
     overview: {
       projects: "プロジェクト",

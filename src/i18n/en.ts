@@ -53,6 +53,8 @@ export const en: Messages = {
       dismiss: "Dismiss",
       reconnecting: "reconnecting",
       language: "Language",
+      foldRail: "Collapse sidebar",
+      unfoldRail: "Expand sidebar",
     },
     overview: {
       projects: "projects",

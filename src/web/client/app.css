@@ -18,6 +18,14 @@
  * as text. What is on screen is what the server said, and the interface tries
  * to be the part nobody notices.
  *
+ * Marks. There are icons, and they are all in one place — the rail, the four
+ * numbers on the overview, and a handful of controls — because each of them
+ * names a thing rather than decorating one. They are strokes in the colour of
+ * the text beside them, never a second colour and never a fill, so a mark
+ * cannot become the loudest thing on a screen. Nothing that is a row of data
+ * has one: a table with a mark at the head of every row is a table nobody can
+ * scan. See icons.ts for what that rules out.
+ *
  * One scale for everything. Text is 13px with one smaller step at 11px, and
  * there is no third. Controls are 28px or 36px tall and never anything else, so
  * a button beside an input beside a select line up without anybody nudging
@@ -114,13 +122,63 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+   The marks
+
+   One rule for all of them. Every icon in this interface is drawn on the same
+   sixteen-pixel grid with the same weight of stroke, takes its colour from the
+   text it sits with, and is the same size everywhere but the two places that
+   say otherwise below.
+
+   `display: block` matters: an inline SVG sits on the text baseline and leaves
+   a descender's worth of space under itself, which is enough to put a mark a
+   pixel above the word beside it.
+   -------------------------------------------------------------------------- */
+
+.icon {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-globe {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.1;
+  opacity: 0.75;
+}
+
+.icon-chevron {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.4;
+  opacity: 0.7;
+  transition: transform 120ms ease;
+}
+
+/* --------------------------------------------------------------------------
    The shell
    -------------------------------------------------------------------------- */
 
+/* The rail has two widths and moves between them, which is the one animation in
+   this file that is not a hover: it is a layout changing under somebody's hands,
+   and a jump would leave them to work out what happened to the page. Grid track
+   sizes interpolate, so the whole shell moves in one piece rather than the rail
+   sliding out from under the screen beside it. */
 .shell {
   display: grid;
   grid-template-columns: 208px 1fr;
   height: 100%;
+  transition: grid-template-columns 160ms ease;
+}
+
+.shell.is-folded {
+  grid-template-columns: 56px 1fr;
 }
 
 .rail {
@@ -130,19 +188,80 @@ body {
   padding: 12px 8px;
   background: var(--surface-sunken);
   border-right: 1px solid var(--edge);
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
+/* The leaf sits on the same vertical line as the five marks below it, and the
+   button that folds the rail sits at the far end of it. Everything in this
+   column is on one of two lines — the marks, and the words beside them — and
+   the padding here is whatever it takes to keep that true. */
 .rail-head {
-  padding: 4px 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 12px 8px;
+}
+
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rail-brand-text {
+  min-width: 0;
+}
+
+/* The logo, and the one place a brand colour is used as a brand colour rather
+   than to mark a control. It is what the rail is still called when it has been
+   folded down to marks.
+
+   Its own grid and its own stroke: the mark is 96 units across where everything
+   else here is 16, so the weight that reads as this leaf is 5 rather than 1.25.
+   Both numbers come from src/brand.ts and neither is a choice made here. Two
+   pixels wider than a mark, because at the same size a stroke this fine beside
+   the heavier navigation marks reads as a mistake rather than as a logo. */
+.icon-brand {
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
+  stroke-width: 5;
 }
 
 .rail-title {
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .rail-note {
   color: var(--fg-subtle);
+  white-space: nowrap;
+}
+
+/* The button that folds the rail. Quiet until it is wanted: it is the least
+   important thing in this column and it is beside the name of the program. */
+.rail-fold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--fg-subtle);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.rail-fold:hover {
+  background: var(--fill);
+  color: var(--fg);
 }
 
 .rail-items {
@@ -154,6 +273,7 @@ body {
 .rail-item {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-height: var(--control-sm);
   padding: 0 8px;
   border: 0;
@@ -162,7 +282,16 @@ body {
   color: var(--fg-muted);
   font: inherit;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+/* A mark on a screen that is not open is quieter than the word beside it, so a
+   column of five reads as a list rather than as five things asking to be
+   pressed. */
+.rail-item .icon {
+  opacity: 0.7;
 }
 
 .rail-item:hover {
@@ -170,23 +299,118 @@ body {
   color: var(--fg);
 }
 
+.rail-item:hover .icon {
+  opacity: 0.85;
+}
+
+/* Where you are, said twice: the row is filled in, and its mark is the one
+   coloured thing in the column. Twice because the fill alone is nearly
+   invisible in bright sun on a laptop, and colour alone is nothing at all to
+   somebody who cannot see this particular blue. */
 .rail-item.is-current {
   background: var(--fill-strong);
   color: var(--fg);
 }
 
+.rail-item.is-current .icon {
+  color: var(--primary);
+  opacity: 1;
+}
+
+.rail-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .rail-foot {
   margin-top: auto;
-  padding: 12px 8px 4px;
+  padding: 12px 0 4px;
   border-top: 1px solid var(--edge);
   display: flex;
   flex-direction: column;
   gap: 4px;
-  align-items: flex-start;
+  align-items: stretch;
+}
+
+/* The disc is wider than a mark, and it is pulled left by the difference so
+   that it is centred on the same line the marks are and the name beside it
+   starts where the five words above it start. */
+.rail-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 8px 4px;
+}
+
+.rail-user-text {
+  min-width: 0;
 }
 
 .rail-user-name {
   color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The first letter of whoever is signed in. It is not a photograph and there is
+   nowhere to upload one: it is here so that a folded rail still says which
+   account this window is looking at, which is the thing an operator with two
+   servers open most needs to know. */
+.rail-face {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--fill-strong);
+  color: var(--fg-muted);
+  font-size: var(--text-small);
+  line-height: 1;
+}
+
+/* Folded: the marks, centred, and nothing else. The words are gone from the
+   document rather than hidden in it — see the rail in screens.ts — so there is
+   nothing here to un-hide, only room to take back. */
+.rail.is-folded {
+  padding: 12px 8px;
+  align-items: center;
+}
+
+.rail.is-folded .rail-head {
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 12px;
+}
+
+.rail.is-folded .rail-fold {
+  margin-left: 0;
+}
+
+.rail.is-folded .rail-items {
+  align-self: stretch;
+}
+
+.rail.is-folded .rail-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.rail.is-folded .rail-foot {
+  align-self: stretch;
+}
+
+.rail.is-folded .rail-user {
+  justify-content: center;
+  padding: 0 0 4px;
+}
+
+/* Nothing to align with in a folded rail: the disc is the whole row. */
+.rail.is-folded .rail-face {
+  margin-left: 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -233,37 +457,6 @@ body {
   color: var(--fg);
 }
 
-/* The globe, and the chevron beside it. Both are drawn rather than fetched —
-   the page loads no images — and both take their colour from the text they sit
-   with, so neither is drawn twice for the two themes.
-
-   `display: block` on each: an inline SVG sits on the text baseline and leaves
-   a descender's worth of space under itself, which is the other half of why
-   they looked a pixel high. */
-.language-globe,
-.language-caret {
-  display: block;
-  flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.language-globe {
-  width: 14px;
-  height: 14px;
-  stroke-width: 1.1;
-  opacity: 0.75;
-}
-
-.language-caret {
-  width: 12px;
-  height: 12px;
-  stroke-width: 1.4;
-  opacity: 0.7;
-}
-
 .language-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -274,7 +467,7 @@ body {
    points the way the list will open and open it points the way the list will
    fold back. A control that says "down" and then opens upward is the one thing
    this is not allowed to do. */
-.language.is-open .language-caret {
+.language.is-open .icon-chevron {
   transform: rotate(180deg);
 }
 
@@ -432,6 +625,13 @@ body {
 
 .card.is-collapsed {
   padding: 0;
+  transition: border-color 120ms ease;
+}
+
+/* A shut project is a thing to be opened, and says so under the cursor by its
+   edge rather than by growing a shadow or lifting off the page. */
+.card.is-collapsed:hover {
+  border-color: var(--edge-strong);
 }
 
 .columns > .card {
@@ -499,10 +699,22 @@ body {
 }
 
 .stat {
+  position: relative;
   background: var(--surface-raised);
   border: 1px solid var(--edge);
   border-radius: var(--radius-surface);
   padding: 12px 16px;
+}
+
+/* In the corner, at the weight of the label rather than of the number. The
+   number is what somebody came to read; the mark is only there to say which of
+   four boxes this one is, from across the desk. */
+.stat > .icon {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  color: var(--fg-subtle);
+  opacity: 0.55;
 }
 
 .stat-value {
@@ -615,18 +827,23 @@ body {
   margin-left: auto;
 }
 
-.caret {
-  width: 0;
-  height: 0;
-  flex: 0 0 auto;
-  border-left: 5px solid var(--fg-subtle);
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
+/* The same chevron the language control uses, and the same rule: it is drawn
+   pointing down, and a project that is shut turns it to point the way it will
+   open. One mark, one direction, one place it is turned. */
+.disclosure-caret {
+  display: flex;
+  flex: none;
+  color: var(--fg-subtle);
+  transform: rotate(-90deg);
   transition: transform 120ms ease;
 }
 
-.caret.is-open {
-  transform: rotate(90deg);
+.disclosure-caret.is-open {
+  transform: none;
+}
+
+.disclosure:hover .disclosure-caret {
+  color: var(--fg-muted);
 }
 
 .disclosure-body {
@@ -660,6 +877,14 @@ body {
 
 .table tr:last-child td {
   border-bottom: 0;
+}
+
+/* The row under the cursor, marked so that an eye crossing six columns of a
+   decision arrives in the row it started in. On the cell rather than the row:
+   with collapsed borders a background on a `tr` is painted under the borders in
+   some browsers and over them in others. */
+.table tbody tr:hover td {
+  background: var(--fill);
 }
 
 .cell-note {
@@ -857,41 +1082,69 @@ body {
 }
 
 
-/* A narrow window puts the rail on top rather than shrinking it to nothing. */
+/* A narrow window puts the rail on top rather than shrinking it to nothing.
+   Folded or not, it is a row here, and folding it means the same thing it means
+   in a column: the marks and not the words. What it stops meaning is a width,
+   because there is no column left to be narrow. */
 @media (max-width: 720px) {
-  .shell {
+  .shell,
+  .shell.is-folded {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }
 
-  .rail {
+  .rail,
+  .rail.is-folded {
     flex-direction: row;
     align-items: center;
     gap: 12px;
+    padding: 8px 12px;
     border-right: 0;
     border-bottom: 1px solid var(--edge);
     overflow-x: auto;
   }
 
   .rail-head,
-  .rail-foot {
+  .rail-foot,
+  .rail.is-folded .rail-head,
+  .rail.is-folded .rail-foot {
+    flex-direction: row;
+    align-items: center;
     padding: 0;
     border: 0;
     margin: 0;
   }
 
-  .rail-items {
+  .rail-items,
+  .rail.is-folded .rail-items {
     flex-direction: row;
+    align-self: center;
   }
 
-  .rail-foot {
+  .rail-foot,
+  .rail.is-folded .rail-foot {
     margin-left: auto;
-    flex-direction: row;
-    align-items: center;
+    align-self: center;
     gap: 8px;
   }
 
+  .rail-user,
+  .rail.is-folded .rail-user {
+    padding: 0;
+  }
+
+  .rail-face,
+  .rail.is-folded .rail-face {
+    margin-left: 0;
+  }
+
   .rail-user-name {
+    display: none;
+  }
+
+  /* The name of the program goes: on a phone the rail is a strip of controls,
+     and the leaf beside them says as much as the words did. */
+  .rail-brand-text {
     display: none;
   }
 
@@ -902,5 +1155,20 @@ body {
   .language.is-head .language-list {
     left: auto;
     right: 0;
+  }
+}
+
+/* Somebody who has asked their machine for less movement gets none. Every
+   transition in this file is either a hover or the rail changing width, and
+   none of them is carrying information that the state they end on does not: the
+   rail is folded, the chevron points the other way, the row is filled in. */
+@media (prefers-reduced-motion: reduce) {
+  .shell,
+  .rail-item,
+  .rail-fold,
+  .card.is-collapsed,
+  .disclosure-caret,
+  .icon-chevron {
+    transition: none;
   }
 }

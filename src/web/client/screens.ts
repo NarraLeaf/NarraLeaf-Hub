@@ -38,7 +38,9 @@ import type {
   UserView,
 } from "../../tui/teamview.js";
 import type { Draft, Operator, Screen } from "./api.js";
-import { group, h, icon, type Child } from "./dom.js";
+import { group, h, type Child } from "./dom.js";
+import * as marks from "./icons.js";
+import type { Mark } from "./icons.js";
 
 /** Everything a screen can ask the page to do. */
 export interface Handlers {
@@ -49,16 +51,24 @@ export interface Handlers {
   readonly dismiss: () => void;
   readonly signOut: () => void;
   readonly setLocale: (locale: Locale) => void;
+  /** Fold the rail down to its marks, or unfold it. */
+  readonly toggleRail: () => void;
 }
 
-/** The rail, in the order it is read. */
-function railScreens(m: Messages): ReadonlyArray<{ screen: Screen; label: string }> {
+/**
+ * The rail, in the order it is read, and the mark each screen goes by.
+ *
+ * The mark is not decoration: it is the whole of the rail once it is folded,
+ * and it is what the same thing is called elsewhere — the overview's first
+ * number carries the same folder that projects does. See icons.ts.
+ */
+function railScreens(m: Messages): ReadonlyArray<{ screen: Screen; label: string; mark: Mark }> {
   return [
-    { screen: "overview", label: m.page.nav.overview },
-    { screen: "projects", label: m.page.nav.projects },
-    { screen: "members", label: m.page.nav.members },
-    { screen: "decisions", label: m.page.nav.decisions },
-    { screen: "settings", label: m.page.nav.settings },
+    { screen: "overview", label: m.page.nav.overview, mark: marks.overview },
+    { screen: "projects", label: m.page.nav.projects, mark: marks.projects },
+    { screen: "members", label: m.page.nav.members, mark: marks.members },
+    { screen: "decisions", label: m.page.nav.decisions, mark: marks.decisions },
+    { screen: "settings", label: m.page.nav.settings, mark: marks.settings },
   ];
 }
 
@@ -164,10 +174,19 @@ function fieldValue(draft: Draft, key: string, fallback = ""): string {
 // Overview
 // ---------------------------------------------------------------------------
 
-function statistic(value: string, label: string): HTMLElement {
+/**
+ * One number, with the mark of the thing it counts.
+ *
+ * The same mark the rail uses for that screen, in the corner and quiet, so that
+ * "projects" here and "projects" there are visibly the same word. Two of these
+ * count things that have no screen of their own — invitations and signing
+ * keys — and those marks appear nowhere else, which is what they are for.
+ */
+function statistic(value: string, label: string, mark: Mark): HTMLElement {
   return h(
     "div",
     { class: "stat" },
+    mark(),
     h("div", { class: "stat-value" }, value),
     h("div", { class: "stat-label" }, label),
   );
@@ -182,10 +201,10 @@ function overview(view: TeamView, handlers: Handlers, m: Messages): HTMLElement 
     h(
       "div",
       { class: "stats" },
-      statistic(groupDigits(view.projects.length), words.projects),
-      statistic(groupDigits(view.users.length), words.members),
-      statistic(groupDigits(view.invitesLive), words.invitesLive),
-      statistic(groupDigits(view.signingKeys), words.signingKeys),
+      statistic(groupDigits(view.projects.length), words.projects, marks.projects),
+      statistic(groupDigits(view.users.length), words.members, marks.members),
+      statistic(groupDigits(view.invitesLive), words.invitesLive, marks.invites),
+      statistic(groupDigits(view.signingKeys), words.signingKeys, marks.keys),
     ),
     h(
       "div",
@@ -341,8 +360,13 @@ function projectCard(
 
   const head = h(
     "button",
-    { class: "disclosure", type: "button", onClick: () => handlers.toggle(key) },
-    h("span", { class: `caret${open ? " is-open" : ""}` }),
+    {
+      class: "disclosure",
+      type: "button",
+      expanded: open,
+      onClick: () => handlers.toggle(key),
+    },
+    h("span", { class: `disclosure-caret${open ? " is-open" : ""}` }, marks.chevron()),
     h("span", { class: "disclosure-name" }, project.name),
     h("span", { class: "disclosure-note" }, project.owner),
     h(
@@ -809,36 +833,6 @@ function body(view: TeamView, draft: Draft, handlers: Handlers, m: Messages): HT
  */
 export const LANGUAGE_MENU = "language-menu";
 
-/**
- * A globe: the one mark that means "language" without being written in one.
- *
- * Three strokes — the outline, the equator and a meridian — because at fourteen
- * pixels anything more is a grey smudge. It is the only icon in this interface,
- * and it is here because this is the only control whose label is deliberately
- * not in the language of the rest of the page.
- */
-function globe(): SVGSVGElement {
-  return icon(
-    "language-globe",
-    "M14.5 8a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z",
-    "M1.5 8h13",
-    "M8 1.5c1.8 1.8 2.8 4 2.8 6.5S9.8 12.7 8 14.5C6.2 12.7 5.2 10.5 5.2 8S6.2 3.3 8 1.5Z",
-  );
-}
-
-/**
- * The chevron beside it, drawn pointing down.
- *
- * A path rather than a rotated square with two borders, which is the usual
- * trick and which nobody can read: what direction a rotated corner ends up
- * pointing in is four lines of arithmetic away from what the stylesheet says,
- * and it was pointing the wrong way. Here it points down, the stylesheet turns
- * it a half-turn when it should point up, and both facts are legible.
- */
-function caret(): SVGSVGElement {
-  return icon("language-caret", "M4.5 6.5 8 10l3.5-3.5");
-}
-
 function languageMenu(
   draft: Draft,
   handlers: Handlers,
@@ -862,9 +856,9 @@ function languageMenu(
         focusKey: LANGUAGE_MENU,
         onClick: () => handlers.toggle(LANGUAGE_MENU),
       },
-      globe(),
+      marks.globe(),
       h("span", { class: "language-name" }, m.name),
-      caret(),
+      marks.chevron(),
     ),
     open &&
       h(
@@ -885,6 +879,120 @@ function languageMenu(
   );
 }
 
+/**
+ * The first letter of a name, for the disc in the corner of the rail.
+ *
+ * `Array.from` rather than `name[0]`: the first *character* of a name may be
+ * two units of a string — an emoji, one of the rarer Chinese characters — and
+ * taking half of one leaves a replacement glyph where a person's initial was.
+ * Not uppercased either, because most of the alphabets this runs in have no
+ * such thing and the two that do are already written the way the person wrote
+ * them.
+ */
+function initial(name: string): string {
+  return Array.from(name.trim())[0] ?? "?";
+}
+
+/**
+ * The rail: five screens, folded or not.
+ *
+ * Folded, every button here is its mark and nothing else, and each carries the
+ * word it lost as its label — which is what a screen reader reads out and what
+ * the cursor rests on. The words are dropped from the document rather than
+ * hidden in it, so that nothing in the rail is a target for a search on a page
+ * where it cannot be seen.
+ */
+function rail(
+  view: TeamView,
+  draft: Draft,
+  operator: Operator,
+  handlers: Handlers,
+  m: Messages,
+): HTMLElement {
+  const open = draft.railOpen;
+  const words = m.page.shell;
+  const fold = open ? words.foldRail : words.unfoldRail;
+  return h(
+    "nav",
+    { class: `rail${open ? "" : " is-folded"}` },
+    h(
+      "div",
+      { class: "rail-head" },
+      h(
+        "div",
+        {
+          class: "rail-brand",
+          ...(open ? {} : { title: `NarraLeaf Team ${view.teamVersion}` }),
+        },
+        marks.brand(),
+        open &&
+          h(
+            "div",
+            { class: "rail-brand-text" },
+            h("div", { class: "rail-title" }, "NarraLeaf Team"),
+            h("div", { class: "rail-note mono" }, view.teamVersion),
+          ),
+      ),
+      h(
+        "button",
+        {
+          class: "rail-fold",
+          type: "button",
+          title: fold,
+          label: fold,
+          expanded: open,
+          onClick: () => handlers.toggleRail(),
+        },
+        marks.panel(),
+      ),
+    ),
+    h(
+      "div",
+      { class: "rail-items" },
+      ...railScreens(m).map((entry) =>
+        h(
+          "button",
+          {
+            class: `rail-item${entry.screen === draft.screen ? " is-current" : ""}`,
+            type: "button",
+            ...(open ? {} : { title: entry.label, label: entry.label }),
+            onClick: () => handlers.go(entry.screen),
+          },
+          entry.mark(),
+          open && h("span", { class: "rail-label" }, entry.label),
+        ),
+      ),
+    ),
+    h(
+      "div",
+      { class: "rail-foot" },
+      h(
+        "div",
+        { class: "rail-user", title: `${operator.displayName} (${operator.username})` },
+        h("div", { class: "rail-face" }, initial(operator.displayName)),
+        open &&
+          h(
+            "div",
+            { class: "rail-user-text" },
+            h("div", { class: "rail-user-name" }, operator.displayName),
+            h("div", { class: "rail-note mono" }, operator.username),
+          ),
+      ),
+      h(
+        "button",
+        {
+          class: "rail-item",
+          type: "button",
+          ...(open ? {} : { title: words.signOut, label: words.signOut }),
+          onClick: () => handlers.signOut(),
+        },
+        marks.signOut(),
+        open && h("span", { class: "rail-label" }, words.signOut),
+      ),
+    ),
+  );
+}
+
 /** The whole interface, once somebody is signed in. */
 export function shell(
   view: TeamView,
@@ -895,47 +1003,8 @@ export function shell(
   const m = messagesFor(draft.locale);
   return h(
     "div",
-    { class: "shell" },
-    h(
-      "nav",
-      { class: "rail" },
-      h(
-        "div",
-        { class: "rail-head" },
-        h("div", { class: "rail-title" }, "NarraLeaf Team"),
-        h("div", { class: "rail-note mono" }, view.teamVersion),
-      ),
-      h(
-        "div",
-        { class: "rail-items" },
-        ...railScreens(m).map((entry) =>
-          h(
-            "button",
-            {
-              class: `rail-item${entry.screen === draft.screen ? " is-current" : ""}`,
-              type: "button",
-              onClick: () => handlers.go(entry.screen),
-            },
-            entry.label,
-          ),
-        ),
-      ),
-      h(
-        "div",
-        { class: "rail-foot" },
-        h(
-          "div",
-          { class: "rail-user" },
-          h("div", { class: "rail-user-name" }, operator.displayName),
-          h("div", { class: "rail-note mono" }, operator.username),
-        ),
-        h(
-          "button",
-          { class: "link", type: "button", onClick: () => handlers.signOut() },
-          m.page.shell.signOut,
-        ),
-      ),
-    ),
+    { class: `shell${draft.railOpen ? "" : " is-folded"}` },
+    rail(view, draft, operator, handlers, m),
     h(
       "main",
       { class: "main" },
