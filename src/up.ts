@@ -13,11 +13,13 @@ import {
   audienceHosts,
   authUrl,
   dataRemoteUrl,
+  hostOf,
   identityConfig,
   jwksUrl,
   type IdentityConfig,
 } from "./identity/config.js";
 import { openMigratedDatabase } from "./identity/database.js";
+import { serveDiscovery } from "./identity/discovery.js";
 import { IdentityEndpoint } from "./identity/endpoint.js";
 import { createInvite, withdrawUnusedBootstrapInvites } from "./identity/invites.js";
 import { KeyStore } from "./identity/keys.js";
@@ -243,6 +245,22 @@ export async function up(
       anyInterface: true,
       portOption: "--auth-tls-port",
       tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
+      // The one address an author is given resolves here. It answers before they have
+      // an account, which is the point: a server that cannot say where to sign in is a
+      // server somebody has to be told about in a chat message.
+      http1: (request, response) =>
+        serveDiscovery(
+          {
+            protocol: 1,
+            name: hostOf(config.authOrigin),
+            auth: { required: options.identity === true, url: authUrl(config) },
+            data: { url: dataRemoteUrl(hostOf(config.authOrigin), config.dataPort) },
+            authority: { sha256: certificates.authority.fingerprint256 },
+            version: VERSION,
+          },
+          request,
+          response,
+        ),
     });
     stdout(
       `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +

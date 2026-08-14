@@ -26,6 +26,7 @@
  * the system records who reached what: loreserver logs that it asked, not what
  * it was told, and a refusal reaches the person as "not found".
  */
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { DatabaseSync } from "node:sqlite";
 
 import {
@@ -641,6 +642,8 @@ export interface AuthorizationServiceOptions extends AuthorizationContext {
   readonly anyInterface?: boolean;
   /** The certificate and key for a TLS listener; absent for a plaintext one. */
   readonly tls?: { readonly cert: string; readonly key: string };
+  /** Answer HTTP/1.1 on this listener too - the discovery document, and only it. */
+  readonly http1?: (request: IncomingMessage, response: ServerResponse) => void;
   /** The option that moves this listener, for the message if it cannot start. */
   readonly portOption?: string;
   /** Called for a failure that belongs to no call. */
@@ -657,6 +660,7 @@ export async function startAuthorizationService(
     ...(options.anyInterface === undefined ? {} : { anyInterface: options.anyInterface }),
     methods: authorizationMethods(options),
     ...(options.tls === undefined ? {} : { tls: options.tls }),
+    ...(options.http1 === undefined ? {} : { http1: options.http1 }),
     ...(options.portOption === undefined ? {} : { portOption: options.portOption }),
     ...(options.onError === undefined ? {} : { onError: options.onError }),
   });

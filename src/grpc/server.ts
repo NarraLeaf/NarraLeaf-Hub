@@ -18,6 +18,7 @@
  *     that does not chain to a trust anchor of its own host. src/tls/ is what
  *     that costs.
  */
+import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   createSecureServer,
   createServer,
@@ -63,6 +64,15 @@ export interface GrpcTlsOptions {
 /** What a server needs to answer. */
 export interface GrpcServerOptions {
   readonly port: number;
+  /**
+   * Answer HTTP/1.1 requests on this listener as well, with this handler.
+   *
+   * Set only on the TLS endpoint, and only for the discovery document: a server that
+   * hands out one address has to answer something at it before the caller has a token,
+   * a session, or a reason to believe anything it is told. gRPC is untouched - it
+   * negotiates h2 and arrives as a stream, which this never sees.
+   */
+  readonly http1?: (request: IncomingMessage, response: ServerResponse) => void;
   /** Interface to listen on; the loopback by default. */
   readonly host?: string;
   /**
@@ -248,11 +258,12 @@ export class GrpcServer {
         : createSecureServer({
             cert: options.tls.cert,
             key: options.tls.key,
-            // gRPC over TLS is HTTP/2 over TLS, and a client that negotiates
-            // anything else has not found a gRPC service. Offering only `h2`
-            // makes that a handshake failure rather than an HTTP/1.1 request
-            // this server would answer with a protocol error.
-            ALPNProtocols: ["h2"],
+            // gRPC over TLS is HTTP/2 over TLS, so `h2` comes first and is what
+            // every client of the service negotiates. HTTP/1.1 is offered only
+            // where there is something to answer with, and a client that
+            // negotiates it reaches `http1` rather than a protocol error.
+            ALPNProtocols: options.http1 === undefined ? ["h2"] : ["h2", "http/1.1"],
+            ...(options.http1 === undefined ? {} : { allowHTTP1: true }),
           });
     const sessions = new Set<ServerHttp2Session>();
 
@@ -279,6 +290,18 @@ export class GrpcServer {
     server.on("stream", (stream, headers) => {
       handleStream(stream, headers, options);
     });
+
+    // Guarded on the version rather than trusted to fire only for HTTP/1.1: the compat
+    // layer emits `request` for an h2 stream as well, and that stream has already been
+    // answered by the handler above.
+    const http1 = options.http1;
+    if (http1 !== undefined) {
+      server.on("request", (request, response) => {
+        if (request.httpVersionMajor === 1) {
+          http1(request as unknown as IncomingMessage, response as unknown as ServerResponse);
+        }
+      });
+    }
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error): void => {
