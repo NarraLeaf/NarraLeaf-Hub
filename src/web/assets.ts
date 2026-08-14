@@ -19,6 +19,13 @@
  */
 import { createHash } from "node:crypto";
 
+import {
+  BRAND_COLOUR,
+  BRAND_PATHS,
+  BRAND_STROKE,
+  BRAND_VIEWBOX_TIGHT,
+} from "../brand.js";
+
 declare const __NLTEAM_WEB_JS__: string;
 declare const __NLTEAM_WEB_CSS__: string;
 
@@ -71,14 +78,19 @@ export const INDEX_HTML = `<!doctype html>
 `;
 
 /**
- * The tab's mark: a leaf, in the one colour this product owns.
+ * The tab's mark: the product's own logo, in the one colour it owns.
  *
- * Drawn rather than fetched, for the reason the policy above exists. It is the
- * only image the interface has.
+ * Drawn rather than fetched, for the reason the policy above exists — a tab
+ * icon loaded from a content delivery network would be this page's one request
+ * to the outside, made by every browser that ever opened a private deployment.
+ * The coordinates are src/brand.ts, which the rail's corner draws from as well,
+ * so the tab and the page cannot end up showing two different leaves.
+ *
+ * The colour is written in rather than inherited: a favicon is drawn by the
+ * browser outside any page, where `currentColor` is black.
  */
-export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <path fill="#40a8c4" d="M25 5c0 10.5-5.4 16.4-14.2 16.4-1.3 0-2.5-.1-3.6-.4C8.5 12.2 15 6.6 25 5Z"/>
-  <path fill="none" stroke="#40a8c4" stroke-width="2.4" stroke-linecap="round" d="M6 27c1.8-5.4 5.3-9.8 10.4-13.2"/>
+export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${BRAND_VIEWBOX_TIGHT}" fill="none" stroke="${BRAND_COLOUR}" stroke-width="${BRAND_STROKE}" stroke-linecap="round" stroke-linejoin="round">
+${BRAND_PATHS.map((path) => `  <path d="${path}"/>`).join("\n")}
 </svg>
 `;
 
