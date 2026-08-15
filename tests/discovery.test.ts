@@ -3,6 +3,7 @@ import type { ConnectionOptions } from "node:tls";
 
 import { describe, expect, it } from "vitest";
 
+import { unaryCall } from "../src/grpc/client.js";
 import { GrpcServer } from "../src/grpc/server.js";
 import { DISCOVERY_PATH, serveDiscovery, type DiscoveryDocument } from "../src/identity/discovery.js";
 import { ensureCertificates } from "../src/tls/authority.js";
@@ -58,15 +59,22 @@ function fetchOverTls(port: number, path: string): Promise<{ status: number; bod
     });
 }
 
-async function endpoint(): Promise<{ port: number; stop: () => Promise<void> }> {
+const ECHO_PATH = "/nlteam.test.v1.Echo/Say";
+
+async function endpoint(): Promise<{ port: number; ca: string; stop: () => Promise<void> }> {
     const certificates = await ensureCertificates(await temporaryRoot(), { hostnames: [] });
     const server = await GrpcServer.start({
         port: 0,
-        methods: {},
+        methods: {
+            // One method that answers with a message, which is the shape every
+            // real one has: the exchanges, the permission question, creating a
+            // repository. A service of no methods cannot show that half working.
+            [ECHO_PATH]: (call) => call.message,
+        },
         tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
         http1: (incoming, response) => serveDiscovery(DOCUMENT, incoming, response),
     });
-    return { port: server.port, stop: () => server.close() };
+    return { port: server.port, ca: certificates.authority.pem, stop: () => server.close() };
 }
 
 describe("the address an author is given", () => {
@@ -80,6 +88,27 @@ describe("the address an author is given", () => {
             expect(answer.alpn).toBe("http/1.1");
             expect(answer.status).toBe(200);
             expect(JSON.parse(answer.body)).toEqual(DOCUMENT);
+        } finally {
+            await stop();
+        }
+    });
+
+    it("still answers a gRPC call, which is what this listener was for", { timeout: 30_000 }, async () => {
+        // Serving HTTP/1.1 here switches node's compatibility layer on for the whole
+        // server, and that builds a response object for every h2 stream — including the
+        // gRPC ones it never answers. Its `wantTrailers` listener used to send an empty
+        // set of trailers before this server sent its own, and the second send threw out
+        // of an event handler, which took the process down on the first call that carried
+        // a reply. Every method that matters carries one.
+        const { port, ca, stop } = await endpoint();
+        try {
+            const reply = await unaryCall({
+                url: `https://127.0.0.1:${String(port)}`,
+                path: ECHO_PATH,
+                message: Buffer.from([1, 2, 3]),
+                ca,
+            });
+            expect([...reply]).toEqual([1, 2, 3]);
         } finally {
             await stop();
         }

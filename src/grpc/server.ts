@@ -141,6 +141,15 @@ function respondWithMessage(stream: ServerHttp2Stream, message: Uint8Array): voi
     return;
   }
   stream.respond({ ":status": 200, "content-type": "application/grpc" }, { waitForTrailers: true });
+  // The compat layer is switched on for the whole server the moment a
+  // `request` listener is added — which serving HTTP/1.1 beside this does —
+  // and it then builds a response object for every h2 stream, including the
+  // gRPC ones it will never answer. That object listens for `wantTrailers`
+  // too, and being first it sends an empty set; ours would arrive second and
+  // node throws ERR_HTTP2_TRAILERS_ALREADY_SENT out of an event handler, which
+  // is to say it takes the process down. This stream is answered here, so the
+  // listeners on it are ours to clear.
+  stream.removeAllListeners("wantTrailers");
   stream.once("wantTrailers", () => {
     stream.sendTrailers({ "grpc-status": String(GRPC_OK) });
   });
