@@ -29,15 +29,12 @@ first run, into a per-user cache.
 
 ## Installing
 
-Not on npm yet, so install from a checkout:
-
 ```sh
-git clone https://github.com/NarraLeaf/NarraLeaf-Team.git
-cd NarraLeaf-Team
-npm install
-npm run build
-npm link            # puts nlteam on the path
+npm i @narraleaf/team -g
 ```
+
+That puts the `nlteam` command on the path, and `nlteam --help` prints every
+command with its options.
 
 ## Quick start
 
@@ -140,6 +137,14 @@ starts, for accounts in the `admin` group.
 
 ## Development
 
+```sh
+git clone https://github.com/NarraLeaf/NarraLeaf-Team.git
+cd NarraLeaf-Team
+npm install
+npm run build
+npm link            # puts this checkout's nlteam on the path
+```
+
 | Command | What it does |
 | --- | --- |
 | `npm run build` | Bundle the executable into `dist/` |
@@ -156,8 +161,7 @@ what is written here rather than depended on.
 
 Team supervises `loreserver`, issues identity, tracks projects and access, and
 serves both interfaces. Upgrading between pinned `loreserver` versions is not
-implemented yet, and there is no published package or image — a checkout is the
-way in for now.
+implemented yet.
 
 ## License
 
