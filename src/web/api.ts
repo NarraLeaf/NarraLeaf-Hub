@@ -471,7 +471,6 @@ export function readAction(body: unknown, messages: Messages = en): Action | str
 
   switch (kind) {
     case "refresh":
-    case "create-invite":
     case "rotate-key":
     case "restart-loreserver":
       return { kind };

@@ -93,8 +93,8 @@ else, but every repository access goes on to ask Team.
 
 The interface carries nothing out itself. A key that changes something names
 what it wants, and that is met by calling exactly what the command of the same
-name calls: `d` reaches `disableUser`, `x` reaches `revokeUserTokens`, `i`
-reaches `createInvite`. What each one answers with says the same thing the
+name calls: `d` reaches `disableUser`, `x` reaches `revokeUserTokens`, `k`
+reaches `KeyStore.rotate`. What each one answers with says the same thing the
 command prints, including how far it reaches — `x` says that a connection
 already open may last until its repository token expires, because "every token"
 is otherwise read as including a session somebody has open.

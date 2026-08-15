@@ -169,7 +169,6 @@ const HELP: ReadonlyArray<readonly [string, string]> = [
   ["↑ ↓ j k", "move the selection"],
   ["⏎", "open, or change"],
   ["esc", "close the window on top"],
-  ["i", "invite somebody"],
   ["n", "new project"],
   ["d", "disable or enable an account"],
   ["x", "revoke an account's tokens"],

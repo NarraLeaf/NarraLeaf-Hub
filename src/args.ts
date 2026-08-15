@@ -7,8 +7,8 @@
 import { isIP } from "node:net";
 
 import { DEFAULT_IDENTITY } from "./identity/config.js";
-import { DEFAULT_INVITE_LIFETIME_MS, DEFAULT_ROLE } from "./identity/invites.js";
 import { isSettingKey, SETTING_KEYS, type SettingKey } from "./identity/settings.js";
+import { DEFAULT_ROLE } from "./identity/users.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
 import { GRANTABLE_LEVELS, type AccessLevel } from "./projects/registry.js";
 
@@ -65,21 +65,22 @@ export type Invocation =
       readonly web: boolean;
       readonly overrides: IdentityOverrides;
     }
-  /** Make an invitation and print its code once. */
+  /** Make the first account, on a server that has none. */
   | {
-      readonly kind: "invite-create";
+      readonly kind: "init";
       readonly root: string;
-      readonly role: string;
-      readonly lifetimeMs: number;
+      readonly username: string;
+      readonly displayName: string | undefined;
+      readonly email: string | undefined;
     }
   /** List the accounts. */
   | { readonly kind: "user-list"; readonly root: string }
-  /** Turn an invite code into an account. */
+  /** Make an account. */
   | {
       readonly kind: "user-create";
       readonly root: string;
       readonly username: string;
-      readonly code: string;
+      readonly role: string;
       readonly displayName: string | undefined;
       readonly email: string | undefined;
       readonly isServiceAccount: boolean;
@@ -567,47 +568,32 @@ function parseInterface(argv: readonly string[]): Invocation {
   return { kind: "interface", root, healthPort, overrides };
 }
 
-/** Parse the arguments that follow `invite`. */
-function parseInvite(argv: readonly string[]): Invocation {
-  const [verb, ...rest] = argv;
-  if (verb === "-h" || verb === "--help" || verb === undefined) {
-    return verb === undefined ? error("invite needs a verb: create") : { kind: "help" };
-  }
-  if (verb !== "create") {
-    return error(`unknown invite command: ${verb}`);
-  }
-
-  const result = readTokens(rest, ["--root", "--role", "--expires"]);
+/** Parse the arguments that follow `init`. */
+function parseInit(argv: readonly string[]): Invocation {
+  const result = readTokens(argv, ["--root", "--display-name", "--email"]);
   if (result.kind !== "tokens") {
     return result.kind === "help" ? { kind: "help" } : error(result.message);
   }
   const { tokens } = result;
 
-  const extra = tokens.positionals[0];
-  if (extra !== undefined) {
-    return error(`unexpected argument: ${extra}`);
+  const username = tokens.positionals[0];
+  if (username === undefined) {
+    return error("init needs a username for the first account");
   }
-
+  if (tokens.positionals[1] !== undefined) {
+    return error(`unexpected argument: ${tokens.positionals[1]}`);
+  }
   const root = tokens.values.get("--root");
   if (root === undefined) {
-    return missingRoot("invite create");
-  }
-
-  let lifetimeMs = DEFAULT_INVITE_LIFETIME_MS;
-  const expires = tokens.values.get("--expires");
-  if (expires !== undefined) {
-    const milliseconds = parseDuration("--expires", expires);
-    if (typeof milliseconds === "string") {
-      return error(milliseconds);
-    }
-    lifetimeMs = milliseconds;
+    return missingRoot("init");
   }
 
   return {
-    kind: "invite-create",
+    kind: "init",
     root,
-    role: tokens.values.get("--role") ?? DEFAULT_ROLE,
-    lifetimeMs,
+    username,
+    displayName: tokens.values.get("--display-name"),
+    email: tokens.values.get("--email"),
   };
 }
 
@@ -633,7 +619,7 @@ function parseUser(argv: readonly string[]): Invocation {
   if (verb === "create") {
     const result = readTokens(
       rest,
-      ["--root", "--invite", "--display-name", "--email"],
+      ["--root", "--role", "--display-name", "--email"],
       ["--service-account"],
     );
     if (result.kind !== "tokens") {
@@ -652,16 +638,11 @@ function parseUser(argv: readonly string[]): Invocation {
     if (root === undefined) {
       return missingRoot("user create");
     }
-    const code = tokens.values.get("--invite");
-    if (code === undefined) {
-      return error("user create needs --invite <code>; every account comes from an invitation");
-    }
-
     return {
       kind: "user-create",
       root,
       username,
-      code,
+      role: tokens.values.get("--role") ?? DEFAULT_ROLE,
       displayName: tokens.values.get("--display-name"),
       email: tokens.values.get("--email"),
       isServiceAccount: tokens.flags.has("--service-account"),
@@ -981,8 +962,8 @@ export function parseArgs(argv: readonly string[]): Invocation {
     // it, including any it does not recognise.
     case "up":
       return parseUp(rest);
-    case "invite":
-      return parseInvite(rest);
+    case "init":
+      return parseInit(rest);
     case "user":
       return parseUser(rest);
     case "token":

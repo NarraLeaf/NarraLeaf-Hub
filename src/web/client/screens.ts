@@ -184,7 +184,6 @@ function overview(view: TeamView, handlers: Handlers, m: Messages): HTMLElement 
       { class: "stats" },
       statistic(groupDigits(view.projects.length), words.projects),
       statistic(groupDigits(view.users.length), words.members),
-      statistic(groupDigits(view.invitesLive), words.invitesLive),
       statistic(groupDigits(view.signingKeys), words.signingKeys),
     ),
     h(
@@ -752,13 +751,6 @@ function headerActions(
           disabled: draft.busy || view.users.length === 0,
         }),
       ];
-    case "members":
-      return [
-        button(m.page.members.newInvite, () => handlers.perform({ kind: "create-invite" }), {
-          variant: "primary",
-          disabled: draft.busy,
-        }),
-      ];
     case "settings":
       return [
         button(m.page.settings.rotateKey, () => handlers.perform({ kind: "rotate-key" }), {
@@ -987,8 +979,9 @@ export function waitingPage(): HTMLElement {
  * The sign-in page.
  *
  * A password field and nothing else. There is no way to make an account from
- * here, because making one takes an invite code and a command; a link offering
- * it would be a link to a page that does not exist.
+ * here: accounts are made by an operator, at the server, with `nlteam init` for
+ * the first and `nlteam user create` for the rest. A link offering it would be
+ * a link to a page that does not exist.
  */
 export function signInPage(
   draft: Draft,

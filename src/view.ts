@@ -23,7 +23,6 @@ import { dirname, join } from "node:path";
 import { describeDuration } from "./duration.js";
 import { listDecisions } from "./identity/audit.js";
 import { audienceHosts, authUrl, dataRemoteUrl, type IdentityConfig } from "./identity/config.js";
-import { listInvites } from "./identity/invites.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
 import { REPOSITORY_LIFETIME_CAUTION, storedTokenLifetimes } from "./identity/settings.js";
@@ -272,10 +271,6 @@ export async function gatherTeamView(context: ViewContext): Promise<TeamView> {
     // truth about it, not a failure to read one.
   }
 
-  const invitesLive = listInvites(database).filter(
-    (invite) => invite.usedAt === undefined && invite.expiresAt > now,
-  ).length;
-
   return {
     teamVersion: VERSION,
     root: identity.root,
@@ -311,7 +306,6 @@ export async function gatherTeamView(context: ViewContext): Promise<TeamView> {
     // makes decisions and keeps none.
     audit: listDecisions(database, AUDIT_LIMIT),
     settings: settingRows(context),
-    invitesLive,
     signingKeys,
   };
 }

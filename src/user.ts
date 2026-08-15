@@ -1,6 +1,6 @@
 /**
- * The `user` commands: list the accounts, make one from an invitation, take
- * access away or give it back, and refuse the tokens one account already has.
+ * The `user` commands: list the accounts, make one, take access away or give it
+ * back, and refuse the tokens one account already has.
  *
  * The ones that change something say what they did and what they did not do.
  * An operator who has just disabled somebody is entitled to know how far that
@@ -13,11 +13,11 @@
 import type { WriteText } from "./cli.js";
 import { describeDuration } from "./duration.js";
 import { openMigratedDatabase } from "./identity/database.js";
-import { redeemInvite } from "./identity/invites.js";
 import { identityLayout } from "./identity/layout.js";
 import { defaultPasswordHasher } from "./identity/passwords.js";
 import { storedTokenLifetimes } from "./identity/settings.js";
 import {
+  createUser,
   disableUser,
   enableUser,
   listUsers,
@@ -33,8 +33,8 @@ export interface UserListOptions {
 export interface UserCreateOptions {
   readonly root: string;
   readonly username: string;
-  /** The invite code being redeemed. */
-  readonly code: string;
+  /** The group the account joins. */
+  readonly role: string;
   readonly displayName: string | undefined;
   readonly email: string | undefined;
   readonly isServiceAccount: boolean;
@@ -68,7 +68,7 @@ export async function userList(
   try {
     const users = listUsers(database);
     if (users.length === 0) {
-      stdout("no accounts yet. Run up to be given an invite code for the first one.\n");
+      stdout(`no accounts yet. Make the first one with: nlteam init <username> --root ${layout.root}\n`);
       return 0;
     }
     const width = Math.max(...users.map((user) => user.username.length));
@@ -84,7 +84,14 @@ export async function userList(
   }
 }
 
-/** Turn an invite code into an account. Returns the process exit code. */
+/**
+ * Make an account. Returns the process exit code.
+ *
+ * What the person on the other end receives is not this account but a token
+ * minted for it, so the last line says which command produces one. An account
+ * nobody was given a token for reaches nothing, and that is the step it is
+ * easiest to stop one short of.
+ */
 export async function userCreate(
   options: UserCreateOptions,
   stdout: WriteText,
@@ -101,15 +108,19 @@ export async function userCreate(
 
   const database = await openMigratedDatabase(layout.databasePath);
   try {
-    const { user } = await redeemInvite(database, defaultPasswordHasher(), options.code, {
+    const user = await createUser(database, defaultPasswordHasher(), {
       username: options.username,
       password,
       ...(options.displayName === undefined ? {} : { displayName: options.displayName }),
       ...(options.email === undefined ? {} : { email: options.email }),
       isServiceAccount: options.isServiceAccount,
+      groups: [options.role],
     });
     stdout(`created ${user.username} (${user.id})\n`);
     stdout(`groups: ${user.groups.join(", ")}\n`);
+    stdout(
+      `Give them a token to sign in with: nlteam token mint ${user.username} --root ${layout.root}\n`,
+    );
     return 0;
   } catch (error) {
     stderr(`nlteam: ${describeError(error)}\n`);

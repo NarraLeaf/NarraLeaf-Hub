@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 export interface IdentityLayout {
   /** The storage root itself, absolute. */
   readonly root: string;
-  /** The SQLite file holding users and invites. */
+  /** The SQLite file holding the accounts, the projects and the decisions. */
   readonly databasePath: string;
   /** Directory holding the RSA private keys tokens are signed with. */
   readonly keysDir: string;

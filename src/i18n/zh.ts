@@ -59,7 +59,6 @@ export const zh: Messages = {
     overview: {
       projects: "个项目",
       members: "名成员",
-      invitesLive: "张有效邀请",
       signingKeys: "把签名密钥",
       reach: "连接方式",
       recentDecisions: "最近的授权记录",
@@ -115,7 +114,6 @@ export const zh: Messages = {
       enable: "启用",
       disable: "停用",
       revokeTokens: "吊销令牌",
-      newInvite: "新建邀请",
     },
     decisions: {
       when: "时间",
@@ -155,8 +153,6 @@ export const zh: Messages = {
   },
 
   action: {
-    inviteCreated: ({ code, role, lifetime }) =>
-      `邀请码 ${code} · 加入 ${role} · 有效期 ${lifetime}，只显示这一次`,
     keyRotated: ({ kid, published }) =>
       `现在用 ${kid} 签名；已发布的 ${published} 把密钥签出的令牌仍然可以验证`,
     userDisabled: ({ username }) =>

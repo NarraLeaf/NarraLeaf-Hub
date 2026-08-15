@@ -76,7 +76,6 @@ export interface PageMessages {
   readonly overview: {
     readonly projects: string;
     readonly members: string;
-    readonly invitesLive: string;
     readonly signingKeys: string;
     readonly reach: string;
     readonly recentDecisions: string;
@@ -132,7 +131,6 @@ export interface PageMessages {
     readonly enable: string;
     readonly disable: string;
     readonly revokeTokens: string;
-    readonly newInvite: string;
   };
   readonly decisions: {
     readonly when: string;
@@ -166,11 +164,6 @@ export interface PageMessages {
 
 /** What an action answers with, once it has happened. */
 export interface ActionMessages {
-  readonly inviteCreated: (fields: {
-    readonly code: string;
-    readonly role: string;
-    readonly lifetime: string;
-  }) => string;
   readonly keyRotated: (fields: { readonly kid: string; readonly published: number }) => string;
   readonly userDisabled: (fields: { readonly username: string }) => string;
   readonly userEnabled: (fields: { readonly username: string }) => string;

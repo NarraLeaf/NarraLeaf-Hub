@@ -81,7 +81,6 @@ export const INITIAL_STATE: TuiState = { surface: "dashboard", selection: 0, ove
 export type Action =
   | { readonly kind: "quit" }
   | { readonly kind: "refresh" }
-  | { readonly kind: "create-invite" }
   | { readonly kind: "rotate-key" }
   | { readonly kind: "restart-loreserver" }
   | { readonly kind: "create-project"; readonly name: string; readonly owner: string }
@@ -287,8 +286,6 @@ export function reduce(session: Session, key: KeyPress, view: TeamView): Step {
       return push(session, { kind: "log" });
     case "c":
       return push(session, { kind: "connection" });
-    case "i":
-      return { session, action: { kind: "create-invite" } };
     case "n":
       return state.surface === "projects" ? push(session, { kind: "name-project" }, "") : { session };
     case "r": {

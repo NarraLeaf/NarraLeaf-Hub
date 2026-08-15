@@ -84,10 +84,35 @@ export class WeakPasswordError extends Error {
   }
 }
 
+/** Raised when a role is not a name a group can have. */
+export class InvalidRoleError extends Error {
+  constructor(role: string) {
+    super(
+      `"${role}" cannot be a role. A role is 1 to 32 characters of a-z, 0-9, dash and ` +
+        "underscore, and starts with a letter.",
+    );
+    this.name = "InvalidRoleError";
+  }
+}
+
 /** The shortest password Team will store. */
 export const MINIMUM_PASSWORD_LENGTH = 10;
 
+/** The group an account joins when no role is named. */
+export const DEFAULT_ROLE = "member";
+
+/**
+ * The group the first account joins, and the only one the web interface admits.
+ *
+ * `nlteam init` puts the first account here because there is nobody to put it
+ * there afterwards: a server whose only account could not open the operator's
+ * view would need a second command to fix a situation it had just created.
+ */
+export const ADMIN_ROLE = "admin";
+
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,31}$/;
+
+const ROLE_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 
 /**
  * Fold a username to the form it is stored and compared in.
@@ -209,6 +234,14 @@ export async function prepareUser(
   if (input.password.length < MINIMUM_PASSWORD_LENGTH) {
     throw new WeakPasswordError();
   }
+  // Checked here rather than where a role is read from a command line, because
+  // a group name reaches the `groups` claim of every token this account is
+  // issued, and every path that writes one comes through here.
+  for (const group of input.groups ?? []) {
+    if (!ROLE_PATTERN.test(group)) {
+      throw new InvalidRoleError(group);
+    }
+  }
 
   return {
     id: randomUUID(),
@@ -225,9 +258,8 @@ export async function prepareUser(
 /**
  * Write a prepared account.
  *
- * No transaction is opened here, so that redeeming an invite can put this and
- * the marking of the invite inside one — an account created from an invite that
- * stayed unused would let one code make any number of accounts.
+ * No transaction is opened here, so that a caller which has more than the
+ * account to write can put all of it inside one.
  */
 export function insertUser(database: DatabaseSync, prepared: PreparedUser): void {
   try {

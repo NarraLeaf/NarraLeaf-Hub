@@ -275,12 +275,11 @@ describe("the dashboard is the first thing anybody sees", () => {
   });
 
   it("offers the quick actions, all of them, at every size", () => {
-    // Naming three of the six was not enough. A layout that laid its lines
+    // Naming three of them was not enough. A layout that laid its lines
     // out at one width and then put them in a box of another lost the last
     // column, and both actions that went missing were ones this assertion
     // did not name.
     const ACTIONS = [
-      "invite somebody",
       "new project",
       "connection details",
       "follow the log",

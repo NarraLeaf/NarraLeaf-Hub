@@ -39,7 +39,6 @@ describe("migrate", () => {
       expect(tableNames(database)).toEqual(
         expect.arrayContaining([
           "decisions",
-          "invites",
           "schema_version",
           "settings",
           "user_groups",
@@ -65,17 +64,18 @@ describe("migrate", () => {
         )
         .run("9a1c0e2e", "ada", "Ada Lovelace", "scrypt$N=16384,r=8,p=1$c2FsdA==$aGFzaA==", 1);
 
-      // Put the file back to the version before the newest migration, rather
-      // than writing out that older schema again here: a second copy of it in
-      // this file would be one more thing to keep in step with the migration
-      // list.
-      database.exec("DROP TABLE decisions");
+      // Put the file back to the version before the newest migration. That
+      // one drops a table rather than adding one, so undoing it means putting
+      // an `invites` table back; one column is enough, because what the
+      // migration does to it does not depend on its shape, and a fuller copy
+      // here would be one more thing to keep in step with the migration list.
+      database.exec("CREATE TABLE invites (code_hash TEXT NOT NULL PRIMARY KEY) STRICT");
       database.prepare("DELETE FROM schema_version WHERE version = ?").run(SCHEMA_VERSION);
       expect(schemaVersion(database)).toBe(SCHEMA_VERSION - 1);
 
       expect(migrate(database, path)).toBe(SCHEMA_VERSION);
 
-      expect(tableNames(database)).toContain("decisions");
+      expect(tableNames(database)).not.toContain("invites");
       // The account is still there. A migration that took the file back to
       // something empty would pass every check about tables and lose a Team server.
       expect(database.prepare("SELECT username FROM users").all()).toEqual([{ username: "ada" }]);

@@ -149,6 +149,5 @@ export interface TeamView {
   readonly projects: ReadonlyArray<ProjectView>;
   readonly audit: ReadonlyArray<AuditView>;
   readonly settings: ReadonlyArray<SettingView>;
-  readonly invitesLive: number;
   readonly signingKeys: number;
 }

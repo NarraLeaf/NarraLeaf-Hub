@@ -83,7 +83,6 @@ function emptyView(): TeamView {
     projects: [],
     audit: [],
     settings: [],
-    invitesLive: 0,
     signingKeys: 0,
   };
 }
@@ -296,14 +295,14 @@ describe("once signed in", () => {
     const response = await fetch(`${origin}/api/action`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: cookie ?? "" },
-      body: JSON.stringify({ kind: "create-invite" }),
+      body: JSON.stringify({ kind: "rotate-key" }),
     });
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as { message: string; view: TeamView };
-    // The same sentence the command prints, including the part that says the
-    // code is shown once and cannot be shown again.
-    expect(body.message).toContain("shown once");
+    // The same sentence the command prints, including the part that says what
+    // rotating does not do — the keys already published go on verifying.
+    expect(body.message).toContain("still verify");
     expect(body.view.teamVersion).toBe("0.0.0-test");
   });
 
@@ -312,7 +311,7 @@ describe("once signed in", () => {
     const response = await fetch(`${origin}/api/action`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: "create-invite" }),
+      body: JSON.stringify({ kind: "rotate-key" }),
     });
 
     expect(response.status).toBe(401);
@@ -445,7 +444,7 @@ describe("sessionCookie", () => {
 
 describe("readAction", () => {
   it("takes the actions the interface sends", () => {
-    expect(readAction({ kind: "create-invite" })).toEqual({ kind: "create-invite" });
+    expect(readAction({ kind: "rotate-key" })).toEqual({ kind: "rotate-key" });
     expect(readAction({ kind: "grant", project: "p", username: "ada", level: "write" })).toEqual({
       kind: "grant",
       project: "p",
@@ -504,15 +503,15 @@ describe("the language it answers in", () => {
         "accept-language": "en-GB,en;q=0.9",
         [LANGUAGE_HEADER]: "ja",
       },
-      body: JSON.stringify({ kind: "create-invite" }),
+      body: JSON.stringify({ kind: "set-user-disabled", username: "ada", disabled: true }),
     });
 
     expect(response.status).toBe(200);
     const { message } = (await response.json()) as { message: string };
-    // The code and the group it joins are data, and are in it whatever the
-    // language; the sentence around them is not English.
-    expect(message).toContain("member");
-    expect(message).toContain("表示はこの一度きり");
+    // The username is data, and is in it whatever the language; the sentence
+    // around it is not English.
+    expect(message).toContain("ada");
+    expect(message).toContain("無効にしました");
   });
 
   it("says what went wrong in the language it was asked in", async () => {

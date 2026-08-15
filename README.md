@@ -57,8 +57,8 @@ Studio signs in at, and runs until it is interrupted.
   issues tokens that work on its own machine and nowhere else. Repeatable.
 - `--web` serves the operator's view to a browser as well. Off unless asked for.
 
-On a server with no accounts, `up` prints a single-use invite code. Step 3 needs
-it.
+`up` runs in the foreground, so the rest of these are typed in a second
+terminal.
 
 **2. Trust the certificate, once per machine that will connect.**
 
@@ -72,16 +72,17 @@ pinning hook, so this step is manual on purpose. Compare the fingerprint against
 the one the server printed at startup, over something other than the connection
 you are about to trust.
 
-**3. Make the first account.** It joins the `admin` group.
+**3. Make the first account.** It joins the `admin` group, and `init` refuses
+once there is an account, so this is the only time it works.
 
 ```sh
-printf '%s' 'the password' | nlteam user create ada --root /srv/team --invite CODE
+printf '%s' 'the password' | nlteam init ada --root /srv/team
 ```
 
-Everybody after that needs an invitation, and a code is shown once:
+Everybody after that is made by somebody who is already here:
 
 ```sh
-nlteam invite create --root /srv/team --role member --expires 48h
+printf '%s' 'their password' | nlteam user create bob --root /srv/team --role authors
 ```
 
 **4. Create a project, and let people into it.**
@@ -91,13 +92,20 @@ nlteam project create harbour --root /srv/team --as ada
 nlteam project grant harbour bob --root /srv/team --level write
 ```
 
-**5. Give people the address.**
+**5. Give people the address, and a token.**
 
-`nlteam://team.example.com:41402` is the whole of what an author needs — Studio
-asks the server for the rest. Two ports have to be reachable from their
-machines: **41402**, where people sign in, and **41337**, where the project data
-is served. The other three are between programs on the server machine and are
-bound to the loopback.
+```sh
+printf '%s' 'their password' | nlteam token mint bob --root /srv/team
+```
+
+Those two — `nlteam://team.example.com:41402` and the token — are the whole of
+what an author is handed. Studio asks the server for everything else, and the
+token carries the authority's fingerprint, so trusting this server is a button
+rather than a command.
+
+Two ports have to be reachable from their machines: **41402**, where people
+sign in, and **41337**, where the project data is served. The other three are
+between programs on the server machine and are bound to the loopback.
 
 ## Commands
 
@@ -106,8 +114,8 @@ bound to the loopback.
 | `nlteam up` | Install and run `loreserver`, and serve the sign-in endpoint |
 | `nlteam` | Open the terminal interface |
 | `nlteam trust` | Show this server's certificate authority, or install it |
-| `nlteam invite create` | Make an invite code, and print it once |
-| `nlteam user create <name>` | Redeem an invite code into an account |
+| `nlteam init <name>` | Make the first account, on a server with none |
+| `nlteam user create <name>` | Make an account |
 | `nlteam user list` | List the accounts |
 | `nlteam user disable\|enable <name>` | Stop an account, or let it back in |
 | `nlteam user revoke-tokens <name>` | Refuse every token it already holds |

@@ -161,9 +161,9 @@ async function perform(action: Action): Promise<void> {
     return;
   }
 
-  // The sentence the server answered with, shown as it is. An invite code
-  // arrives inside one of these and is shown once, so it is left on screen
-  // until somebody dismisses it or asks for something else.
+  // The sentence the server answered with, shown as it is. It stays on screen
+  // until somebody dismisses it or asks for something else, because some of
+  // them name a thing that happened once and will not be repeated.
   draft.notice = answer.value.message;
   view = answer.value.view;
   // Anything half-typed into the thing that just happened is finished with.

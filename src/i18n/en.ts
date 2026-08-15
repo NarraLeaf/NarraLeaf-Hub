@@ -57,7 +57,6 @@ export const en: Messages = {
     overview: {
       projects: "projects",
       members: "members",
-      invitesLive: "invites live",
       signingKeys: "signing keys",
       reach: "Reach",
       recentDecisions: "Recent decisions",
@@ -113,7 +112,6 @@ export const en: Messages = {
       enable: "Enable",
       disable: "Disable",
       revokeTokens: "Revoke tokens",
-      newInvite: "New invite",
     },
     decisions: {
       when: "When",
@@ -155,8 +153,6 @@ export const en: Messages = {
   },
 
   action: {
-    inviteCreated: ({ code, role, lifetime }) =>
-      `invite ${code} · joins ${role} · good for ${lifetime}, and shown once`,
     keyRotated: ({ kid, published }) =>
       `signing with ${kid}; tokens signed by any of the ${published} published keys still verify`,
     userDisabled: ({ username }) =>

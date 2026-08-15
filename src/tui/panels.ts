@@ -80,8 +80,8 @@ export function headerLine(view: TeamView, width: number): Line {
  * where they are can at least tell how to leave.
  */
 const KEYS: Readonly<Record<Surface, string>> = {
-  dashboard: " 1-4 surface · i invite · n new project · c connection · l log · ? keys · q quit",
-  users: " ↑↓ move · ⏎ open · i invite · g grant · DISABLE · x revoke tokens · q quit",
+  dashboard: " 1-4 surface · n new project · c connection · l log · ? keys · q quit",
+  users: " ↑↓ move · ⏎ open · g grant · DISABLE · x revoke tokens · q quit",
   projects: " ↑↓ move · ⏎ open · n new · g grant · r revoke · l log · q quit",
   settings: " ↑↓ move · ⏎ change · l log · q quit  (· cannot be changed here)",
 };
@@ -121,7 +121,6 @@ export function railStrip(active: Surface): Line {
 /* ------------------------------------------------------------- dashboard */
 
 const QUICK: ReadonlyArray<readonly [string, string]> = [
-  ["i", "invite somebody"],
   ["n", "new project"],
   ["c", "connection details"],
   ["l", "follow the log"],
@@ -256,12 +255,7 @@ export function dashboardLines(view: TeamView, width: number, height: number): L
     ),
 
     BLANK,
-    field(
-      "accounts",
-      wide
-        ? `${view.users.length}    ${disabled} disabled    ${plural(view.invitesLive, "invitation")} unused`
-        : `${view.users.length}    ${disabled} disabled    ${plural(view.invitesLive, "invite")} unused`,
-    ),
+    field("accounts", `${view.users.length}    ${disabled} disabled`),
     field("projects", `${view.projects.length}    last push ${lastPush(view)}`),
 
     BLANK,

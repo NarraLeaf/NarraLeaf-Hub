@@ -9,7 +9,6 @@ import { parseArgs } from "../src/args.js";
 import { recordDecision } from "../src/identity/audit.js";
 import { identityConfig } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
-import { createInvite } from "../src/identity/invites.js";
 import { identityLayout } from "../src/identity/layout.js";
 import { defaultPasswordHasher } from "../src/identity/passwords.js";
 import { createUser, disableUser } from "../src/identity/users.js";
@@ -57,7 +56,6 @@ async function team(): Promise<ViewContext> {
     createdBy: ada.id,
   });
   grantAccess(database, harbour.id, bob.id, "read", ada.id);
-  createInvite(database, {});
 
   return {
     root,
@@ -107,7 +105,6 @@ describe("the view a real Team gathers", () => {
     expect(view.users.find((user) => user.username === "bob")?.projects).toEqual([
       { name: "harbour", level: "read" },
     ]);
-    expect(view.invitesLive).toBe(1);
   });
 
   it("names the owner of a project and everybody with a grant on it", async () => {

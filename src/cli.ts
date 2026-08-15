@@ -2,8 +2,9 @@ import { parseArgs } from "./args.js";
 import { describeDuration } from "./duration.js";
 import { DEFAULT_IDENTITY, identityConfig } from "./identity/config.js";
 import { SETTING_KEYS } from "./identity/settings.js";
+import { DEFAULT_ROLE } from "./identity/users.js";
+import { init } from "./init.js";
 import { terminalInterface } from "./interface.js";
-import { inviteCreate } from "./invite.js";
 import { keyList, keyRotate } from "./key.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
 import { projectCreate, projectGrant, projectList, projectRevoke } from "./project.js";
@@ -57,9 +58,9 @@ that is a server already.
 Commands:
   up                        Install and run loreserver, and serve the
                             sign-in endpoint
-  invite create             Make an invite code, and print it once
+  init <username>           Make the first account, on a server with none
   user list                 List the accounts
-  user create <username>    Redeem an invite code into an account
+  user create <username>    Make an account
   user disable <username>   Stop an account being issued anything new
   user enable <username>    Let an account sign in again
   user revoke-tokens <username>
@@ -93,11 +94,12 @@ Options for trust:
       --install             Trust this authority in this account's trust store
       --remove              Stop trusting it
 
-Options for invite create:
-      --role <name>         Group the account joins (default member)
-      --expires <duration>  How long the code lasts, e.g. 48h (default 7d)
+Options for init:
+      --display-name <name> Name shown to other people
+      --email <address>
 
 Options for user create:
+      --role <name>         Group the account joins (default ${DEFAULT_ROLE})
       --display-name <name> Name shown to other people
       --email <address>
       --service-account     Mark the account as one no person signs in to
@@ -147,7 +149,7 @@ settings set takes a duration written the way --token-lifetime is: 30m, 48h,
 7d, or a bare number of seconds. The keys are
 ${SETTING_KEYS.map((key) => `  ${key}`).join("\n")}
 
-user create and token mint read the password from standard input.
+init, user create and token mint read the password from standard input.
 
 up runs until it is interrupted, and stops loreserver on its way out.`;
 
@@ -196,9 +198,14 @@ export async function run(
         stdout,
         stderr,
       );
-    case "invite-create":
-      return await inviteCreate(
-        { root: invocation.root, role: invocation.role, lifetimeMs: invocation.lifetimeMs },
+    case "init":
+      return await init(
+        {
+          root: invocation.root,
+          username: invocation.username,
+          displayName: invocation.displayName,
+          email: invocation.email,
+        },
         stdout,
         stderr,
       );
@@ -209,7 +216,7 @@ export async function run(
         {
           root: invocation.root,
           username: invocation.username,
-          code: invocation.code,
+          role: invocation.role,
           displayName: invocation.displayName,
           email: invocation.email,
           isServiceAccount: invocation.isServiceAccount,

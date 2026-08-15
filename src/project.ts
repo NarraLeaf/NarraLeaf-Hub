@@ -80,7 +80,9 @@ function resolveOperator(database: DatabaseSync, username: string | undefined): 
   }
   const accounts = countUsers(database);
   if (accounts === 0) {
-    throw new Error("this server has no accounts yet. Run up to be given an invite code for one.");
+    throw new Error(
+      "this server has no accounts yet. Make the first one with: nlteam init <username>",
+    );
   }
   const only = listUsers(database)[0];
   if (accounts > 1 || only === undefined) {

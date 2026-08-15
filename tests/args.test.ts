@@ -178,25 +178,15 @@ describe("parseArgs, up", () => {
 });
 
 describe("parseArgs, the identity commands", () => {
-  it("makes an invite with a default role and expiry", () => {
-    expect(parseArgs(["invite", "create", "--root", "/srv/team"])).toEqual({
-      kind: "invite-create",
+  it("makes the first account, and wants a name for it", () => {
+    expect(parseArgs(["init", "ada", "--root", "/srv/team"])).toEqual({
+      kind: "init",
       root: "/srv/team",
-      role: "member",
-      lifetimeMs: 7 * 24 * 60 * 60 * 1000,
+      username: "ada",
+      displayName: undefined,
+      email: undefined,
     });
-  });
-
-  it("reads a duration in the units people write them in", () => {
-    expect(parseArgs(["invite", "create", "--root", "/srv/team", "--expires", "48h"])).toMatchObject(
-      { lifetimeMs: 48 * 60 * 60 * 1000 },
-    );
-    expect(parseArgs(["invite", "create", "--root", "/srv/team", "--expires", "90"])).toMatchObject({
-      lifetimeMs: 90 * 1000,
-    });
-    expect(messageFor(["invite", "create", "--root", "/srv/team", "--expires", "soon"])).toContain(
-      "duration",
-    );
+    expect(messageFor(["init", "--root", "/srv/team"])).toContain("needs a username");
   });
 
   it("takes a username as the word after the verb", () => {
@@ -221,19 +211,20 @@ describe("parseArgs, the identity commands", () => {
     );
   });
 
-  it("insists that an account comes from an invitation", () => {
-    expect(
-      parseArgs(["user", "create", "ada", "--root", "/srv/team", "--invite", "CODE"]),
-    ).toEqual({
+  it("makes an account, in the default group unless told another", () => {
+    expect(parseArgs(["user", "create", "ada", "--root", "/srv/team"])).toEqual({
       kind: "user-create",
       root: "/srv/team",
       username: "ada",
-      code: "CODE",
+      role: "member",
       displayName: undefined,
       email: undefined,
       isServiceAccount: false,
     });
-    expect(messageFor(["user", "create", "ada", "--root", "/srv/team"])).toContain("--invite");
+    expect(
+      parseArgs(["user", "create", "ada", "--root", "/srv/team", "--role", "admin"]),
+    ).toMatchObject({ role: "admin" });
+    expect(messageFor(["user", "create", "--root", "/srv/team"])).toContain("needs a username");
   });
 
   it("marks a service account when it is told to", () => {
@@ -244,8 +235,6 @@ describe("parseArgs, the identity commands", () => {
         "builder",
         "--root",
         "/srv/team",
-        "--invite",
-        "CODE",
         "--service-account",
         "--display-name",
         "Build robot",
@@ -283,7 +272,7 @@ describe("parseArgs, the identity commands", () => {
 
   it("wants a root for every command that keeps state", () => {
     for (const argv of [
-      ["invite", "create"],
+      ["init", "ada"],
       ["user", "list"],
       ["user", "disable", "ada"],
       ["user", "revoke-tokens", "ada"],

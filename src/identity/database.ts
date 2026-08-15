@@ -255,6 +255,19 @@ const MIGRATIONS: readonly Migration[] = [
        ) STRICT`,
     ],
   },
+  {
+    version: 6,
+    description: "accounts are made by an operator, so invite codes are gone",
+    statements: [
+      // Migration 1 is left as it was, per the rule at the top of this file: it
+      // is what version 1 meant, and a server that stopped there has to be able
+      // to arrive here by the same steps as everybody else. Dropping the table
+      // takes the used codes with it, which is the whole of what it held —
+      // who was made from which code is not something any screen ever showed,
+      // and the accounts themselves are in `users`.
+      "DROP TABLE invites",
+    ],
+  },
 ];
 
 /** The schema version this build of Team writes and expects. */

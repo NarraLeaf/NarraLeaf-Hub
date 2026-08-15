@@ -4,7 +4,7 @@
  *
  * Everything the interface asks for is carried out by src/actions.ts, which
  * calls what the command of the same name calls: `d` reaches `disableUser`,
- * `x` reaches `revokeUserTokens`, `i` reaches `createInvite`. None of it is
+ * `x` reaches `revokeUserTokens`, `k` reaches `KeyStore.rotate`. None of it is
  * implemented twice, and what each one answers with says the same thing the
  * command prints — including how far it reaches, which is the part an operator
  * gets wrong. The web interface is handed the same function.

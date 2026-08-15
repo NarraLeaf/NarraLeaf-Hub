@@ -54,7 +54,6 @@ export const ja: Messages = {
     overview: {
       projects: "プロジェクト",
       members: "メンバー",
-      invitesLive: "有効な招待",
       signingKeys: "署名鍵",
       reach: "接続先",
       recentDecisions: "最近のアクセス記録",
@@ -110,7 +109,6 @@ export const ja: Messages = {
       enable: "有効にする",
       disable: "無効にする",
       revokeTokens: "トークンを失効",
-      newInvite: "新しい招待",
     },
     decisions: {
       when: "日時",
@@ -150,8 +148,6 @@ export const ja: Messages = {
   },
 
   action: {
-    inviteCreated: ({ code, role, lifetime }) =>
-      `招待コード ${code} · ${role} として参加 · 有効期間 ${lifetime}、表示はこの一度きり`,
     keyRotated: ({ kid, published }) =>
       `これからは ${kid} で署名します。公開中の ${published} 個の鍵で署名されたトークンは引き続き検証できます`,
     userDisabled: ({ username }) =>

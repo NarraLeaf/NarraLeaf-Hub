@@ -319,27 +319,38 @@ older client relies on stops meaning what it meant.
 
 ## Accounts
 
-Every account comes from an invitation, and every invitation is shown once:
+An operator makes them, at the server, and hands out a token for each. The
+first account is the exception, because there is nobody to hand it out:
 
 ```sh
-nlteam invite create --root /srv/team --role authors --expires 48h
-nlteam user create ada --root /srv/team --invite CODE < password.txt
-nlteam user list --root /srv/team
-nlteam user disable ada --root /srv/team
+nlteam init ada --root /srv/team < password.txt
 ```
 
-Only a hash of an invite code is stored, so a code that has been lost cannot be
-reprinted — make another. Passwords are read from standard input rather than
-from an argument, which would be visible in the process list and left behind in
-a shell's history. They are hashed with scrypt at N = 2^17, r = 8, p = 1, and
-the stored string carries those numbers, so the cost can be raised later without
-invalidating anything: an existing hash keeps verifying under the parameters it
-was made with, and is replaced the next time its owner signs in.
+`init` works only while the server has no accounts at all, and refuses from the
+moment it has one. The account it makes joins the `admin` group — it is the only
+account there is, and one that could not open the operator's view over its own
+server would leave the operator needing a second command to undo the first.
+`up` says this line, and nothing else about accounts, while there is nobody.
 
-The first account is the awkward one, so `up` prints a single-use invite code
-whenever it finds a Team server with no accounts at all. It prints a fresh one on each
-such start, and withdraws any earlier unused one, so exactly one code is live.
-Once an account exists, nothing is printed again.
+Everybody after that is made by somebody who is already here:
+
+```sh
+nlteam user create bob --root /srv/team --role authors < password.txt
+nlteam user list --root /srv/team
+nlteam user disable bob --root /srv/team
+```
+
+`--role` is the group the account joins, `member` unless it says otherwise, and
+only accounts in `admin` may open the web interface. What reaches the person is
+not the account but a token minted for it — see "Tokens and taking access away"
+below, and hand them that together with this server's address.
+
+Passwords are read from standard input rather than from an argument, which
+would be visible in the process list and left behind in a shell's history. They
+are hashed with scrypt at N = 2^17, r = 8, p = 1, and the stored string carries
+those numbers, so the cost can be raised later without invalidating anything: an
+existing hash keeps verifying under the parameters it was made with, and is
+replaced the next time its owner signs in.
 
 ## Tokens and taking access away
 
@@ -599,9 +610,9 @@ browser's local storage and never leaves it; it is not part of the session, so
 two tabs may be open in two languages and signing out does not forget it.
 
 **The sentences come from the server in the language the page asked for.** That
-is the point of the exercise: the answer to an action — the invite code and how
-long it is good for, what revoking somebody's tokens does and does not reach,
-why loreserver refused a project — is the part worth reading, and a Chinese page
+is the point of the exercise: the answer to an action — which key is signing
+from now on, what revoking somebody's tokens does and does not reach, why
+loreserver refused a project — is the part worth reading, and a Chinese page
 with English sentences in the middle of it would have translated only the
 frame. Each request names its language in an `x-nlteam-language` header, and
 `Accept-Language` is the fallback for the few answers that come before a page is

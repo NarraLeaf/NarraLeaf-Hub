@@ -21,12 +21,10 @@ import {
 import { openMigratedDatabase } from "./identity/database.js";
 import type { DiscoveryDocument } from "./identity/discovery.js";
 import { IdentityEndpoint } from "./identity/endpoint.js";
-import { createInvite, withdrawUnusedBootstrapInvites } from "./identity/invites.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
 import { namedTokenLifetimes } from "./identity/settings.js";
 import { countUsers } from "./identity/users.js";
-import { renderInvite } from "./invite.js";
 import {
   ensureLorelibNotices,
   LORELIB_VERSION,
@@ -87,18 +85,6 @@ export interface UpOptions extends LoreserverPorts {
    */
   readonly signal?: AbortSignal;
 }
-
-/**
- * How long the code printed for a Team server with no accounts lasts.
- *
- * A day: long enough that an operator who started the server and walked away
- * can still use it, short enough that one left in a terminal's scrollback is
- * not a way in a week later.
- */
-const BOOTSTRAP_INVITE_LIFETIME_MS = 24 * 60 * 60 * 1000;
-
-/** The group the first account joins. */
-const BOOTSTRAP_ROLE = "admin";
 
 /** A promise that settles when the signal is aborted, and never otherwise. */
 function whenAborted(signal: AbortSignal | undefined): Promise<void> {
@@ -433,7 +419,7 @@ export async function up(
 
     // Last, so that it is the thing left on the screen rather than something
     // scrolled away by a download.
-    printBootstrapInvite(database, identity.root, stdout);
+    printFirstAccountNotice(database, identity.root, stdout);
 
     stdout("press Ctrl-C to stop\n");
 
@@ -480,14 +466,16 @@ export async function up(
 }
 
 /**
- * Print a code for the first account, if there is no account yet.
+ * Say how to make the first account, while there is no account yet.
  *
- * A fresh code is made on every start that finds an empty Team, because Team
- * cannot reprint the previous one — it only ever held its hash. Any earlier
- * unused one is withdrawn at the same time, so exactly one code is live rather
- * than one per start. Once an account exists, nothing is printed again.
+ * `up` does not make one itself. It runs until it is interrupted, and the
+ * command that makes an account reads a password from standard input, so the
+ * two cannot be the same command: whoever is running this needs a second
+ * terminal, and what they need from this one is the line to type into it.
+ *
+ * Once an account exists, nothing is printed again.
  */
-function printBootstrapInvite(
+function printFirstAccountNotice(
   database: DatabaseSync,
   root: string,
   stdout: WriteText,
@@ -495,14 +483,10 @@ function printBootstrapInvite(
   if (countUsers(database) > 0) {
     return;
   }
-  withdrawUnusedBootstrapInvites(database);
-  const { code, invite } = createInvite(database, {
-    role: BOOTSTRAP_ROLE,
-    lifetimeMs: BOOTSTRAP_INVITE_LIFETIME_MS,
-    isBootstrap: true,
-  });
-
   stdout("\n");
-  stdout("This server has no accounts. Make the first one with this invite code:\n");
-  stdout(renderInvite(code, invite.role, invite.expiresAt, root));
+  stdout("This server has no accounts. Make the first one, from another terminal:\n");
+  stdout("\n");
+  stdout(`    nlteam init <username> --root ${root}\n`);
+  stdout("\n");
+  stdout("It joins the admin group, and reads its password from standard input.\n");
 }

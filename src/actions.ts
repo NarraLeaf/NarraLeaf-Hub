@@ -21,7 +21,6 @@
 import { describeDuration } from "./duration.js";
 import { en } from "./i18n/en.js";
 import { identityConfig } from "./identity/config.js";
-import { createInvite, DEFAULT_INVITE_LIFETIME_MS, DEFAULT_ROLE } from "./identity/invites.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
 import { setTokenLifetimes, storedTokenLifetimes } from "./identity/settings.js";
@@ -151,17 +150,6 @@ export async function perform(
 ): Promise<string> {
   const { database, root } = context;
   switch (action.kind) {
-    case "create-invite": {
-      const { code } = createInvite(database, {});
-      return messages.action.inviteCreated({
-        code,
-        // The group is what the database will hold, so it is not translated:
-        // a page that said "成员" where the invitation says `member` would be
-        // describing an account that does not exist.
-        role: DEFAULT_ROLE,
-        lifetime: describeDuration(DEFAULT_INVITE_LIFETIME_MS / 1000, messages),
-      });
-    }
     case "rotate-key": {
       const keys = await KeyStore.open(identityLayout(root).keysDir);
       const key = await keys.rotate();

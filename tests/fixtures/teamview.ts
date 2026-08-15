@@ -238,7 +238,6 @@ export const FIXTURE_VIEW: TeamView = {
     },
     { group: "authority", label: "on this machine", value: "trusted", editable: true },
   ],
-  invitesLive: 1,
   signingKeys: 2,
 };
 
