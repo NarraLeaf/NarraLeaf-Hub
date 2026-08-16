@@ -84,12 +84,6 @@ export const ja: Messages = {
       repository: "リポジトリ",
       lastRevision: "最新のリビジョン",
       message: "メッセージ",
-      access: "アクセス権",
-      onlyItsOwner: "オーナーのみ",
-      grant: "付与",
-      revoke: "取り消す",
-      read: "読み取り",
-      write: "読み書き",
       projectFile: "プロジェクトファイル",
       title: "タイトル",
       stage: "ステージ",
@@ -161,10 +155,6 @@ export const ja: Messages = {
     projectCreated: ({ project, owner }) => `${project} を作成しました。オーナーは ${owner} です`,
     // レベルはデータで、サーバーが保存しているのは read / write そのものです。
     // それを日本語で読ませるのはこの文の仕事で、データベースの仕事ではありません。
-    granted: ({ username, level, project }) =>
-      `${username} は ${project} を${level === "write" ? "読み書き" : "読み取り"}できます。次のリクエストから有効です`,
-    revoked: ({ username, project }) =>
-      `${username} は ${project} にアクセスできなくなりました。次のリクエストから有効です`,
     loreserverNotOurs:
       "loreserver は起動した nlteam up のものです。そちらを停止して起動し直してください",
   },
@@ -185,9 +175,6 @@ export const ja: Messages = {
     notAnAction: "これは操作ではありません",
     notSomethingWeDo: "このサーバーはそれを行いません",
     projectNeedsNameAndOwner: "プロジェクトには名前とオーナーが必要です",
-    grantNeedsProjectAndAccount: "付与にはプロジェクトとアカウントが必要です",
-    grantIsReadOrWrite: "権限は読み取りか読み書きのどちらかです",
-    revokeNeedsProjectAndAccount: "取り消しにはプロジェクトとアカウントが必要です",
     needsAccount: "アカウントが必要です",
     needsAccountAndDisabled: "アカウントと、無効にするかどうかが必要です",
     settingNeedsRowAndValue: "設定にはどの行かと新しい値が必要です",
@@ -209,8 +196,6 @@ export const ja: Messages = {
       `「${project}」はプロジェクト名にできません。プロジェクト名は 1〜64 文字で、` +
       "英数字とピリオド・ハイフン・アンダースコアが使え、英数字で始まります。",
     projectNameTaken: ({ project }) => `${project} というプロジェクトはすでにあります。`,
-    ownerGrant: ({ project }) =>
-      `このアカウントは ${project} のオーナーで、オーナーのアクセス権は取り消せません。プロジェクトごと削除してください。`,
     accountDisabled: ({ username }) =>
       `${username} は無効なので、トークンを発行できません。`,
     noSigningKey: ({ directory }) =>

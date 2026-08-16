@@ -7,7 +7,7 @@
  * asks for an {@link Action}, and the host carries it out through the same
  * operations the commands use.
  */
-import { accountsFor, canBeGranted, clamp as clampChoice, holdersOf, LEVELS, projectsFor } from "./choices.js";
+import { clamp as clampChoice } from "./choices.js";
 import type { Choice } from "./choices.js";
 import type { TeamView } from "./teamview.js";
 
@@ -43,19 +43,10 @@ export type Overlay =
   | { readonly kind: "user-detail"; readonly username: string }
   | { readonly kind: "revoke-tokens"; readonly username: string }
   | { readonly kind: "edit-setting"; readonly index: number }
-  // The four that ask a question. A picker carries its own cursor so that a
+  // The two that ask a question. A picker carries its own cursor so that a
   // drawn screen stays a function of the state and nothing else; the surface's
   // own selection goes on meaning the row underneath.
   | { readonly kind: "name-project" }
-  | { readonly kind: "pick-account"; readonly project: string; readonly choice: number }
-  | {
-      readonly kind: "pick-level";
-      readonly project: string;
-      readonly username: string;
-      readonly choice: number;
-    }
-  | { readonly kind: "pick-project"; readonly username: string; readonly choice: number }
-  | { readonly kind: "take-access"; readonly project: string; readonly choice: number }
   | { readonly kind: "pick-owner"; readonly name: string; readonly choice: number }
   | { readonly kind: "connection" }
   | { readonly kind: "help" }
@@ -84,13 +75,6 @@ export type Action =
   | { readonly kind: "rotate-key" }
   | { readonly kind: "restart-loreserver" }
   | { readonly kind: "create-project"; readonly name: string; readonly owner: string }
-  | {
-      readonly kind: "grant";
-      readonly project: string;
-      readonly username: string;
-      readonly level: string;
-    }
-  | { readonly kind: "revoke"; readonly project: string; readonly username: string }
   | { readonly kind: "set-user-disabled"; readonly username: string; readonly disabled: boolean }
   | { readonly kind: "revoke-tokens"; readonly username: string }
   | { readonly kind: "set-setting"; readonly index: number; readonly value: string };
@@ -288,26 +272,6 @@ export function reduce(session: Session, key: KeyPress, view: TeamView): Step {
       return push(session, { kind: "connection" });
     case "n":
       return state.surface === "projects" ? push(session, { kind: "name-project" }, "") : { session };
-    case "r": {
-      const project = projectInPlay(session.state, view);
-      return project === undefined
-        ? { session }
-        : push(session, { kind: "take-access", project, choice: 0 });
-    }
-    case "g": {
-      // The same key from either side of the same relation: over a project it
-      // asks which account, over an account it asks which project.
-      if (state.surface === "users") {
-        const user = selectedUser(state, view);
-        return user === undefined
-          ? { session }
-          : push(session, { kind: "pick-project", username: user.username, choice: 0 });
-      }
-      const project = projectInPlay(session.state, view);
-      return project === undefined
-        ? { session }
-        : push(session, { kind: "pick-account", project, choice: 0 });
-    }
     case "R":
       return { session, action: { kind: "restart-loreserver" } };
     case "d":
@@ -370,25 +334,12 @@ function projectInPlay(state: TuiState, view: TeamView): string | undefined {
 type Picker = Extract<Overlay, { choice: number }>;
 
 function isPicker(overlay: Overlay): overlay is Picker {
-  return (
-    overlay.kind === "pick-account" ||
-    overlay.kind === "pick-level" ||
-    overlay.kind === "pick-project" ||
-    overlay.kind === "take-access"
-  );
+  return overlay.kind === "pick-owner";
 }
 
 /** The rows a picker is showing, read from the one place that decides them. */
 export function choicesOf(overlay: Picker, view: TeamView): Choice[] {
   switch (overlay.kind) {
-    case "pick-account":
-      return accountsFor(view, overlay.project);
-    case "take-access":
-      return holdersOf(view, overlay.project);
-    case "pick-project":
-      return projectsFor(view, overlay.username);
-    case "pick-level":
-      return [...LEVELS];
     case "pick-owner":
       return view.users.map((user) => ({
         name: user.username,
@@ -432,42 +383,6 @@ function pick(session: Session, key: KeyPress, overlay: Picker, view: TeamView):
   }
 
   switch (overlay.kind) {
-    case "pick-account": {
-      // An owner already reaches everything in their own project, so there is
-      // nothing to give them and the key does nothing rather than opening a
-      // window whose answer would be discarded.
-      if (!canBeGranted(view, overlay.project, chosen.name)) {
-        return { session };
-      }
-      return replaceTop(session, {
-        kind: "pick-level",
-        project: overlay.project,
-        username: chosen.name,
-        choice: 0,
-      });
-    }
-    case "pick-project":
-      return replaceTop(session, {
-        kind: "pick-level",
-        project: chosen.name,
-        username: overlay.username,
-        choice: 0,
-      });
-    case "pick-level":
-      return {
-        session: { ...session, state: { ...session.state, overlays: session.state.overlays.slice(0, -1) } },
-        action: {
-          kind: "grant",
-          project: overlay.project,
-          username: overlay.username,
-          level: chosen.name,
-        },
-      };
-    case "take-access":
-      return {
-        session: { ...session, state: { ...session.state, overlays: session.state.overlays.slice(0, -1) } },
-        action: { kind: "revoke", project: overlay.project, username: chosen.name },
-      };
     case "pick-owner":
       return {
         session: { ...session, state: { ...session.state, overlays: session.state.overlays.slice(0, -1) } },

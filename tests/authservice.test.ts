@@ -32,10 +32,8 @@ import {
   type UserRecord,
 } from "../src/identity/users.js";
 import {
-  accessLevel,
   createProject,
   findProject,
-  grantAccess,
   newProjectId,
   resourceIdOf,
 } from "../src/projects/registry.js";
@@ -157,12 +155,9 @@ describe("CheckUserPermission", () => {
     });
     const resource = resourceIdOf(project.id);
 
+    // Both, and bob was given nothing: an account of this server reaches every
+    // project on it, and who made one is not part of the question.
     expect(await team.check(team.bearer(ada), [resource])).toEqual([resource]);
-    expect(await team.check(team.bearer(bob), [resource])).toEqual([]);
-
-    // And a grant takes effect at once: nothing is cached, and no token is
-    // reissued in between.
-    grantAccess(team.database, project.id, bob.id, "read", ada.id);
     expect(await team.check(team.bearer(bob), [resource])).toEqual([resource]);
   });
 
@@ -185,8 +180,6 @@ describe("CheckUserPermission", () => {
       name: "quayside",
       createdBy: bob.id,
     });
-    grantAccess(team.database, shared.id, ada.id, "write", bob.id);
-
     const asked = [
       resourceIdOf(hers.id),
       resourceIdOf(shared.id),
@@ -194,9 +187,12 @@ describe("CheckUserPermission", () => {
       "urc-not-a-project-of-this-team",
     ];
 
+    // Every project this server holds, and only those: the one resource that is
+    // not one of them is refused, which is the whole of what is left to decide.
     expect(await team.check(team.bearer(ada), asked)).toEqual([
       resourceIdOf(hers.id),
       resourceIdOf(shared.id),
+      resourceIdOf(his.id),
     ]);
   });
 
@@ -337,7 +333,7 @@ describe("CheckUserPermission", () => {
     await team.check(team.bearer(ada), [resourceIdOf(project.id), "urc-something-else"]);
 
     expect(team.log).toEqual([
-      `auth: check ada ${resourceIdOf(project.id)}: allowed (owner)`,
+      `auth: check ada ${resourceIdOf(project.id)}: allowed`,
       "auth: check ada urc-something-else: denied, not a project on this server",
     ]);
   });
@@ -370,7 +366,7 @@ describe("CheckUserPermission", () => {
         username: "ada",
         resource: "harbour",
         allowed: true,
-        detail: "owner",
+        detail: "account of this server",
       },
     ]);
   });
@@ -404,13 +400,10 @@ describe("LookupUserPermissions", () => {
       name: "lighthouse",
       createdBy: bob.id,
     });
-    grantAccess(team.database, his.id, ada.id, "read", bob.id);
-
-    expect(await team.lookup(team.bearer(ada))).toEqual([
-      resourceIdOf(hers.id),
-      resourceIdOf(his.id),
-    ]);
-    expect(await team.lookup(team.bearer(bob))).toEqual([resourceIdOf(his.id)]);
+    // The same list for both, because it is a list of what this server holds.
+    const both = [resourceIdOf(hers.id), resourceIdOf(his.id)];
+    expect(await team.lookup(team.bearer(ada))).toEqual(both);
+    expect(await team.lookup(team.bearer(bob))).toEqual(both);
   });
 
   it("answers nobody with nothing", async () => {
@@ -448,7 +441,7 @@ describe("the resource lifecycle calls", () => {
     expect(findProject(team.database, project.id)).toBeDefined();
   });
 
-  it("forgets a project when its owner is behind the deletion, and not otherwise", async () => {
+  it("forgets a project when an account of this server is behind the deletion", async () => {
     const team = await harness();
     const ada = await team.user("ada");
     const bob = await team.user("bob");
@@ -457,8 +450,6 @@ describe("the resource lifecycle calls", () => {
       name: "harbour",
       createdBy: ada.id,
     });
-    grantAccess(team.database, project.id, bob.id, "write", ada.id);
-
     const remove = async (authorization: string | undefined): Promise<void> => {
       await unaryCall({
         url: team.server.url,
@@ -469,16 +460,13 @@ describe("the resource lifecycle calls", () => {
       });
     };
 
+    // Nobody is nobody, whoever else may be an account here.
     await remove(undefined);
     expect(findProject(team.database, project.id)).toBeDefined();
 
+    // And bob did not make it, which is no longer a reason to keep it.
     await remove(team.bearer(bob));
-    expect(findProject(team.database, project.id)).toBeDefined();
-    expect(team.log.at(-1)).toContain("does not own it");
-
-    await remove(team.bearer(ada));
     expect(findProject(team.database, project.id)).toBeUndefined();
-    expect(accessLevel(team.database, project.id, bob.id)).toBeUndefined();
   });
 });
 

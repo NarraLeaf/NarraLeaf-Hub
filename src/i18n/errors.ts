@@ -29,7 +29,6 @@ import { DisabledAccountError } from "../identity/tokens.js";
 import { UnknownUserError } from "../identity/users.js";
 import {
   InvalidProjectNameError,
-  OwnerGrantError,
   ProjectNameTakenError,
   UnknownProjectError,
 } from "../projects/registry.js";
@@ -56,9 +55,6 @@ export function describeError(error: unknown, messages: Messages): string {
   }
   if (error instanceof ProjectNameTakenError) {
     return m.projectNameTaken({ project: error.projectName });
-  }
-  if (error instanceof OwnerGrantError) {
-    return m.ownerGrant({ project: error.projectName });
   }
   if (error instanceof DisabledAccountError) {
     return m.accountDisabled({ username: error.username });

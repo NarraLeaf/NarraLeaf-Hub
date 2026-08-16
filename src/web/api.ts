@@ -482,26 +482,6 @@ export function readAction(body: unknown, messages: Messages = en): Action | str
       }
       return { kind, name, owner };
     }
-    case "grant": {
-      const project = text("project");
-      const username = text("username");
-      const level = text("level");
-      if (project === undefined || username === undefined) {
-        return refusal.grantNeedsProjectAndAccount;
-      }
-      if (level !== "read" && level !== "write") {
-        return refusal.grantIsReadOrWrite;
-      }
-      return { kind, project, username, level };
-    }
-    case "revoke": {
-      const project = text("project");
-      const username = text("username");
-      if (project === undefined || username === undefined) {
-        return refusal.revokeNeedsProjectAndAccount;
-      }
-      return { kind, project, username };
-    }
     case "set-user-disabled": {
       const username = text("username");
       if (username === undefined || typeof candidate.disabled !== "boolean") {

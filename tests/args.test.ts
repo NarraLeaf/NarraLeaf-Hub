@@ -266,7 +266,7 @@ describe("parseArgs, the identity commands", () => {
 
   it("names the verb it did not recognise, and the ones it has", () => {
     expect(messageFor(["user", "invent", "--root", "/srv/team"])).toBe("unknown user command: invent");
-    expect(messageFor(["user"])).toContain("list, create, disable, enable or revoke-tokens");
+    expect(messageFor(["user"])).toContain("grant-admin");
     expect(messageFor(["key", "melt", "--root", "/srv/team"])).toBe("unknown key command: melt");
   });
 
@@ -377,50 +377,33 @@ describe("parseArgs, the project commands", () => {
     });
   });
 
-  it("lists everything, or what one account can reach", () => {
+  it("lists what the server holds, and takes no account to list it for", () => {
     expect(parseArgs(["project", "list", "--root", "/srv/team"])).toEqual({
       kind: "project-list",
       root: "/srv/team",
-      as: undefined,
     });
-    expect(parseArgs(["project", "list", "--root", "/srv/team", "--as", "ada"])).toMatchObject({
-      as: "ada",
-    });
+    // There is no per-account listing, because there is no per-account access.
+    expect(messageFor(["project", "list", "--root", "/srv/team", "--as", "ada"])).toContain("--as");
   });
 
-  it("grants read unless another level is named, and revokes", () => {
-    expect(parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/team"])).toEqual({
-      kind: "project-grant",
+  it("puts an account in the admin group, and takes it out", () => {
+    expect(parseArgs(["user", "grant-admin", "ada", "--root", "/srv/team"])).toEqual({
+      kind: "user-set-admin",
       root: "/srv/team",
-      project: "harbour",
       username: "ada",
-      level: "read",
+      admin: true,
     });
-    expect(
-      parseArgs(["project", "grant", "harbour", "ada", "--root", "/srv/team", "--level", "write"]),
-    ).toMatchObject({ level: "write" });
-    expect(parseArgs(["project", "revoke", "harbour", "ada", "--root", "/srv/team"])).toEqual({
-      kind: "project-revoke",
-      root: "/srv/team",
-      project: "harbour",
-      username: "ada",
+    expect(parseArgs(["user", "revoke-admin", "ada", "--root", "/srv/team"])).toMatchObject({
+      admin: false,
     });
-  });
-
-  it("refuses a level that is not one of the two that can be given", () => {
-    // Ownership comes from creating a project, so it is not something --level
-    // hands out.
-    expect(
-      messageFor(["project", "grant", "harbour", "ada", "--root", "/srv/team", "--level", "owner"]),
-    ).toContain("read or write");
+    expect(messageFor(["user", "grant-admin", "--root", "/srv/team"])).toContain(
+      "needs a username",
+    );
   });
 
   it("says what is missing, and names the verb it did not recognise", () => {
     expect(messageFor(["project", "create", "--root", "/srv/team"])).toContain("needs a name");
-    expect(messageFor(["project", "grant", "harbour", "--root", "/srv/team"])).toContain(
-      "a project and a username",
-    );
     expect(messageFor(["project", "invent"])).toBe("unknown project command: invent");
-    expect(messageFor(["project"])).toContain("create, list, grant or revoke");
+    expect(messageFor(["project"])).toContain("create or list");
   });
 });

@@ -445,12 +445,6 @@ describe("sessionCookie", () => {
 describe("readAction", () => {
   it("takes the actions the interface sends", () => {
     expect(readAction({ kind: "rotate-key" })).toEqual({ kind: "rotate-key" });
-    expect(readAction({ kind: "grant", project: "p", username: "ada", level: "write" })).toEqual({
-      kind: "grant",
-      project: "p",
-      username: "ada",
-      level: "write",
-    });
     expect(readAction({ kind: "set-setting", index: 0, value: "7d" })).toEqual({
       kind: "set-setting",
       index: 0,

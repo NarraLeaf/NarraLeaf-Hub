@@ -89,12 +89,6 @@ export const zh: Messages = {
       repository: "仓库大小",
       lastRevision: "最后一次修订",
       message: "提交说明",
-      access: "访问权限",
-      onlyItsOwner: "只有拥有者",
-      grant: "授予",
-      revoke: "收回",
-      read: "只读",
-      write: "读写",
       projectFile: "项目文件",
       title: "标题",
       stage: "舞台",
@@ -166,10 +160,6 @@ export const zh: Messages = {
     projectCreated: ({ project, owner }) => `已创建 ${project}，拥有者是 ${owner}`,
     // 权限本身是数据，服务器存的就是 read / write；把它读成中文是这句话的事，
     // 不是数据库的事。
-    granted: ({ username, level, project }) =>
-      `${username} 可以${level === "write" ? "读写" : "只读"} ${project}，从他们的下一次请求开始生效`,
-    revoked: ({ username, project }) =>
-      `${username} 不能再访问 ${project}，从他们的下一次请求开始生效`,
     loreserverNotOurs: "loreserver 属于启动它的那个 nlteam up，请去停止并重新启动那个进程",
   },
 
@@ -187,9 +177,6 @@ export const zh: Messages = {
     notAnAction: "这不是一个动作",
     notSomethingWeDo: "这台服务器不做这件事",
     projectNeedsNameAndOwner: "创建项目需要项目名和拥有者",
-    grantNeedsProjectAndAccount: "授予权限需要项目和账号",
-    grantIsReadOrWrite: "权限只能是只读或读写",
-    revokeNeedsProjectAndAccount: "收回权限需要项目和账号",
     needsAccount: "这需要一个账号",
     needsAccountAndDisabled: "这需要一个账号，以及要不要停用它",
     settingNeedsRowAndValue: "修改设置需要指明是哪一行和新的值",
@@ -209,7 +196,6 @@ export const zh: Messages = {
       `“${project}”不能作为项目名。项目名是 1 到 64 个字符，可以用字母、数字、点、` +
       "短横线和下划线，并且以字母或数字开头。",
     projectNameTaken: ({ project }) => `已经有一个叫 ${project} 的项目了。`,
-    ownerGrant: ({ project }) => `这个账号是 ${project} 的拥有者，拥有者的权限不能被收回。请改为删除项目。`,
     accountDisabled: ({ username }) => `${username} 已被停用，不能为其签发令牌。`,
     noSigningKey: ({ directory }) =>
       `${directory} 里的密钥全部已退役，没有东西可以签名了。轮换一次以生成新的密钥。`,

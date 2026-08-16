@@ -73,11 +73,11 @@ import type { KeyStore } from "../identity/keys.js";
 import { storedTokenLifetimes, type TokenLifetimes } from "../identity/settings.js";
 import { mintToken, type ResourceClaim } from "../identity/tokens.js";
 import {
-  accessLevel,
+  createProject,
   findProject,
   forgetProject,
-  listProjectsFor,
-  permissionsFor,
+  listProjects,
+  PROJECT_PERMISSIONS,
   projectIdFromResourceId,
   resourceIdOf,
 } from "./registry.js";
@@ -227,15 +227,14 @@ async function checkUserPermission(
   const allowed: ResourcePermission[] = [];
   const denied: ResourcePermission[] = [];
   for (const resourceId of request.resourceIds) {
+    // Two questions, and only two: is this a project this server holds, and is
+    // the caller an account of this server. `identify` already answered the
+    // second — a disabled account or a stale token never reaches here.
     const projectId = projectIdFromResourceId(resourceId);
-    const level = projectId === undefined ? undefined : accessLevel(
-      context.database,
-      projectId,
-      caller.user.id,
-    );
-    if (level === undefined) {
+    const project = projectId === undefined ? undefined : findProject(context.database, projectId);
+    if (project === undefined) {
       denied.push({ resourceId, permission: [] });
-      const why = projectId === undefined ? "not a project on this server" : "no grant";
+      const why = "not a project on this server";
       decided(context, `auth: check ${caller.user.username} ${resourceId}: denied, ${why}`, {
         username: caller.user.username,
         resource: resourceName(context, resourceId),
@@ -247,12 +246,12 @@ async function checkUserPermission(
     // The id is echoed exactly as it was asked about, not rebuilt from the
     // project: loreserver compares the two strings, and a rebuilt one that
     // differed in any character would read as an answer about something else.
-    allowed.push({ resourceId, permission: permissionsFor(level) });
-    decided(context, `auth: check ${caller.user.username} ${resourceId}: allowed (${level})`, {
+    allowed.push({ resourceId, permission: [...PROJECT_PERMISSIONS] });
+    decided(context, `auth: check ${caller.user.username} ${resourceId}: allowed`, {
       username: caller.user.username,
       resource: resourceName(context, resourceId),
       allowed: true,
-      detail: level,
+      detail: "account of this server",
     });
   }
 
@@ -283,8 +282,8 @@ async function lookupUserPermissions(
   // wildcard or a category name, would be a pattern language guessed at rather
   // than agreed, and guessing wrong here silently shortens somebody's listing.
   const only = projectIdFromResourceId(request.resourceFilter);
-  const reachable = listProjectsFor(context.database, caller.user.id).filter(
-    (entry) => only === undefined || entry.project.id === only,
+  const reachable = listProjects(context.database).filter(
+    (project) => only === undefined || project.id === only,
   );
 
   decided(
@@ -304,9 +303,9 @@ async function lookupUserPermissions(
   // the page a caller would be asked to come back for is a handful of rows out
   // of one local database.
   return encodeLookupUserPermissionsResponse({
-    permissions: reachable.map((entry) => ({
-      resourceId: resourceIdOf(entry.project.id),
-      permission: permissionsFor(entry.level),
+    permissions: reachable.map((project) => ({
+      resourceId: resourceIdOf(project.id),
+      permission: [...PROJECT_PERMISSIONS],
     })),
   });
 }
@@ -364,9 +363,9 @@ function exchangeExternalToken(context: AuthorizationContext, call: GrpcCall): B
   // that reaches `StorageAuthorizeTask` with no `resources` claim, having
   // decoded it perfectly well. A sign-in token with no resources therefore
   // signs in, resolves a repository, and then cannot read a byte of it.
-  const reachable = listProjectsFor(context.database, caller.user.id).map((entry) => ({
-    resource_id: resourceIdOf(entry.project.id),
-    permission: permissionsFor(entry.level),
+  const reachable = listProjects(context.database).map((project) => ({
+    resource_id: resourceIdOf(project.id),
+    permission: [...PROJECT_PERMISSIONS],
   }));
 
   // The sign-in lifetime, which is the long one. This token comes back here to
@@ -457,12 +456,9 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
   const granted: ResourceClaim[] = [];
   for (const resourceId of request.resourceIds) {
     const projectId = projectIdFromResourceId(resourceId);
-    const level =
-      projectId === undefined
-        ? undefined
-        : accessLevel(context.database, projectId, caller.user.id);
-    if (level === undefined) {
-      const why = projectId === undefined ? "not a project on this server" : "no grant";
+    const project = projectId === undefined ? undefined : findProject(context.database, projectId);
+    if (project === undefined) {
+      const why = "not a project on this server";
       decided(
         context,
         `auth: multiresource ${caller.user.username} ${resourceId}: denied, ${why}`,
@@ -479,20 +475,20 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
       // not find its own credentials.
       throw new GrpcStatusError(
         GRPC_PERMISSION_DENIED,
-        "this account has no access to one of the resources it asked for",
+        "one of the resources asked for is not a project on this server",
       );
     }
     // The id is echoed exactly as it was asked about, for the reason
     // checkUserPermission echoes it: the comparison downstream is on the string.
-    granted.push({ resource_id: resourceId, permission: permissionsFor(level) });
+    granted.push({ resource_id: resourceId, permission: [...PROJECT_PERMISSIONS] });
     decided(
       context,
-      `auth: multiresource ${caller.user.username} ${resourceId}: allowed (${level})`,
+      `auth: multiresource ${caller.user.username} ${resourceId}: allowed`,
       {
         username: caller.user.username,
         resource: resourceName(context, resourceId),
         allowed: true,
-        detail: level,
+        detail: "account of this server",
       },
     );
   }
@@ -521,30 +517,93 @@ function exchangeMultiresourceToken(context: AuthorizationContext, call: GrpcCal
 /**
  * `RebacApi/CreateResource`: loreserver saying a repository now exists.
  *
- * It arrives just after `nlteam project create` asked for the repository, so the
- * project is already recorded and its owner already granted — this is a second
- * telling of something Team caused. It is recorded in the log and nothing is
- * written, because a project row needs a creator and this call names nobody.
+ * Usually this is a second telling of something Team caused: `nlteam project
+ * create` recorded the project and then asked for the repository, so the row is
+ * already there and there is nothing to do but say so.
  *
- * A resource Team has never heard of is logged and otherwise let be: it is a
- * repository created by something other than Team, and inventing a project for
- * it would be inventing an owner.
+ * A repository Team has never heard of is a different matter, and it used to be
+ * let be — which left it unreachable for ever. Nothing on this server reaches a
+ * repository that is not one of its projects, so a repository with no row is
+ * one nobody can open, including whoever just made it. loreserver forwards the
+ * caller's own `authorization` header on this call, so there is somebody to
+ * record it against, and it is recorded.
  *
- * Nothing is recorded as a decision, because nothing was decided: no caller is
- * named and no access is granted or refused. A row here would be a line on the
- * screen of decisions saying that a project somebody had just created existed.
+ * The call is answered with OK whatever happens here. The repository exists by
+ * the time this arrives; failing the call would report a creation that did
+ * happen as one that failed, and would still leave the row unwritten.
  */
-function createResource(context: AuthorizationContext, call: GrpcCall): Buffer {
+async function createResource(
+  context: AuthorizationContext,
+  call: GrpcCall,
+): Promise<Buffer> {
   const request = decodeCreateResourceRequest(call.message);
   const projectId = projectIdFromResourceId(request.resourceId);
   const project = projectId === undefined ? undefined : findProject(context.database, projectId);
 
-  context.log(
-    `auth: create resource ${request.resourceId} "${request.resourceName}": ${
-      project === undefined ? "no project of this server" : `the project ${project.name}`
-    }`,
-  );
+  if (project !== undefined) {
+    context.log(
+      `auth: create resource ${request.resourceId} "${request.resourceName}": ` +
+        `the project ${project.name}`,
+    );
+    return EMPTY_MESSAGE;
+  }
+  if (projectId === undefined) {
+    context.log(
+      `auth: create resource ${request.resourceId} "${request.resourceName}": ` +
+        "not a resource id this server can read",
+    );
+    return EMPTY_MESSAGE;
+  }
+
+  const caller = await identify(context, call, undefined);
+  if (caller.kind !== "identified") {
+    context.log(
+      `auth: create resource ${request.resourceId} "${request.resourceName}": ` +
+        `not recorded, ${describeRefusal(caller.reason)}`,
+    );
+    return EMPTY_MESSAGE;
+  }
+
+  try {
+    const recorded = createProject(context.database, {
+      id: projectId,
+      name: availableProjectName(context, request.resourceName, projectId),
+      createdBy: caller.user.id,
+    });
+    context.log(
+      `auth: create resource ${request.resourceId} "${request.resourceName}": ` +
+        `recorded as ${recorded.name}, made by ${caller.user.username}`,
+    );
+  } catch (error) {
+    // Said rather than thrown. A repository that exists and has no row is worth
+    // a person looking at, and the line is the only place they would see it.
+    context.log(
+      `auth: create resource ${request.resourceId} "${request.resourceName}": ` +
+        `not recorded, ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   return EMPTY_MESSAGE;
+}
+
+/**
+ * A name for a repository Team is adopting, which this server does not already
+ * hold and which its own rules accept.
+ *
+ * The name loreserver reports is the one somebody chose, so it is tried first.
+ * A name already taken here, or one this server would not accept, falls back to
+ * the repository id — which is unique, is what every log line shows anyway, and
+ * is honest about being a name nobody chose.
+ */
+function availableProjectName(
+  context: AuthorizationContext,
+  reported: string,
+  projectId: string,
+): string {
+  const trimmed = reported.trim();
+  if (trimmed !== "" && findProject(context.database, trimmed) === undefined) {
+    return trimmed;
+  }
+  return projectId;
 }
 
 /**
@@ -571,15 +630,10 @@ async function deleteResource(context: AuthorizationContext, call: GrpcCall): Pr
     context.log(`auth: delete resource ${who} ${request.resourceId}: no project of this Team server`);
     return EMPTY_MESSAGE;
   }
-  const level =
-    caller.kind === "identified"
-      ? accessLevel(context.database, project.id, caller.user.id)
-      : undefined;
-  if (level !== "owner") {
-    const why =
-      caller.kind === "identified" ? "the caller does not own it" : describeRefusal(caller.reason);
+  if (caller.kind !== "identified") {
+    const why = describeRefusal(caller.reason);
     decided(context, `auth: delete resource ${who} ${request.resourceId}: kept, ${why}`, {
-      username: caller.kind === "identified" ? who : UNIDENTIFIED_ACCOUNT,
+      username: UNIDENTIFIED_ACCOUNT,
       resource: project.name,
       allowed: false,
       detail: `kept, ${why}`,

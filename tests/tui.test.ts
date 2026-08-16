@@ -160,7 +160,7 @@ describe("a panel keeps every line it was given", () => {
   // flexbox shrinks its children, and a shrunk row does not clip — it
   // disappears and leaves its margin behind. The border is intact, the
   // surrounding rows are intact, and one line is simply gone from the middle.
-  const LABELS = ["T0", "T1", "access"];
+  const LABELS = ["T0", "T1", "owned by"];
 
   for (const size of SIZES) {
     it(`draws every field of the project detail at ${size.columns}x${size.rows}`, () => {
@@ -184,7 +184,7 @@ describe("a panel keeps every line it was given", () => {
         FIXTURE_VIEW,
       );
       const all = grid.rows.join("\n");
-      for (const label of ["state", "role", "tokens", "projects"]) {
+      for (const label of ["state", "role", "tokens"]) {
         expect(all).toContain(label);
       }
     }

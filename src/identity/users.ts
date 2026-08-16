@@ -379,6 +379,47 @@ export function revokeUserTokens(database: DatabaseSync, username: string): User
   return requireUser(database, user.username);
 }
 
+/**
+ * Put an account in the admin group, or take it out.
+ *
+ * That group is the whole of what `admin` means on this server: it is who may
+ * open the operator's view, and who may put somebody else in it. It says
+ * nothing about projects — every account of this server reaches every project
+ * on it, and src/projects/registry.ts is where that is written down.
+ *
+ * Doing it twice is doing it once. An account already in the group is left in
+ * it rather than failing, because the outcome the caller asked for is the
+ * outcome either way.
+ */
+export function setAdmin(
+  database: DatabaseSync,
+  username: string,
+  admin: boolean,
+): UserRecord {
+  const user = requireUser(database, username);
+  if (admin) {
+    database
+      .prepare(
+        "INSERT INTO user_groups (user_id, group_name) VALUES (?, ?) " +
+          "ON CONFLICT (user_id, group_name) DO NOTHING",
+      )
+      .run(user.id, ADMIN_ROLE);
+  } else {
+    database
+      .prepare("DELETE FROM user_groups WHERE user_id = ? AND group_name = ?")
+      .run(user.id, ADMIN_ROLE);
+  }
+  return requireUser(database, user.username);
+}
+
+/** How many accounts are in the admin group. */
+export function countAdmins(database: DatabaseSync): number {
+  const row = database
+    .prepare("SELECT COUNT(*) AS count FROM user_groups WHERE group_name = ?")
+    .get(ADMIN_ROLE);
+  return row === undefined ? 0 : integerColumn(row, "count");
+}
+
 /** Read the stored password hash of one account. */
 function passwordHashOf(database: DatabaseSync, id: string): string | undefined {
   const row = database.prepare("SELECT password_hash FROM users WHERE id = ?").get(id);

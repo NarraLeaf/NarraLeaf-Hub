@@ -10,7 +10,6 @@ import { DEFAULT_IDENTITY } from "./identity/config.js";
 import { isSettingKey, SETTING_KEYS, type SettingKey } from "./identity/settings.js";
 import { DEFAULT_ROLE } from "./identity/users.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
-import { GRANTABLE_LEVELS, type AccessLevel } from "./projects/registry.js";
 
 /**
  * Identity settings named on a command line. Anything absent keeps the default
@@ -87,6 +86,13 @@ export type Invocation =
     }
   | { readonly kind: "user-disable"; readonly root: string; readonly username: string }
   | { readonly kind: "user-enable"; readonly root: string; readonly username: string }
+  /** Put an account in the admin group, or take it out. */
+  | {
+      readonly kind: "user-set-admin";
+      readonly root: string;
+      readonly username: string;
+      readonly admin: boolean;
+    }
   /**
    * Refuse every token already issued to an account, leaving the account able
    * to sign in and be given a working one straight away.
@@ -110,23 +116,8 @@ export type Invocation =
       readonly dataPort: number;
       readonly overrides: IdentityOverrides;
     }
-  /** List the projects: all of them, or the ones one account can reach. */
-  | { readonly kind: "project-list"; readonly root: string; readonly as: string | undefined }
-  /** Let an account reach a project. */
-  | {
-      readonly kind: "project-grant";
-      readonly root: string;
-      readonly project: string;
-      readonly username: string;
-      readonly level: AccessLevel;
-    }
-  /** Stop an account reaching a project. */
-  | {
-      readonly kind: "project-revoke";
-      readonly root: string;
-      readonly project: string;
-      readonly username: string;
-    }
+  /** List the projects this server holds. */
+  | { readonly kind: "project-list"; readonly root: string }
   /** Show the settings this Team server keeps in its database. */
   | { readonly kind: "settings-list"; readonly root: string }
   /**
@@ -601,7 +592,10 @@ function parseInit(argv: readonly string[]): Invocation {
 function parseUser(argv: readonly string[]): Invocation {
   const [verb, ...rest] = argv;
   if (verb === undefined) {
-    return error("user needs a verb: list, create, disable, enable or revoke-tokens");
+    return error(
+      "user needs a verb: list, create, disable, enable, revoke-tokens, grant-admin or " +
+        "revoke-admin",
+    );
   }
   if (verb === "-h" || verb === "--help") {
     return { kind: "help" };
@@ -647,6 +641,26 @@ function parseUser(argv: readonly string[]): Invocation {
       email: tokens.values.get("--email"),
       isServiceAccount: tokens.flags.has("--service-account"),
     };
+  }
+
+  if (verb === "grant-admin" || verb === "revoke-admin") {
+    const result = readTokens(rest, ["--root"]);
+    if (result.kind !== "tokens") {
+      return result.kind === "help" ? { kind: "help" } : error(result.message);
+    }
+    const { tokens } = result;
+    const username = tokens.positionals[0];
+    if (username === undefined) {
+      return error(`user ${verb} needs a username`);
+    }
+    if (tokens.positionals[1] !== undefined) {
+      return error(`unexpected argument: ${tokens.positionals[1]}`);
+    }
+    const root = tokens.values.get("--root");
+    if (root === undefined) {
+      return missingRoot(`user ${verb}`);
+    }
+    return { kind: "user-set-admin", root, username, admin: verb === "grant-admin" };
   }
 
   if (verb === "disable" || verb === "enable" || verb === "revoke-tokens") {
@@ -719,7 +733,7 @@ function parseToken(argv: readonly string[]): Invocation {
 function parseProject(argv: readonly string[]): Invocation {
   const [verb, ...rest] = argv;
   if (verb === undefined) {
-    return error("project needs a verb: create, list, grant or revoke");
+    return error("project needs a verb: create or list");
   }
   if (verb === "-h" || verb === "--help") {
     return { kind: "help" };
@@ -767,7 +781,7 @@ function parseProject(argv: readonly string[]): Invocation {
   }
 
   if (verb === "list") {
-    const result = readTokens(rest, ["--root", "--as"]);
+    const result = readTokens(rest, ["--root"]);
     if (result.kind !== "tokens") {
       return result.kind === "help" ? { kind: "help" } : error(result.message);
     }
@@ -780,39 +794,7 @@ function parseProject(argv: readonly string[]): Invocation {
     if (root === undefined) {
       return missingRoot("project list");
     }
-    return { kind: "project-list", root, as: tokens.values.get("--as") };
-  }
-
-  if (verb === "grant" || verb === "revoke") {
-    const result = readTokens(rest, verb === "grant" ? ["--root", "--level"] : ["--root"]);
-    if (result.kind !== "tokens") {
-      return result.kind === "help" ? { kind: "help" } : error(result.message);
-    }
-    const { tokens } = result;
-
-    const [project, username, extra] = tokens.positionals;
-    if (project === undefined || username === undefined) {
-      return error(`project ${verb} needs a project and a username`);
-    }
-    if (extra !== undefined) {
-      return error(`unexpected argument: ${extra}`);
-    }
-    const root = tokens.values.get("--root");
-    if (root === undefined) {
-      return missingRoot(`project ${verb}`);
-    }
-    if (verb === "revoke") {
-      return { kind: "project-revoke", root, project, username };
-    }
-
-    // Read and write are the levels that can be given. Ownership is not one of
-    // them: it comes from creating the project, and a project has one owner.
-    const level = tokens.values.get("--level") ?? "read";
-    const granted = GRANTABLE_LEVELS.find((known) => known === level);
-    if (granted === undefined) {
-      return error(`--level is ${GRANTABLE_LEVELS.join(" or ")}, not "${level}"`);
-    }
-    return { kind: "project-grant", root, project, username, level: granted };
+    return { kind: "project-list", root };
   }
 
   return error(`unknown project command: ${verb}`);

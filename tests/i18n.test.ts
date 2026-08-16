@@ -157,9 +157,6 @@ describe("every language answers", () => {
         // The failure this catches is a translated sentence that reads well and
         // dropped the username out of the middle of it.
         expect(language.action.userDisabled({ username: "ada" })).toContain("ada");
-        expect(
-          language.action.granted({ username: "ada", level: "write", project: "winterlight" }),
-        ).toContain("winterlight");
         // A key id is data, and stays as the database has it in every language.
         expect(language.action.keyRotated({ kid: "abc123", published: 2 })).toContain("abc123");
         expect(language.error.unknownUser({ username: "ada" })).toContain("ada");

@@ -30,7 +30,7 @@ import { findUserById, listUsers } from "./identity/users.js";
 import { checkHealth } from "./loreserver/health.js";
 import { instanceLayout } from "./loreserver/layout.js";
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
-import { listGrants, listProjects, listProjectsFor } from "./projects/registry.js";
+import { listProjects } from "./projects/registry.js";
 import type {
   TeamView,
   ProjectFileView,
@@ -158,10 +158,6 @@ function userView(database: DatabaseSync, user: ReturnType<typeof listUsers>[num
     ...(user.tokensInvalidatedAt === undefined
       ? {}
       : { tokensInvalidatedAt: user.tokensInvalidatedAt }),
-    projects: listProjectsFor(database, user.id).map((reachable) => ({
-      name: reachable.project.name,
-      level: reachable.level,
-    })),
   };
 }
 
@@ -189,10 +185,6 @@ function projectView(
     description: project.description,
     owner: nameOf(project.createdBy),
     createdAt: project.createdAt,
-    access: listGrants(database, project.id).map((grant) => ({
-      username: nameOf(grant.userId),
-      level: grant.level,
-    })),
     history: read.history,
     file: read.file,
   };

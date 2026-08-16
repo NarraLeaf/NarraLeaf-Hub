@@ -87,12 +87,6 @@ export const en: Messages = {
       repository: "repository",
       lastRevision: "last revision",
       message: "message",
-      access: "Access",
-      onlyItsOwner: "only its owner",
-      grant: "Grant",
-      revoke: "Revoke",
-      read: "read",
-      write: "write",
       projectFile: "project file",
       title: "title",
       stage: "stage",
@@ -165,10 +159,6 @@ export const en: Messages = {
     settingChanged: ({ label, value }) =>
       `${label} is ${value}; tokens already minted keep the lifetime they were given`,
     projectCreated: ({ project, owner }) => `created ${project}, owned by ${owner}`,
-    granted: ({ username, level, project }) =>
-      `${username} can ${level} ${project}, from their next request`,
-    revoked: ({ username, project }) =>
-      `${username} can no longer reach ${project}, from their next request`,
     loreserverNotOurs:
       "loreserver belongs to the nlteam up that started it; stop and start that",
   },
@@ -187,9 +177,6 @@ export const en: Messages = {
     notAnAction: "that is not an action",
     notSomethingWeDo: "that is not something this server does",
     projectNeedsNameAndOwner: "a project needs a name and an owner",
-    grantNeedsProjectAndAccount: "a grant needs a project and an account",
-    grantIsReadOrWrite: "a grant is read or write",
-    revokeNeedsProjectAndAccount: "a revoke needs a project and an account",
     needsAccount: "that needs an account",
     needsAccountAndDisabled: "that needs an account and whether it is disabled",
     settingNeedsRowAndValue: "a setting needs a row and a value",
@@ -211,9 +198,6 @@ export const en: Messages = {
       `"${project}" cannot be a project name. A project name is 1 to 64 characters of ` +
       "letters, digits, dot, dash and underscore, and starts with a letter or a digit.",
     projectNameTaken: ({ project }) => `there is already a project called ${project}.`,
-    ownerGrant: ({ project }) =>
-      `that account owns ${project}, and an owner's access is not revoked. ` +
-      "Delete the project instead.",
     accountDisabled: ({ username }) =>
       `${username} is disabled, so no token can be issued for them.`,
     noSigningKey: ({ directory }) =>

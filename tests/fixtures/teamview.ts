@@ -45,10 +45,6 @@ export const FIXTURE_VIEW: TeamView = {
       serviceAccount: false,
       createdAt: NOW - 41 * DAY,
       lastSeenAt: NOW - 2 * HOUR,
-      projects: [
-        { name: "harbour", level: "owner" },
-        { name: "lighthouse", level: "owner" },
-      ],
     },
     {
       username: "bob",
@@ -59,7 +55,6 @@ export const FIXTURE_VIEW: TeamView = {
       serviceAccount: false,
       createdAt: NOW - 38 * DAY,
       lastSeenAt: NOW - 3 * HOUR,
-      projects: [{ name: "harbour", level: "write" }],
     },
     {
       // Disabled, with tokens invalidated, because that combination is what
@@ -75,7 +70,6 @@ export const FIXTURE_VIEW: TeamView = {
       createdAt: NOW - 39 * DAY,
       lastSeenAt: NOW - 6 * DAY,
       tokensInvalidatedAt: NOW - 6 * DAY,
-      projects: [{ name: "lighthouse", level: "read" }],
     },
     {
       username: "ci",
@@ -85,12 +79,6 @@ export const FIXTURE_VIEW: TeamView = {
       serviceAccount: true,
       createdAt: NOW - 20 * DAY,
       lastSeenAt: NOW - 11 * MINUTE,
-      projects: [
-        { name: "harbour", level: "read" },
-        { name: "lighthouse", level: "read" },
-        { name: "tideline", level: "read" },
-        { name: "sandbar", level: "read" },
-      ],
     },
   ],
   projects: [
@@ -99,11 +87,6 @@ export const FIXTURE_VIEW: TeamView = {
       description: "the one everybody is working on",
       owner: "ada",
       createdAt: Date.parse("2026-07-02T09:14:00Z"),
-      access: [
-        { username: "ada", level: "owner" },
-        { username: "bob", level: "write" },
-        { username: "cleo", level: "read" },
-      ],
       history: {
         revisions: 184,
         branch: "main",
@@ -133,10 +116,6 @@ export const FIXTURE_VIEW: TeamView = {
       description: "",
       owner: "ada",
       createdAt: Date.parse("2026-07-19T11:02:00Z"),
-      access: [
-        { username: "ada", level: "owner" },
-        { username: "cleo", level: "read" },
-      ],
       history: {
         revisions: 41,
         branch: "main",
@@ -164,7 +143,6 @@ export const FIXTURE_VIEW: TeamView = {
       description: "",
       owner: "bob",
       createdAt: Date.parse("2026-08-01T16:40:00Z"),
-      access: [{ username: "bob", level: "owner" }],
       history: {
         revisions: 7,
         branch: "main",
@@ -194,7 +172,6 @@ export const FIXTURE_VIEW: TeamView = {
       description: "",
       owner: "cleo",
       createdAt: Date.parse("2026-08-11T08:05:00Z"),
-      access: [{ username: "cleo", level: "owner" }],
       history: { revisions: 0 },
       file: { readable: false, reason: "nothing has been pushed to this project yet" },
     },

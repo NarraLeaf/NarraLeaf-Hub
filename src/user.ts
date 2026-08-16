@@ -17,11 +17,15 @@ import { identityLayout } from "./identity/layout.js";
 import { defaultPasswordHasher } from "./identity/passwords.js";
 import { storedTokenLifetimes } from "./identity/settings.js";
 import {
+  ADMIN_ROLE,
+  countAdmins,
   createUser,
   disableUser,
   enableUser,
   listUsers,
+  requireUser,
   revokeUserTokens,
+  setAdmin,
   type UserRecord,
 } from "./identity/users.js";
 import { readPassword } from "./stdin.js";
@@ -208,6 +212,49 @@ export async function userRevokeTokens(
     stdout(
       `The account is not disabled, so ${user.username} can sign in and be issued a token ` +
         "that works.\n",
+    );
+    return 0;
+  } catch (error) {
+    stderr(`nlteam: ${describeError(error)}\n`);
+    return 1;
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * Put an account in the admin group, or take it out. Returns the exit code.
+ *
+ * The last account in the group cannot be taken out of it. A server with no
+ * admin has nobody who can put one back, and the way out of that would be to
+ * edit the database by hand — so the refusal happens here, where there is
+ * somebody to read it.
+ */
+export async function userSetAdmin(
+  options: UserStateOptions & { readonly admin: boolean },
+  stdout: WriteText,
+  stderr: WriteText,
+): Promise<number> {
+  const layout = identityLayout(options.root);
+  const database = await openMigratedDatabase(layout.databasePath);
+  try {
+    if (!options.admin) {
+      const user = requireUser(database, options.username);
+      if (user.groups.includes(ADMIN_ROLE) && countAdmins(database) <= 1) {
+        stderr(
+          `nlteam: ${user.username} is the only admin on this server, and a server with none ` +
+            "has nobody who can make one. Make somebody else an admin first.\n",
+        );
+        return 1;
+      }
+    }
+    const user = setAdmin(database, options.username, options.admin);
+    stdout(
+      options.admin
+        ? `${user.username} is an admin: the operator's view, the accounts, and making ` +
+            "another admin.\n"
+        : `${user.username} is no longer an admin. The account is otherwise unchanged, and ` +
+            "still reaches every project on this server.\n",
     );
     return 0;
   } catch (error) {

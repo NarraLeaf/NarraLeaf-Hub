@@ -66,16 +66,16 @@ describe("migrate", () => {
 
       // Put the file back to the version before the newest migration. That
       // one drops a table rather than adding one, so undoing it means putting
-      // an `invites` table back; one column is enough, because what the
+      // a `project_grants` table back; one column is enough, because what the
       // migration does to it does not depend on its shape, and a fuller copy
       // here would be one more thing to keep in step with the migration list.
-      database.exec("CREATE TABLE invites (code_hash TEXT NOT NULL PRIMARY KEY) STRICT");
+      database.exec("CREATE TABLE project_grants (project_id TEXT NOT NULL PRIMARY KEY) STRICT");
       database.prepare("DELETE FROM schema_version WHERE version = ?").run(SCHEMA_VERSION);
       expect(schemaVersion(database)).toBe(SCHEMA_VERSION - 1);
 
       expect(migrate(database, path)).toBe(SCHEMA_VERSION);
 
-      expect(tableNames(database)).not.toContain("invites");
+      expect(tableNames(database)).not.toContain("project_grants");
       // The account is still there. A migration that took the file back to
       // something empty would pass every check about tables and lose a Team server.
       expect(database.prepare("SELECT username FROM users").all()).toEqual([{ username: "ada" }]);

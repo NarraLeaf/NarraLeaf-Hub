@@ -29,11 +29,7 @@ import { disableUser, enableUser, requireUser, revokeUserTokens } from "./identi
 import {
   createProject,
   forgetProject,
-  grantAccess,
   newProjectId,
-  requireProject,
-  revokeAccess,
-  type AccessLevel,
 } from "./projects/registry.js";
 import { loreserverUrl, repositoryCreate } from "./projects/repository.js";
 import type { Messages } from "./i18n/messages.js";
@@ -199,22 +195,6 @@ export async function perform(
         project: project.name,
         owner: owner.username,
       });
-    }
-    case "grant": {
-      const project = requireProject(database, action.project);
-      const user = requireUser(database, action.username);
-      grantAccess(database, project.id, user.id, action.level as AccessLevel, undefined);
-      return messages.action.granted({
-        username: action.username,
-        level: action.level,
-        project: action.project,
-      });
-    }
-    case "revoke": {
-      const project = requireProject(database, action.project);
-      const user = requireUser(database, action.username);
-      revokeAccess(database, project.id, user.id);
-      return messages.action.revoked({ username: action.username, project: action.project });
     }
     case "restart-loreserver":
       return messages.action.loreserverNotOurs;

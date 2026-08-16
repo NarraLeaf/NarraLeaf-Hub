@@ -14,7 +14,7 @@ import { defaultPasswordHasher } from "../src/identity/passwords.js";
 import { createUser, disableUser } from "../src/identity/users.js";
 import { readDuration } from "../src/interface.js";
 import { DEFAULT_PORTS } from "../src/loreserver/layout.js";
-import { createProject, grantAccess, newProjectId } from "../src/projects/registry.js";
+import { createProject, newProjectId } from "../src/projects/registry.js";
 import { gatherTeamView, settingRows, type ViewContext } from "../src/view.js";
 import { useTemporaryRoots } from "./temporary.js";
 
@@ -55,7 +55,6 @@ async function team(): Promise<ViewContext> {
     description: "the one everybody is working on",
     createdBy: ada.id,
   });
-  grantAccess(database, harbour.id, bob.id, "read", ada.id);
 
   return {
     root,
@@ -97,26 +96,19 @@ describe("a command line that names no command", () => {
 });
 
 describe("the view a real Team gathers", () => {
-  it("says who is here, what they can reach, and which of them is disabled", async () => {
+  it("says who is here, and which of them is disabled", async () => {
     const view = await gatherTeamView(await team());
 
     expect(view.users.map((user) => user.username)).toEqual(["ada", "bob"]);
     expect(view.users.find((user) => user.username === "bob")?.disabled).toBe(true);
-    expect(view.users.find((user) => user.username === "bob")?.projects).toEqual([
-      { name: "harbour", level: "read" },
-    ]);
   });
 
-  it("names the owner of a project and everybody with a grant on it", async () => {
+  it("names who made a project", async () => {
     const view = await gatherTeamView(await team());
     const harbour = view.projects[0];
 
     expect(harbour?.name).toBe("harbour");
     expect(harbour?.owner).toBe("ada");
-    expect(harbour?.access).toEqual([
-      { username: "ada", level: "owner" },
-      { username: "bob", level: "read" },
-    ]);
   });
 
   it("leaves out what lives inside a repository, rather than making it up", async () => {

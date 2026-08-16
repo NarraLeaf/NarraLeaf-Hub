@@ -7,7 +7,7 @@ import { init } from "./init.js";
 import { terminalInterface } from "./interface.js";
 import { keyList, keyRotate } from "./key.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
-import { projectCreate, projectGrant, projectList, projectRevoke } from "./project.js";
+import { projectCreate, projectList } from "./project.js";
 import { settingsList, settingsSet } from "./settings.js";
 import { tokenMint } from "./token.js";
 import { trust } from "./trust.js";
@@ -18,6 +18,7 @@ import {
   userEnable,
   userList,
   userRevokeTokens,
+  userSetAdmin,
 } from "./user.js";
 import { VERSION } from "./version.js";
 
@@ -66,13 +67,15 @@ Commands:
   user revoke-tokens <username>
                             Refuse every token already issued to an account,
                             leaving it able to sign in again
+  user grant-admin <username>
+                            Let an account open the operator's view, manage the
+                            accounts, and make another admin
+  user revoke-admin <username>
+                            Take that away, leaving the account otherwise as it
+                            was
   token mint <username>     Sign a token for an account
-  project create <name>     Create a repository and record who owns it
+  project create <name>     Create a repository and record it
   project list              List the projects
-  project grant <project> <username>
-                            Let an account reach a project
-  project revoke <project> <username>
-                            Stop an account reaching a project
   settings list             Show the settings this server keeps, and whether
                             each is the default or was set here
   settings set <key> <value>
@@ -99,21 +102,19 @@ Options for init:
       --email <address>
 
 Options for user create:
-      --role <name>         Group the account joins (default ${DEFAULT_ROLE})
+      --role <name>         Group the account joins (default ${DEFAULT_ROLE}).
+                            Only admin means anything to this server: it is
+                            who may open the operator's view. Every account
+                            reaches every project either way
       --display-name <name> Name shown to other people
       --email <address>
       --service-account     Mark the account as one no person signs in to
 
 Options for project create:
       --description <text>
-      --as <username>       The account it belongs to, when the server has more
-                            than one
+      --as <username>       The account to record as its creator, when the
+                            server has more than one
 
-Options for project list:
-      --as <username>       List what that account can reach, rather than all
-
-Options for project grant:
-      --level read|write    How far the account may go (default read)
 
 Identity options, taken by up, token mint and project create. A token's
 audience is built from these, so a command given a different set to the one
@@ -236,6 +237,12 @@ export async function run(
         stdout,
         stderr,
       );
+    case "user-set-admin":
+      return await userSetAdmin(
+        { root: invocation.root, username: invocation.username, admin: invocation.admin },
+        stdout,
+        stderr,
+      );
     case "user-revoke-tokens":
       return await userRevokeTokens(
         { root: invocation.root, username: invocation.username },
@@ -266,24 +273,7 @@ export async function run(
         stderr,
       );
     case "project-list":
-      return await projectList({ root: invocation.root, as: invocation.as }, stdout, stderr);
-    case "project-grant":
-      return await projectGrant(
-        {
-          root: invocation.root,
-          project: invocation.project,
-          username: invocation.username,
-          level: invocation.level,
-        },
-        stdout,
-        stderr,
-      );
-    case "project-revoke":
-      return await projectRevoke(
-        { root: invocation.root, project: invocation.project, username: invocation.username },
-        stdout,
-        stderr,
-      );
+      return await projectList({ root: invocation.root }, stdout, stderr);
     case "settings-list":
       return await settingsList({ root: invocation.root }, stdout, stderr);
     case "settings-set":

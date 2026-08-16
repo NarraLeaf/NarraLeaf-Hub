@@ -1,12 +1,10 @@
 /**
- * The `project` commands: make a repository, see who can reach one, and change
- * who can.
+ * The `project` commands: make a repository, and see what this server holds.
  *
- * `project create` is the only one that talks to loreserver. The rest are rows
- * in Team's database, and they take effect on the next thing anybody does:
- * loreserver asks Team about every repository access, so a grant added here is
- * in force immediately and a revocation is too, without a restart on either
- * side and without waiting for a token to expire.
+ * `project create` is the one that talks to loreserver; `project list` reads
+ * rows in Team's database. There is nothing here about who may reach what,
+ * because every account of this server reaches every project on it — see
+ * ./projects/registry.ts.
  */
 import type { DatabaseSync } from "node:sqlite";
 
@@ -22,14 +20,8 @@ import { loreserverUrl, repositoryCreate } from "./projects/repository.js";
 import {
   createProject,
   forgetProject,
-  grantAccess,
-  listGrants,
   listProjects,
-  listProjectsFor,
   newProjectId,
-  requireProject,
-  revokeAccess,
-  type AccessLevel,
 } from "./projects/registry.js";
 
 function describeError(error: unknown): string {
@@ -49,22 +41,6 @@ export interface ProjectCreateOptions {
 
 export interface ProjectListOptions {
   readonly root: string;
-  /** Whose view to take. Absent for the operator's, which is everything. */
-  readonly as: string | undefined;
-}
-
-export interface ProjectGrantOptions {
-  readonly root: string;
-  /** A project name or a repository id. */
-  readonly project: string;
-  readonly username: string;
-  readonly level: AccessLevel;
-}
-
-export interface ProjectRevokeOptions {
-  readonly root: string;
-  readonly project: string;
-  readonly username: string;
 }
 
 /**
@@ -170,21 +146,6 @@ export async function projectList(
   const database = await openMigratedDatabase(layout.databasePath);
 
   try {
-    if (options.as !== undefined) {
-      const user = requireUser(database, options.as);
-      const reachable = listProjectsFor(database, user.id);
-      if (reachable.length === 0) {
-        stdout(`${user.username} can reach no projects here.\n`);
-        return 0;
-      }
-      const width = Math.max(...reachable.map((entry) => entry.project.name.length));
-      for (const entry of reachable) {
-        const name = entry.project.name.padEnd(width);
-        stdout(`${name}  ${entry.level.padEnd(5)}  ${entry.project.id}\n`);
-      }
-      return 0;
-    }
-
     const projects = listProjects(database);
     if (projects.length === 0) {
       stdout("no projects yet. Make one with project create <name>.\n");
@@ -193,72 +154,9 @@ export async function projectList(
     const names = new Map(listUsers(database).map((user) => [user.id, user.username]));
     const width = Math.max(...projects.map((project) => project.name.length));
     for (const project of projects) {
-      const owner = names.get(project.createdBy) ?? project.createdBy;
-      // Everyone with a grant, the owner included, so that one line says who
-      // can open this repository.
-      const people = listGrants(database, project.id)
-        .map((grant) => `${names.get(grant.userId) ?? grant.userId}:${grant.level}`)
-        .join(",");
-      stdout(`${project.name.padEnd(width)}  ${project.id}  ${owner}  ${people}\n`);
-    }
-    return 0;
-  } catch (error) {
-    stderr(`nlteam: ${describeError(error)}\n`);
-    return 1;
-  } finally {
-    database.close();
-  }
-}
-
-/** Let an account reach a project. */
-export async function projectGrant(
-  options: ProjectGrantOptions,
-  stdout: WriteText,
-  stderr: WriteText,
-): Promise<number> {
-  const layout = identityLayout(options.root);
-  const database = await openMigratedDatabase(layout.databasePath);
-
-  try {
-    const project = requireProject(database, options.project);
-    const user = requireUser(database, options.username);
-    // No `granted_by`: a grant made on the command line was made by whoever
-    // holds the storage root, and that is not an account.
-    const grant = grantAccess(database, project.id, user.id, options.level, undefined);
-
-    stdout(`${user.username} may ${grant.level} ${project.name}\n`);
-    return 0;
-  } catch (error) {
-    stderr(`nlteam: ${describeError(error)}\n`);
-    return 1;
-  } finally {
-    database.close();
-  }
-}
-
-/** Stop an account reaching a project. */
-export async function projectRevoke(
-  options: ProjectRevokeOptions,
-  stdout: WriteText,
-  stderr: WriteText,
-): Promise<number> {
-  const layout = identityLayout(options.root);
-  const database = await openMigratedDatabase(layout.databasePath);
-
-  try {
-    const project = requireProject(database, options.project);
-    const user = requireUser(database, options.username);
-    const had = revokeAccess(database, project.id, user.id);
-
-    stdout(
-      had
-        ? `${user.username} can no longer reach ${project.name}\n`
-        : `${user.username} could not reach ${project.name} anyway\n`,
-    );
-    // Said because it is the opposite of what taking a token away would do: the
-    // next access is refused, whatever token the person is holding.
-    if (had) {
-      stdout("The next repository access they attempt is refused.\n");
+      const madeBy = names.get(project.createdBy) ?? project.createdBy;
+      stdout(`${project.name.padEnd(width)}  ${project.id}  ${madeBy}
+`);
     }
     return 0;
   } catch (error) {

@@ -31,48 +31,15 @@ import {
  * loreserver 0.8.6 does not read the verbs it is sent, and a permission system
  * nobody consults is somewhere for a mistake to sit unnoticed.
  */
-export type AccessLevel = "read" | "write" | "owner";
-
-/** The levels a `--level` option accepts; ownership comes from creating. */
-export const GRANTABLE_LEVELS: readonly AccessLevel[] = ["read", "write"];
-
-/** Every level, weakest first, for comparing two. */
-const LEVEL_ORDER: readonly AccessLevel[] = ["read", "write", "owner"];
-
-/** True when `level` is at least `atLeast`. */
-export function levelAllows(level: AccessLevel, atLeast: AccessLevel): boolean {
-  return LEVEL_ORDER.indexOf(level) >= LEVEL_ORDER.indexOf(atLeast);
-}
-
-/** Read a level out of the database, insisting it is one of the three. */
-function levelColumn(row: Row, column: string): AccessLevel {
-  const value = textColumn(row, column);
-  const level = LEVEL_ORDER.find((known) => known === value);
-  if (level === undefined) {
-    throw new Error(
-      `team.db holds an access level of "${value}", and the levels are ${LEVEL_ORDER.join(", ")}.`,
-    );
-  }
-  return level;
-}
-
 /**
- * The verbs named in an answer about a project.
+ * What every account may do with every project on this server.
  *
- * loreserver takes the presence of the resource id as the answer and never
- * looks at this list. It is filled in because the field exists and because the
- * audit line is more use with it than without.
+ * There is one answer because there is one rule: an account of this server
+ * reaches every project on it. The claim is filled in because loreserver's
+ * data plane reads it, and because the audit line is more use with it than
+ * without; the repository authorizer never looks at the verbs.
  */
-export function permissionsFor(level: AccessLevel): readonly string[] {
-  switch (level) {
-    case "read":
-      return ["read"];
-    case "write":
-      return ["read", "write"];
-    case "owner":
-      return ["read", "write", "owner"];
-  }
-}
+export const PROJECT_PERMISSIONS: readonly string[] = ["read", "write"];
 
 /** One project. */
 export interface ProjectRecord {
@@ -84,22 +51,6 @@ export interface ProjectRecord {
   readonly createdBy: string;
   /** Milliseconds since the epoch. */
   readonly createdAt: number;
-}
-
-/** One person's access to one project. */
-export interface GrantRecord {
-  readonly projectId: string;
-  readonly userId: string;
-  readonly level: AccessLevel;
-  /** Who gave it; absent for a grant nobody gave, which no code here writes. */
-  readonly grantedBy: string | undefined;
-  readonly grantedAt: number;
-}
-
-/** A project somebody may reach, and how far. */
-export interface ReachableProject {
-  readonly project: ProjectRecord;
-  readonly level: AccessLevel;
 }
 
 /** What a resource id has in front of the repository id. */
@@ -156,17 +107,6 @@ export class UnknownProjectError extends Error {
   }
 }
 
-/** Raised when a revocation would leave a project with no owner. */
-export class OwnerGrantError extends Error {
-  constructor(readonly projectName: string) {
-    super(
-      `that account owns ${projectName}, and an owner's access is not revoked. ` +
-        "Delete the project instead.",
-    );
-    this.name = "OwnerGrantError";
-  }
-}
-
 /** The resource id loreserver asks about for one project. */
 export function resourceIdOf(projectId: string): string {
   return `${RESOURCE_PREFIX}${projectId}`;
@@ -212,19 +152,7 @@ function toProject(row: Row): ProjectRecord {
   };
 }
 
-function toGrant(row: Row): GrantRecord {
-  return {
-    projectId: textColumn(row, "project_id"),
-    userId: textColumn(row, "user_id"),
-    level: levelColumn(row, "level"),
-    grantedBy: optionalTextColumn(row, "granted_by"),
-    grantedAt: integerColumn(row, "granted_at"),
-  };
-}
-
 const SELECT_PROJECT = "SELECT id, name, description, created_by, created_at FROM projects";
-const SELECT_GRANT =
-  "SELECT project_id, user_id, level, granted_by, granted_at FROM project_grants";
 
 /** What a new project is made from. */
 export interface NewProject {
@@ -232,15 +160,16 @@ export interface NewProject {
   readonly id: string;
   readonly name: string;
   readonly description?: string;
-  /** The account that is about to own it. */
+  /** The account that made it. */
   readonly createdBy: string;
 }
 
 /**
- * Record a project and make its creator the owner.
+ * Record a project.
  *
- * Both happen in one transaction. A project row with no grant would be a
- * repository nobody — including the person who just made it — could open.
+ * `created_by` is who made it, and that is the whole of what it is: it is
+ * shown, and it is not consulted when somebody asks to open the repository.
+ * Every account of this server reaches every project on it.
  */
 export function createProject(database: DatabaseSync, input: NewProject): ProjectRecord {
   if (!PROJECT_NAME_PATTERN.test(input.name)) {
@@ -256,12 +185,6 @@ export function createProject(database: DatabaseSync, input: NewProject): Projec
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run(input.id, input.name, input.description ?? "", input.createdBy, now);
-    database
-      .prepare(
-        `INSERT INTO project_grants (project_id, user_id, level, granted_by, granted_at)
-         VALUES (?, ?, 'owner', ?, ?)`,
-      )
-      .run(input.id, input.createdBy, input.createdBy, now);
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
@@ -311,122 +234,7 @@ export function requireProject(database: DatabaseSync, reference: string): Proje
 }
 
 /**
- * How far one account may go with one project, or undefined for not at all.
- *
- * This one query is what every permission question comes down to.
- */
-export function accessLevel(
-  database: DatabaseSync,
-  projectId: string,
-  userId: string,
-): AccessLevel | undefined {
-  const row = database
-    .prepare("SELECT level FROM project_grants WHERE project_id = ? AND user_id = ?")
-    .get(projectId, userId);
-  return row === undefined ? undefined : levelColumn(row, "level");
-}
-
-/** Every project one account may reach, in name order. */
-export function listProjectsFor(database: DatabaseSync, userId: string): ReachableProject[] {
-  return database
-    .prepare(
-      `SELECT p.id, p.name, p.description, p.created_by, p.created_at, g.level
-         FROM projects p
-         JOIN project_grants g ON g.project_id = p.id
-        WHERE g.user_id = ?
-        ORDER BY p.name`,
-    )
-    .all(userId)
-    .map((row) => ({ project: toProject(row), level: levelColumn(row, "level") }));
-}
-
-/**
- * Every grant on one project, in the order they were given.
- *
- * Two grants given in the same millisecond are ordered by the account's name
- * rather than by its id: creating a project writes the owner's grant and the
- * first invitation may be redeemed in the same tick, and an id is a random
- * UUID, so the tie was being broken by nothing a person could see. The list is
- * read by people and shown as it is read.
- */
-export function listGrants(database: DatabaseSync, projectId: string): GrantRecord[] {
-  return database
-    .prepare(
-      `SELECT g.project_id, g.user_id, g.level, g.granted_by, g.granted_at
-         FROM project_grants g LEFT JOIN users u ON u.id = g.user_id
-        WHERE g.project_id = ?
-        ORDER BY g.granted_at, u.username, g.user_id`,
-    )
-    .all(projectId)
-    .map((row) => toGrant(row));
-}
-
-/**
- * Give an account access to a project, or change the access it has.
- *
- * Ownership is not handed out this way: it comes from creating the project, and
- * one project has one owner. Raising a grant to `owner` would leave two, and
- * the question of which of them the project belongs to has no answer here.
- */
-export function grantAccess(
-  database: DatabaseSync,
-  projectId: string,
-  userId: string,
-  level: AccessLevel,
-  grantedBy: string | undefined,
-): GrantRecord {
-  const existing = accessLevel(database, projectId, userId);
-  if (existing === "owner") {
-    const project = requireProject(database, projectId);
-    throw new OwnerGrantError(project.name);
-  }
-  database
-    .prepare(
-      `INSERT INTO project_grants (project_id, user_id, level, granted_by, granted_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (project_id, user_id)
-       DO UPDATE SET level = excluded.level,
-                     granted_by = excluded.granted_by,
-                     granted_at = excluded.granted_at`,
-    )
-    .run(projectId, userId, level, grantedBy ?? null, Date.now());
-
-  const row = database.prepare(`${SELECT_GRANT} WHERE project_id = ? AND user_id = ?`).get(
-    projectId,
-    userId,
-  );
-  if (row === undefined) {
-    throw new Error("the grant was written and could not be read back");
-  }
-  return toGrant(row);
-}
-
-/**
- * Take an account's access away.
- *
- * Returns false when they had none, which is not a failure: the outcome the
- * caller asked for is the outcome either way.
- */
-export function revokeAccess(
-  database: DatabaseSync,
-  projectId: string,
-  userId: string,
-): boolean {
-  const existing = accessLevel(database, projectId, userId);
-  if (existing === undefined) {
-    return false;
-  }
-  if (existing === "owner") {
-    throw new OwnerGrantError(requireProject(database, projectId).name);
-  }
-  database
-    .prepare("DELETE FROM project_grants WHERE project_id = ? AND user_id = ?")
-    .run(projectId, userId);
-  return true;
-}
-
-/**
- * Forget a project and every grant on it.
+ * Forget a project.
  *
  * Nothing is deleted from loreserver here. This is what happens when loreserver
  * says a repository is gone, not a way of making one go.
@@ -436,9 +244,6 @@ export function forgetProject(database: DatabaseSync, projectId: string): boolea
   if (project === undefined) {
     return false;
   }
-  // The grants go with it through the foreign key's ON DELETE CASCADE, which
-  // only holds because the connection switches foreign keys on; see
-  // src/identity/database.ts.
   database.prepare("DELETE FROM projects WHERE id = ?").run(project.id);
   return true;
 }

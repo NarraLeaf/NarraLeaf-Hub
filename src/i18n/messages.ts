@@ -106,12 +106,6 @@ export interface PageMessages {
     readonly repository: string;
     readonly lastRevision: string;
     readonly message: string;
-    readonly access: string;
-    readonly onlyItsOwner: string;
-    readonly grant: string;
-    readonly revoke: string;
-    readonly read: string;
-    readonly write: string;
     readonly projectFile: string;
     readonly title: string;
     readonly stage: string;
@@ -180,15 +174,6 @@ export interface ActionMessages {
     readonly project: string;
     readonly owner: string;
   }) => string;
-  readonly granted: (fields: {
-    readonly username: string;
-    readonly level: string;
-    readonly project: string;
-  }) => string;
-  readonly revoked: (fields: {
-    readonly username: string;
-    readonly project: string;
-  }) => string;
   readonly loreserverNotOurs: string;
 }
 
@@ -206,9 +191,6 @@ export interface RefusalMessages {
   readonly notAnAction: string;
   readonly notSomethingWeDo: string;
   readonly projectNeedsNameAndOwner: string;
-  readonly grantNeedsProjectAndAccount: string;
-  readonly grantIsReadOrWrite: string;
-  readonly revokeNeedsProjectAndAccount: string;
   readonly needsAccount: string;
   readonly needsAccountAndDisabled: string;
   readonly settingNeedsRowAndValue: string;
@@ -229,7 +211,6 @@ export interface ErrorMessages {
   readonly unknownProject: (fields: { readonly project: string }) => string;
   readonly invalidProjectName: (fields: { readonly project: string }) => string;
   readonly projectNameTaken: (fields: { readonly project: string }) => string;
-  readonly ownerGrant: (fields: { readonly project: string }) => string;
   readonly accountDisabled: (fields: { readonly username: string }) => string;
   readonly noSigningKey: (fields: { readonly directory: string }) => string;
   readonly invalidSetting: (fields: {

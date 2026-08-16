@@ -268,6 +268,17 @@ const MIGRATIONS: readonly Migration[] = [
       "DROP TABLE invites",
     ],
   },
+  {
+    version: 7,
+    description: "every account of a server reaches every project on it",
+    statements: [
+      // Per-project access is gone, so the table that held it is too. What is
+      // left of who-did-what is `projects.created_by`, which is shown and is
+      // not consulted: the rule is now one sentence, and it is in
+      // src/projects/registry.ts.
+      "DROP TABLE project_grants",
+    ],
+  },
 ];
 
 /** The schema version this build of Team writes and expects. */

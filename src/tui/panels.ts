@@ -81,8 +81,8 @@ export function headerLine(view: TeamView, width: number): Line {
  */
 const KEYS: Readonly<Record<Surface, string>> = {
   dashboard: " 1-4 surface · n new project · c connection · l log · ? keys · q quit",
-  users: " ↑↓ move · ⏎ open · g grant · DISABLE · x revoke tokens · q quit",
-  projects: " ↑↓ move · ⏎ open · n new · g grant · r revoke · l log · q quit",
+  users: " ↑↓ move · ⏎ open · DISABLE · x revoke tokens · q quit",
+  projects: " ↑↓ move · ⏎ open · n new · l log · q quit",
   settings: " ↑↓ move · ⏎ change · l log · q quit  (· cannot be changed here)",
 };
 
@@ -287,13 +287,12 @@ function userState(user: UserView): string {
 const WHO = 19;
 const DISPLAY_NAME = 16;
 const ROLE = 8;
-const REACHES = 24;
 
 export function userListHeader(width: number): Line {
   const wide = width >= LIST_WIDE_FROM;
   return span(
     wide
-      ? ` ${"who".padEnd(WHO, " ")} ${"name".padEnd(DISPLAY_NAME, " ")} ${"role".padEnd(ROLE, " ")} ${"can reach".padEnd(REACHES, " ")} last seen`
+      ? ` ${"who".padEnd(WHO, " ")} ${"name".padEnd(DISPLAY_NAME, " ")} ${"role".padEnd(ROLE, " ")} last seen`
       : ` ${"who".padEnd(WHO, " ")} ${"role".padEnd(ROLE, " ")} last seen`,
     { dim: true },
   );
@@ -306,18 +305,11 @@ export function userRow(user: UserView, view: TeamView, width: number, selected:
   // the only state there is, so a column headed "state" spent its width saying
   // "active" about almost every row.
   const who = user.disabled ? `${user.username} (disabled)` : user.username;
-  // What they can reach, and not how many things they can reach. The number
-  // was on the screen you would go to in order to decide whether to change it,
-  // and it told you nothing you could decide with.
-  const reaches =
-    user.projects.length === 0
-      ? "—"
-      : user.projects.map((project) => project.name).join(", ");
   const text = wide
     ? ` ${who.padEnd(WHO, " ")} ${user.displayName.padEnd(DISPLAY_NAME, " ")} ${user.role.padEnd(
         ROLE,
         " ",
-      )} ${ellipsis(reaches, REACHES).padEnd(REACHES, " ")} ${seen}`
+      )} ${seen}`
     : ` ${who.padEnd(WHO, " ")} ${user.role.padEnd(ROLE, " ")} ${seen}`;
   return span(ellipsis(text, width).padEnd(width, " "), {
     ...(selected ? { inverse: true } : {}),
@@ -355,16 +347,6 @@ export function userDetailLines(
       9,
     ),
   );
-  lines.push(BLANK);
-  lines.push(span(" projects", { dim: true }));
-  if (user.projects.length === 0) {
-    lines.push(span("   none", { dim: true }));
-  } else {
-    const pad = Math.max(...user.projects.map((project) => project.name.length)) + 2;
-    for (const project of user.projects) {
-      lines.push(span(ellipsis(`   ${project.name.padEnd(pad, " ")} ${project.level}`, width)));
-    }
-  }
   return lines;
 }
 
@@ -398,13 +380,12 @@ function projectLast(project: ProjectView, view: TeamView): string {
 /** The columns of the project list, in one place so the header cannot drift. */
 const PROJECT_NAME = 13;
 const OWNER = 7;
-const ALSO = 22;
 
 export function projectListHeader(width: number): Line {
   const wide = width >= LIST_WIDE_FROM;
   return span(
     wide
-      ? ` ${"name".padEnd(PROJECT_NAME, " ")} ${"owner".padEnd(OWNER, " ")} ${"can also reach".padEnd(ALSO, " ")} ${"revs".padStart(5, " ")}   ${"size".padEnd(9, " ")} last activity`
+      ? ` ${"name".padEnd(PROJECT_NAME, " ")} ${"made by".padEnd(OWNER, " ")} ${"revs".padStart(5, " ")}   ${"size".padEnd(9, " ")} last activity`
       : ` ${"name".padEnd(PROJECT_NAME, " ")} ${"revs".padStart(4, " ")}   size`,
     { dim: true },
   );
@@ -418,22 +399,11 @@ export function projectRow(
 ): Line {
   const wide = width >= LIST_WIDE_FROM;
   const revisions = revisionCount(project);
-  // Who else, by name. A count answered "how many" when the question this
-  // screen is here to settle is "who", and the answer was one keypress and one
-  // panel away from a row that had room for it.
-  const others = project.access.filter((entry) => entry.level !== "owner");
-  const also =
-    others.length === 0
-      ? "—"
-      : others.map((entry) => `${entry.username} ${entry.level.charAt(0)}`).join(", ");
   const text = wide
-    ? ` ${project.name.padEnd(PROJECT_NAME, " ")} ${project.owner.padEnd(OWNER, " ")} ${ellipsis(
-        also,
-        ALSO,
-      ).padEnd(ALSO, " ")} ${revisions.padStart(5, " ")}   ${projectSize(project).padEnd(
-        9,
+    ? ` ${project.name.padEnd(PROJECT_NAME, " ")} ${project.owner.padEnd(OWNER, " ")} ${revisions.padStart(
+        5,
         " ",
-      )} ${projectLast(project, view)}`
+      )}   ${projectSize(project).padEnd(9, " ")} ${projectLast(project, view)}`
     : ` ${project.name.padEnd(PROJECT_NAME, " ")} ${revisions.padStart(4, " ")}   ${projectSize(project)}`;
   return span(ellipsis(text, width).padEnd(width, " "), selected ? { inverse: true } : {});
 }
@@ -535,16 +505,6 @@ export function projectDetailLines(
   lines.push(...historyLines(project, view, width));
   lines.push(BLANK);
   lines.push(...fileLines(project, width));
-  lines.push(BLANK);
-  lines.push(span(" access", { dim: true }));
-  if (project.access.length === 0) {
-    lines.push(span("     nobody", { dim: true }));
-  } else {
-    const pad = Math.max(...project.access.map((grant) => grant.username.length)) + 2;
-    for (const grant of project.access) {
-      lines.push(span(ellipsis(`     ${grant.username.padEnd(pad, " ")}${grant.level}`, width)));
-    }
-  }
   return lines;
 }
 

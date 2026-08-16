@@ -7,23 +7,16 @@ import { identityLayout } from "../src/identity/layout.js";
 import { ScryptPasswordHasher, type ScryptParameters } from "../src/identity/passwords.js";
 import { createUser } from "../src/identity/users.js";
 import {
-  accessLevel,
   createProject,
   forgetProject,
-  grantAccess,
   InvalidProjectNameError,
-  levelAllows,
-  listGrants,
   listProjects,
-  listProjectsFor,
   newProjectId,
-  OwnerGrantError,
-  permissionsFor,
+  PROJECT_PERMISSIONS,
   ProjectNameTakenError,
   projectIdFromResourceId,
   requireProject,
   resourceIdOf,
-  revokeAccess,
   UnknownProjectError,
 } from "../src/projects/registry.js";
 import { useTemporaryRoots } from "./temporary.js";
@@ -86,7 +79,7 @@ describe("resource ids", () => {
 });
 
 describe("createProject", () => {
-  it("records the project and makes its creator the owner in one step", async () => {
+  it("records the project and who made it", async () => {
     const connection = await database();
     const ada = await account(connection, "ada");
 
@@ -98,11 +91,10 @@ describe("createProject", () => {
     });
 
     expect(project.name).toBe("moonlit-harbour");
+    // Who made it, and nothing more: it is shown, and it is not consulted when
+    // somebody asks to open the repository.
     expect(project.createdBy).toBe(ada);
-    // A project row with no grant would be a repository its own author could
-    // not open, so the two are written together or not at all.
-    expect(accessLevel(connection, project.id, ada)).toBe("owner");
-    expect(listGrants(connection, project.id)).toHaveLength(1);
+    expect(listProjects(connection).map((entry) => entry.name)).toEqual(["moonlit-harbour"]);
   });
 
   it("refuses a second project of the same name", async () => {
@@ -140,125 +132,27 @@ describe("createProject", () => {
   });
 });
 
-describe("grants", () => {
-  it("decides what one account may do, and says nothing about another", async () => {
-    const connection = await database();
-    const ada = await account(connection, "ada");
-    const bob = await account(connection, "bob");
-    const project = createProject(connection, {
-      id: newProjectId(),
-      name: "harbour",
-      createdBy: ada,
-    });
-
-    expect(accessLevel(connection, project.id, bob)).toBeUndefined();
-    grantAccess(connection, project.id, bob, "read", ada);
-    expect(accessLevel(connection, project.id, bob)).toBe("read");
-
-    // Granting again is how a level is changed; it is not a second row.
-    grantAccess(connection, project.id, bob, "write", ada);
-    expect(accessLevel(connection, project.id, bob)).toBe("write");
-    expect(listGrants(connection, project.id)).toHaveLength(2);
-  });
-
-  it("orders grants given in the same millisecond by the account's name", async () => {
-    // The owner's grant is written by createProject and another may be granted
-    // in the same tick, which is what a first invitation redeemed straight away
-    // looks like. Before this, the tie was broken by user_id — a random UUID —
-    // so the same two grants came back in either order. CI found it before a
-    // person did: the machine was fast enough to write both in one millisecond.
-    const connection = await database();
-    const ada = await account(connection, "ada");
-    const abe = await account(connection, "abe");
-    const project = createProject(connection, {
-      id: newProjectId(),
-      name: "harbour",
-      createdBy: ada,
-    });
-    grantAccess(connection, project.id, abe, "read", ada);
-    connection.prepare("UPDATE project_grants SET granted_at = 1 WHERE project_id = ?").run(project.id);
-
-    expect(listGrants(connection, project.id).map((grant) => grant.userId)).toEqual([abe, ada]);
-  });
-
-  it("takes access away, and says so when there was none", async () => {
-    const connection = await database();
-    const ada = await account(connection, "ada");
-    const bob = await account(connection, "bob");
-    const project = createProject(connection, {
-      id: newProjectId(),
-      name: "harbour",
-      createdBy: ada,
-    });
-
-    expect(revokeAccess(connection, project.id, bob)).toBe(false);
-    grantAccess(connection, project.id, bob, "read", ada);
-    expect(revokeAccess(connection, project.id, bob)).toBe(true);
-    expect(accessLevel(connection, project.id, bob)).toBeUndefined();
-  });
-
-  it("will not move an owner's grant, in either direction", async () => {
-    const connection = await database();
-    const ada = await account(connection, "ada");
-    const project = createProject(connection, {
-      id: newProjectId(),
-      name: "harbour",
-      createdBy: ada,
-    });
-
-    expect(() => grantAccess(connection, project.id, ada, "read", ada)).toThrow(OwnerGrantError);
-    expect(() => revokeAccess(connection, project.id, ada)).toThrow(OwnerGrantError);
-    expect(accessLevel(connection, project.id, ada)).toBe("owner");
-  });
-
-  it("lists what each account can reach, and the two lists differ", async () => {
-    const connection = await database();
-    const ada = await account(connection, "ada");
-    const bob = await account(connection, "bob");
-    const hers = createProject(connection, {
-      id: newProjectId(),
-      name: "harbour",
-      createdBy: ada,
-    });
-    const his = createProject(connection, { id: newProjectId(), name: "lighthouse", createdBy: bob });
-    grantAccess(connection, his.id, ada, "read", bob);
-
-    expect(listProjectsFor(connection, ada).map((entry) => [entry.project.name, entry.level])).toEqual(
-      [
-        ["harbour", "owner"],
-        ["lighthouse", "read"],
-      ],
-    );
-    expect(listProjectsFor(connection, bob).map((entry) => [entry.project.name, entry.level])).toEqual(
-      [["lighthouse", "owner"]],
-    );
-  });
-
-  it("orders the levels, and names verbs for each", () => {
-    expect(levelAllows("owner", "write")).toBe(true);
-    expect(levelAllows("write", "write")).toBe(true);
-    expect(levelAllows("read", "write")).toBe(false);
-    expect(permissionsFor("read")).toEqual(["read"]);
-    expect(permissionsFor("write")).toEqual(["read", "write"]);
+describe("what an account may do", () => {
+  it("is the same everywhere, because every account reaches every project", () => {
+    // One rule, one answer. The claim is filled in because loreserver's data
+    // plane reads it; the repository authorizer never looks at the verbs.
+    expect([...PROJECT_PERMISSIONS]).toEqual(["read", "write"]);
   });
 });
 
 describe("forgetProject", () => {
-  it("takes the grants with it", async () => {
+  it("takes the row away, and says so when there was none", async () => {
     const connection = await database();
     const ada = await account(connection, "ada");
-    const bob = await account(connection, "bob");
     const project = createProject(connection, {
       id: newProjectId(),
       name: "harbour",
       createdBy: ada,
     });
-    grantAccess(connection, project.id, bob, "read", ada);
 
     expect(forgetProject(connection, project.id)).toBe(true);
 
     expect(listProjects(connection)).toEqual([]);
-    expect(listProjectsFor(connection, bob)).toEqual([]);
     expect(forgetProject(connection, project.id)).toBe(false);
   });
 });

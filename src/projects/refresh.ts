@@ -24,7 +24,7 @@ import { identityLayout } from "../identity/layout.js";
 import { mintToken } from "../identity/tokens.js";
 import { findUserById } from "../identity/users.js";
 import { readAuthority } from "../tls/authority.js";
-import { listProjects, permissionsFor, resourceIdOf } from "./registry.js";
+import { listProjects, PROJECT_PERMISSIONS, resourceIdOf } from "./registry.js";
 import { readProject, type ProjectReading } from "./read.js";
 
 /** A failure in words, whatever it arrived as. */
@@ -224,7 +224,7 @@ export class ProjectReadings {
         // The short lifetime, because this one is presented on the data
         // connection and Team is not asked about it again.
         purpose: "repository",
-        resources: [{ resource_id: resourceIdOf(projectId), permission: permissionsFor("read") }],
+        resources: [{ resource_id: resourceIdOf(projectId), permission: [...PROJECT_PERMISSIONS] }],
       }).token;
     } catch {
       return undefined;

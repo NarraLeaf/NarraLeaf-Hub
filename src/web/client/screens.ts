@@ -254,45 +254,6 @@ function overview(view: TeamView, handlers: Handlers, m: Messages): HTMLElement 
 // Projects
 // ---------------------------------------------------------------------------
 
-function accessRow(
-  project: ProjectView,
-  entry: { username: string; level: string },
-  handlers: Handlers,
-  m: Messages,
-): HTMLElement {
-  return h(
-    "div",
-    { class: "row" },
-    h("span", { class: "row-name mono" }, entry.username),
-    h("span", { class: "row-note" }, levelWord(entry.level, m)),
-    h(
-      "span",
-      { class: "row-actions" },
-      button(m.page.projects.revoke, () =>
-        handlers.perform({ kind: "revoke", project: project.name, username: entry.username }),
-      ),
-    ),
-  );
-}
-
-/**
- * What a grant is called on screen.
- *
- * The level itself is `read` or `write` and stays that way everywhere it is
- * stored, sent or compared. This is only how it is read out.
- */
-function levelWord(level: string, m: Messages): string {
-  if (level === "read") {
-    return m.page.projects.read;
-  }
-  if (level === "write") {
-    return m.page.projects.write;
-  }
-  // "owner", and anything a later version adds. Shown as it arrived rather than
-  // as a blank, which is the same rule the rest of this file follows.
-  return level;
-}
-
 function projectFile(project: ProjectView, m: Messages): HTMLElement {
   const { file } = project;
   const words = m.page.projects;
@@ -362,12 +323,6 @@ function projectCard(
     return h("section", { class: "card is-collapsed" }, head);
   }
 
-  const grantUser = `grant-user:${project.name}`;
-  const grantLevel = `grant-level:${project.name}`;
-  const candidates = view.users
-    .filter((user) => !project.access.some((entry) => entry.username === user.username))
-    .map((user) => ({ value: user.username, label: user.username }));
-
   return h(
     "section",
     { class: "card" },
@@ -399,50 +354,6 @@ function projectCard(
           field(words.message, history.lastMessage ?? m.format.unknown),
         ),
         projectFile(project, m),
-      ),
-      h(
-        "div",
-        { class: "sub" },
-        h("h3", { class: "sub-title" }, words.access),
-        project.access.length === 0
-          ? h("p", { class: "empty" }, words.onlyItsOwner)
-          : h(
-              "div",
-              { class: "rows" },
-              ...project.access.map((entry) => accessRow(project, entry, handlers, m)),
-            ),
-        candidates.length > 0 &&
-          h(
-            "div",
-            { class: "form" },
-            chooser(draft, handlers, grantUser, candidates, candidates[0]?.value ?? ""),
-            chooser(
-              draft,
-              handlers,
-              grantLevel,
-              [
-                { value: "read", label: words.read },
-                { value: "write", label: words.write },
-              ],
-              "read",
-            ),
-            button(
-              words.grant,
-              () => {
-                const username = fieldValue(draft, grantUser, candidates[0]?.value ?? "");
-                if (username === "") {
-                  return;
-                }
-                handlers.perform({
-                  kind: "grant",
-                  project: project.name,
-                  username,
-                  level: fieldValue(draft, grantLevel, "read"),
-                });
-              },
-              { disabled: draft.busy },
-            ),
-          ),
       ),
     ),
   );
@@ -500,15 +411,9 @@ function memberRow(user: UserView, handlers: Handlers, m: Messages): HTMLElement
       user.displayName !== user.username && h("div", { class: "cell-note" }, user.displayName),
     ),
     // The groups an account is in, as the database holds them. Not translated:
-    // `admin` is what an invitation is made with and what the server compares.
+    // `admin` is what the server compares, and it is the whole of what a group
+    // decides here — every account reaches every project either way.
     h("td", {}, user.role),
-    h(
-      "td",
-      {},
-      user.projects.length === 0
-        ? words.none
-        : user.projects.map((project) => project.name).join(", "),
-    ),
     h("td", {}, shortDate(user.createdAt, m)),
     h(
       "td",
@@ -550,7 +455,6 @@ function members(view: TeamView, handlers: Handlers, m: Messages): HTMLElement {
         {},
         h("th", {}, words.account),
         h("th", {}, words.role),
-        h("th", {}, words.projects),
         h("th", {}, words.added),
         h("th", {}, words.state),
         h("th", {}, ""),

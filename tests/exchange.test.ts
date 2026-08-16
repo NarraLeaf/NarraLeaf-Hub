@@ -309,7 +309,7 @@ function claimsOf(token: string): Record<string, unknown> {
 }
 
 describe("the resources claim", () => {
-  it("names every project the account may reach, with what it may do", async () => {
+  it("names every project this server holds, with what an account may do", async () => {
     const team = await harness();
     const ada = await team.user("ada");
     const project = createProject(team.database, {
@@ -327,7 +327,7 @@ describe("the resources claim", () => {
     // AuthorizationFailure. The client reports "Not authorized to access
     // repository" and nothing anywhere names the missing claim.
     expect(claims["resources"]).toEqual([
-      { resource_id: resourceIdOf(project.id), permission: ["read", "write", "owner"] },
+      { resource_id: resourceIdOf(project.id), permission: ["read", "write"] },
     ]);
   });
 
@@ -350,7 +350,7 @@ describe("the resources claim", () => {
     }
   });
 
-  it("is empty for an account with no grants, rather than absent", async () => {
+  it("is empty on a server with no projects, rather than absent", async () => {
     const team = await harness();
     const bob = await team.user("bob");
 
@@ -400,11 +400,11 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
 
     expect(issued?.userId).toBe(ada.id);
     expect(claimsOf(issued?.userToken ?? "")["resources"]).toEqual([
-      { resource_id: resource, permission: ["read", "write", "owner"] },
+      { resource_id: resource, permission: ["read", "write"] },
     ]);
   });
 
-  it("refuses when the caller has no grant on one of them", async () => {
+  it("hands one to an account that did not make the project", async () => {
     const team = await harness();
     const ada = await team.user("ada");
     const bob = await team.user("bob");
@@ -414,14 +414,14 @@ describe("ExchangeUserTokenForMultiresourceToken", () => {
       createdBy: ada.id,
     });
 
-    // Refused outright rather than answered with a narrower token: the token
-    // asked for covers the whole set, and one that quietly covered less would
-    // fail later, somewhere that cannot say why.
-    await expect(
-      multiresource(team, team.tokenFor(bob), [resourceIdOf(project.id)]),
-    ).rejects.toMatchObject({ status: GRPC_PERMISSION_DENIED });
+    // Every account of this server reaches every project on it, so who made
+    // one is not part of the question being asked here.
+    const issued = await multiresource(team, team.tokenFor(bob), [resourceIdOf(project.id)]);
+
+    expect(claimsOf(issued?.userToken ?? "")["resources"]).toEqual([
+      { resource_id: resourceIdOf(project.id), permission: ["read", "write"] },
+    ]);
     expect(team.log.some((line) => line.includes("multiresource bob"))).toBe(true);
-    expect(team.log.some((line) => line.includes("denied, no grant"))).toBe(true);
   });
 
   it("refuses a resource that is not a project on this Team server", async () => {

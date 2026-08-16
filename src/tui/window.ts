@@ -66,44 +66,23 @@ function room(size: TuiSize): number {
 /** What a picker is asking, in the words somebody would use to ask it. */
 function pickerTitle(overlay: Extract<Overlay, { choice: number }>): string {
   switch (overlay.kind) {
-    case "pick-account":
-      return `Who may reach ${overlay.project}?`;
-    case "take-access":
-      return `Take ${overlay.project} away from whom?`;
-    case "pick-project":
-      return `Which project may ${overlay.username} reach?`;
-    case "pick-level":
-      return `What may ${overlay.username} do to ${overlay.project}?`;
     case "pick-owner":
-      return `Whose project is ${overlay.name}?`;
+      return `Who is making ${overlay.name}?`;
   }
 }
 
 function pickerFooter(overlay: Extract<Overlay, { choice: number }>): string {
   switch (overlay.kind) {
-    case "pick-level":
-      return "⏎ give access · esc back";
-    case "take-access":
-      return "⏎ take it away · esc cancel";
     case "pick-owner":
       return "⏎ create · esc cancel";
-    default:
-      return "⏎ choose · esc cancel";
   }
 }
 
-/** Why a picker has nothing in it, which is never the same reason twice. */
+/** Why a picker has nothing in it. */
 function pickerEmpty(overlay: Extract<Overlay, { choice: number }>): string {
   switch (overlay.kind) {
-    case "take-access":
-      return "Nobody but its owner can reach this project.";
-    case "pick-account":
     case "pick-owner":
       return "There are no accounts on this server yet.";
-    case "pick-project":
-      return "There are no projects on this server yet.";
-    case "pick-level":
-      return "";
   }
 }
 
@@ -172,7 +151,6 @@ const HELP: ReadonlyArray<readonly [string, string]> = [
   ["n", "new project"],
   ["d", "disable or enable an account"],
   ["x", "revoke an account's tokens"],
-  ["g r", "grant or revoke access"],
   ["c", "connection details"],
   ["l", "the log"],
   ["k", "rotate the signing key, on the dashboard"],
@@ -308,10 +286,6 @@ export function overlayWindow(
         inner,
       );
     }
-    case "pick-account":
-    case "pick-level":
-    case "pick-project":
-    case "take-access":
     case "pick-owner": {
       const rows = choicesOf(overlay, view);
       const inner = Math.min(PREFERRED.pick, room(size) - CHROME);

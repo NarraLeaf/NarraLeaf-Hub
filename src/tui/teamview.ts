@@ -43,7 +43,6 @@ export interface UserView {
   readonly createdAt: number;
   readonly lastSeenAt?: number;
   readonly tokensInvalidatedAt?: number;
-  readonly projects: ReadonlyArray<{ readonly name: string; readonly level: string }>;
 }
 
 /** What a revision history tells us, which does not depend on Studio at all. */
@@ -90,7 +89,6 @@ export interface ProjectView {
   readonly description: string;
   readonly owner: string;
   readonly createdAt: number;
-  readonly access: ReadonlyArray<{ readonly username: string; readonly level: string }>;
   readonly history: RevisionView;
   readonly file: ProjectFileView;
 }
