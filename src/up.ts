@@ -287,7 +287,19 @@ export async function up(
       anyInterface: true,
       portOption: "--auth-tls-port",
       tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
-      http1: webHandler(discovery, api === undefined ? {} : { api }),
+      http1: webHandler(discovery, {
+        ...(api === undefined ? {} : { api }),
+        studio: {
+          database,
+          keys,
+          config,
+          dataPort: ports.dataPort,
+          log: (line) => {
+            stdout(`${line}
+`);
+          },
+        },
+      }),
     });
     stdout(
       `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +

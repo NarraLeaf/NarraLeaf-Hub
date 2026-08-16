@@ -435,30 +435,62 @@ signed are valid until they expire, so it has to keep verifying for at least one
 sign-in token lifetime after it stops signing — thirty days, unless this Team server has
 been set to something else.
 
-## Projects and access
+## Projects
 
-A project is one `loreserver` repository, plus Team's record of who may reach it.
+A project is one `loreserver` repository, plus Team's record of it.
 
 ```sh
 nlteam project create harbour --root /srv/team --as ada --description "..."
 nlteam project list --root /srv/team
-nlteam project list --root /srv/team --as bob
-nlteam project grant harbour bob --root /srv/team --level write
-nlteam project revoke harbour bob --root /srv/team
 ```
 
+**Every account of this server reaches every project on it.** There is no
+per-project access to give or take away: the question `loreserver` asks on each
+repository access is answered from the account alone — an account of this
+server, not disabled, holding a token this server has not refused. A resource
+that is not one of this server's projects is still refused, and that is the
+whole of what is left to decide.
+
+Which means the way to stop somebody is to stop the account:
+`nlteam user disable` for good, `nlteam user revoke-tokens` for a token that got
+out. Both are above, under "Tokens and taking access away".
+
 `project create` generates the repository id, asks `loreserver` to create the
-repository over gRPC with a token Team mints for the owner, and records the
-project with a grant making that person its owner. `--as` can be left out on a
-Team with one account. Team never opens the store `loreserver` is serving:
-`loreserver` holds an exclusive lock on it, and a second process opening the
-same directory does not fail, it waits for ever. What Team reads instead is a
-checkout of its own — see
+repository over gRPC with a token Team mints, and records the project. `--as`
+names the account to record as its creator and can be left out on a server with
+one account; who made a project is shown and is not consulted afterwards. Team
+never opens the store `loreserver` is serving: `loreserver` holds an exclusive
+lock on it, and a second process opening the same directory does not fail, it
+waits for ever. What Team reads instead is a checkout of its own — see
 [Reading what is inside a project](internals.md#reading-what-is-inside-a-project).
 
-The levels are `read` and `write`, plus the owner, who comes from creating the
-project. A grant or a revocation takes effect on the next thing the person does
-— nothing is cached, and nobody has to be issued a new token.
+A Studio installation does not run these commands. It asks over HTTPS, on the
+same port it signs in at, carrying the token it was given:
+
+```
+GET  /api/studio/v1/projects     what this server holds, with the remote for each
+POST /api/studio/v1/projects     {"name": "...", "description": "..."}
+```
+
+Both are served whether or not the web interface is switched on, for the reason
+the discovery document is: the interface is a page an operator opens, and this
+is how every author finds their work. A repository created any other way —
+`lore` itself, an older Studio — is recorded when `loreserver` announces it,
+with whoever made it as its creator, so it does not become a repository nobody
+can open.
+
+## Who may open the operator's view
+
+The `admin` group, and it means nothing else. It is who may sign in to the web
+interface, manage the accounts, and put somebody else in the group.
+
+```sh
+nlteam user grant-admin bob --root /srv/team
+nlteam user revoke-admin bob --root /srv/team
+```
+
+`nlteam init` puts the first account in it. The last account in it cannot be
+taken out: a server with no admin has nobody who could put one back.
 
 ## The terminal interface
 

@@ -3,8 +3,8 @@
 A self-hosted project server for teams working in NarraLeaf Studio. One
 organisation runs one Team server on its own machine; there is no hosted service
 to sign up for. It supervises `loreserver`, hands out the identity Studio signs
-in with, records which projects exist and who may reach each one, and shows an
-operator all of it — in a terminal, or in a browser.
+in with, holds the projects and answers for them, and shows an operator all of
+it — in a terminal, or in a browser.
 
 - **[Running a Team server](docs/operations.md)** — the ports, the certificate,
   and every command in full.
@@ -85,11 +85,11 @@ Everybody after that is made by somebody who is already here:
 printf '%s' 'their password' | nlteam user create bob --root /srv/team --role authors
 ```
 
-**4. Create a project, and let people into it.**
+**4. Create a project.** Every account of this server reaches every project on
+it, so there is nothing to grant.
 
 ```sh
 nlteam project create harbour --root /srv/team --as ada
-nlteam project grant harbour bob --root /srv/team --level write
 ```
 
 **5. Give people the address, and a token.**
@@ -119,10 +119,10 @@ between programs on the server machine and are bound to the loopback.
 | `nlteam user list` | List the accounts |
 | `nlteam user disable\|enable <name>` | Stop an account, or let it back in |
 | `nlteam user revoke-tokens <name>` | Refuse every token it already holds |
+| `nlteam user grant-admin\|revoke-admin <name>` | Let an account open the operator's view, or stop it |
 | `nlteam token mint <name>` | Sign a token for an account |
-| `nlteam project create <name>` | Create a repository and record who owns it |
+| `nlteam project create <name>` | Create a repository and record it |
 | `nlteam project list` | List the projects |
-| `nlteam project grant\|revoke <project> <name>` | Let an account reach a project, or stop it |
 | `nlteam settings list\|set <key> <value>` | Show or change the token lifetimes |
 | `nlteam key list\|rotate` | Show the signing keys, or sign with a new one |
 
@@ -167,9 +167,10 @@ what is written here rather than depended on.
 
 ## Status
 
-Team supervises `loreserver`, issues identity, tracks projects and access, and
-serves both interfaces. Upgrading between pinned `loreserver` versions is not
-implemented yet.
+Team supervises `loreserver`, issues identity, holds the projects, answers the
+permission question behind every repository access, and serves both interfaces
+plus the API Studio lists and creates projects through. Upgrading between pinned
+`loreserver` versions is not implemented yet.
 
 ## License
 

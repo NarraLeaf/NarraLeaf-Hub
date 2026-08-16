@@ -10,11 +10,14 @@
  * would be a second such conversation, and a page served over plain HTTP beside
  * it would be a password typed into an unauthenticated connection.
  *
- * So this is a router with three arms, in the order they are tried:
+ * So this is a router with four arms, in the order they are tried:
  *
  *   - `/.well-known/nlteam`, which is served whether or not the interface is
  *     switched on and to whoever asks. It is what turns one address into a
  *     server, and the interface must never be able to get in its way.
+ *   - `/api/studio/…`, which src/web/studio.ts answers. Also before the switch,
+ *     and for the same reason: the interface is a page an operator opens, while
+ *     that is how every Studio installation finds its work.
  *   - `/api/…`, which src/web/api.ts answers.
  *   - the pages themselves, which are four files and no routing: there is one
  *     page, and where somebody is in it is not a thing the server knows.
@@ -22,6 +25,7 @@
 import { serveDiscovery, type DiscoveryDocument } from "../identity/discovery.js";
 import { languageOf, serveApi, type ApiOptions } from "./api.js";
 import { staticAssets, WEB_BUILT } from "./assets.js";
+import { serveStudioApi, type StudioApiOptions } from "./studio.js";
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -31,6 +35,8 @@ const ASSET_MAX_AGE_SECONDS = 300;
 export interface WebOptions {
   /** Absent for a server told not to serve the interface. */
   readonly api?: ApiOptions;
+  /** What a Studio installation talks to. Served whatever the interface is doing. */
+  readonly studio?: StudioApiOptions;
 }
 
 /**
@@ -54,6 +60,12 @@ export function webHandler(
 
     if (path === "/.well-known/nlteam") {
       serveDiscovery(discovery, request, response);
+      return;
+    }
+
+    // Before the switch below, so that turning the operator's page off does not
+    // take every Studio installation's list of projects with it.
+    if (options.studio !== undefined && serveStudioApi(options.studio, request, response, path)) {
       return;
     }
 
