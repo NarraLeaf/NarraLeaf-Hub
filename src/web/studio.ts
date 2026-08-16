@@ -69,7 +69,15 @@ interface ProjectBody {
   /** Who made it, by username; absent for an account that has been deleted. */
   readonly createdBy?: string;
   readonly createdAt: number;
-  /** The remote to clone, which is the address Studio would otherwise be told. */
+  /**
+   * The remote to clone, which is the address Studio would otherwise be told.
+   *
+   * **The project's name is on the end, and it has to be.** A client is given
+   * `lore://host:port/<name>` and refuses one without the name — measured: the
+   * clone page marks an origin-only address invalid and will not go on. What
+   * the client stores afterwards is only the origin, which is why it is easy to
+   * think the name is decoration.
+   */
   readonly remote: string;
 }
 
@@ -109,7 +117,7 @@ function projectBody(
     // Built from what this server was started with rather than stored, for the
     // same reason the discovery document is: the address a project is reached
     // at is a fact about the deployment, not about the project.
-    remote: dataRemoteUrl(audienceHosts(config)[0] ?? "127.0.0.1", config.dataPort),
+    remote: `${dataRemoteUrl(audienceHosts(config)[0] ?? "127.0.0.1", config.dataPort)}/${project.name}`,
   };
 }
 

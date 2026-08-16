@@ -165,8 +165,9 @@ describe("the projects a Studio installation is shown", () => {
           description: "the one everybody is working on",
           // Who made it is shown; it is not what decides who may open it.
           createdBy: "ada",
-          // The address Studio would otherwise have to be told by hand.
-          remote: "lore://127.0.0.1:41337",
+          // The address Studio would otherwise have to be told by hand, with the
+          // project's name on the end: a client refuses one without it.
+          remote: "lore://127.0.0.1:41337/harbour",
         },
       ],
     });
