@@ -10,6 +10,14 @@
  * Creating a project is not exercised end to end here: it asks loreserver for a
  * repository, and a test that started one would be testing loreserver. What is
  * covered is everything up to that call.
+ *
+ * What comes out of a repository arrives through a reader, and the reader is
+ * stood in for below. That is not a shortcut around it: what these assert is
+ * the difference between a reading that has landed and one that has not, and a
+ * real reader would have to be given a running loreserver to produce either.
+ * The reader's own behaviour — that it answers absent rather than empty for a
+ * project it has no checkout of — is in tests/cache.test.ts, against the real
+ * one.
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -29,9 +37,16 @@ import {
   requireUser,
   revokeUserTokens,
 } from "../src/identity/users.js";
-import type { DiscoveryDocument } from "../src/identity/discovery.js";
+import { DISCOVERY_PATH, type DiscoveryDocument } from "../src/identity/discovery.js";
+import type { RevisionPage } from "../src/projects/read.js";
 import { createProject, newProjectId } from "../src/projects/registry.js";
+import type { ProjectFileView, RevisionView } from "../src/tui/teamview.js";
 import { webHandler } from "../src/web/router.js";
+import {
+  studioCapabilities,
+  type StudioApiOptions,
+  type StudioReadings,
+} from "../src/web/studio.js";
 import { useTemporaryRoots } from "./temporary.js";
 
 const temporaryRoot = useTemporaryRoots("nlteam-studio-");
@@ -42,12 +57,14 @@ const hasher = new ScryptPasswordHasher(CHEAP);
 
 const PASSWORD = "a password nobody guesses";
 const PATH = "/api/studio/v1/projects";
+const MEMBERS = "/api/studio/v1/members";
 
 const DISCOVERY: DiscoveryDocument = {
   protocol: 1,
   name: "127.0.0.1",
   auth: { required: true, url: "https://127.0.0.1:41402" },
   data: { url: "lore://127.0.0.1:41337" },
+  capabilities: ["projects", "project-detail", "members"],
   authority: { sha256: "" },
   version: "0.0.0-test",
 };
@@ -74,7 +91,7 @@ interface Harness {
   readonly tokenFor: (username: string) => Promise<string>;
 }
 
-async function harness(): Promise<Harness> {
+async function harness(readings?: StudioReadings): Promise<Harness> {
   const root = await temporaryRoot();
   const layout = identityLayout(root);
   const database = await openMigratedDatabase(layout.databasePath);
@@ -82,10 +99,15 @@ async function harness(): Promise<Harness> {
   const keys = await KeyStore.open(layout.keysDir);
   const config = identityConfig({});
 
+  const studio = {
+    database,
+    keys,
+    config,
+    dataPort: config.dataPort,
+    ...(readings === undefined ? {} : { readings }),
+  };
   const server = createServer(
-    webHandler(DISCOVERY, {
-      studio: { database, keys, config, dataPort: config.dataPort },
-    }),
+    webHandler({ ...DISCOVERY, capabilities: studioCapabilities(studio) }, { studio }),
   );
   openServers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -103,17 +125,92 @@ async function harness(): Promise<Harness> {
   };
 }
 
-async function account(database: DatabaseSync, username: string): Promise<string> {
-  const user = await createUser(database, hasher, { username, password: PASSWORD });
+async function account(
+  database: DatabaseSync,
+  username: string,
+  extra: { displayName?: string; email?: string; groups?: readonly string[] } = {},
+): Promise<string> {
+  const user = await createUser(database, hasher, { username, password: PASSWORD, ...extra });
   return user.id;
 }
 
 async function get(origin: string, token?: string): Promise<{ status: number; body: unknown }> {
-  const response = await fetch(`${origin}${PATH}`, {
+  return fetchPath(origin, PATH, token);
+}
+
+async function fetchPath(
+  origin: string,
+  path: string,
+  token?: string,
+): Promise<{ status: number; body: unknown }> {
+  const response = await fetch(`${origin}${path}`, {
     headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
   });
   return { status: response.status, body: await response.json() };
 }
+
+/**
+ * A reader that has landed on some projects and not on others.
+ *
+ * Standing in for the real one, which needs a running loreserver to produce
+ * either answer. What matters to everything below is the shape of the two: a
+ * project it knows about, and one it has never reached.
+ */
+function readerHolding(
+  held: Record<string, { history: RevisionView; file: ProjectFileView }>,
+  pages: Record<string, RevisionPage> = {},
+): StudioReadings {
+  return {
+    get: (projectId) => held[projectId],
+    revisions: (projectId, page) => {
+      const whole = pages[projectId];
+      if (whole === undefined) {
+        return Promise.resolve(undefined);
+      }
+      const start =
+        page.before === undefined
+          ? 0
+          : whole.revisions.findIndex((revision) => revision.id === page.before) + 1;
+      const taken = whole.revisions.slice(start, start + page.limit);
+      return Promise.resolve({
+        revisions: taken,
+        more: start + taken.length < whole.revisions.length,
+      });
+    },
+  };
+}
+
+/** A reader that knows nothing, which is a server whose first clone is still running. */
+const READ_NOTHING = readerHolding({});
+
+/**
+ * Options with nothing interesting in them.
+ *
+ * What this build serves is decided by what it was given, so the capability
+ * tests below need something to hand it — and everything that decides one is
+ * added on top of this rather than being in it.
+ */
+async function anyOptions(): Promise<StudioApiOptions> {
+  const root = await temporaryRoot();
+  const layout = identityLayout(root);
+  const database = await openMigratedDatabase(layout.databasePath);
+  openDatabases.push(database);
+  const config = identityConfig({});
+  return { database, keys: await KeyStore.open(layout.keysDir), config, dataPort: config.dataPort };
+}
+
+/** What a repository that has been read says about itself. */
+const READ_HARBOUR: { history: RevisionView; file: ProjectFileView } = {
+  history: {
+    revisions: 41,
+    branch: "main",
+    bytes: 8_388_608,
+    lastAt: 1_700_000_000_000,
+    lastBy: "ada",
+    lastMessage: "the harbour scene, lit",
+  },
+  file: { readable: true, title: "Harbour", stageWidth: 1920, stageHeight: 1080, scenes: 12 },
+};
 
 describe("the projects a Studio installation is shown", () => {
   it("refuses a request carrying no token", async () => {
@@ -225,5 +322,369 @@ describe("the projects a Studio installation is shown", () => {
     await account(team.database, "ada");
 
     expect((await get(team.origin, await team.tokenFor("ada"))).status).toBe(200);
+  });
+});
+
+describe("what a server says it serves", () => {
+  it("names the routes this build answers, and nothing it only plans to", async () => {
+    // Matched literally by Studio, so the spelling is the assertion.
+    expect(studioCapabilities(await anyOptions())).toEqual([
+      "projects",
+      "project-detail",
+      "members",
+    ]);
+  });
+
+  it("adds the history only where there is something to read one out of", async () => {
+    expect(studioCapabilities({ ...(await anyOptions()), readings: READ_NOTHING })).toContain(
+      "project-history",
+    );
+    // A reader that cannot page a history is a build that does not claim to.
+    expect(
+      studioCapabilities({ ...(await anyOptions()), readings: { get: () => undefined } }),
+    ).not.toContain("project-history");
+  });
+
+  it("does not claim a sign-in this build has no route for", async () => {
+    expect(
+      studioCapabilities({ ...(await anyOptions()), readings: READ_NOTHING }),
+    ).not.toContain("password-sign-in");
+  });
+
+  it("is in the document one address turns into a server", async () => {
+    const team = await harness(READ_NOTHING);
+
+    const response = await fetch(`${team.origin}${DISCOVERY_PATH}`);
+    const document = (await response.json()) as DiscoveryDocument;
+
+    expect(response.status).toBe(200);
+    // Additive: an older client that has never heard of this reads the rest of
+    // the document exactly as it always did.
+    expect(document.protocol).toBe(1);
+    expect(document.capabilities).toContain("project-detail");
+    expect(document.capabilities).toContain("members");
+    expect(document.capabilities).toContain("project-history");
+  });
+});
+
+describe("what a project row says about its repository", () => {
+  it("says nothing at all about one nobody has read yet", async () => {
+    // The whole of the discipline in one assertion. A project cloned minutes
+    // ago has no history to report, and a zeroed one would say nobody had ever
+    // worked on it.
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    createProject(team.database, {
+      id: newProjectId(),
+      name: "harbour",
+      description: "",
+      createdBy: ada,
+    });
+
+    const answer = await get(team.origin, await team.tokenFor("ada"));
+    const [project] = (answer.body as { projects: Array<Record<string, unknown>> }).projects;
+
+    expect(answer.status).toBe(200);
+    expect(project).toBeDefined();
+    expect(project).not.toHaveProperty("history");
+  });
+
+  it("carries what the repository last said, once it has been read", async () => {
+    const id = newProjectId();
+    const team = await harness(readerHolding({ [id]: READ_HARBOUR }));
+    const ada = await account(team.database, "ada");
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+
+    const answer = await get(team.origin, await team.tokenFor("ada"));
+
+    expect(answer.body).toMatchObject({
+      projects: [{ name: "harbour", history: READ_HARBOUR.history }],
+    });
+  });
+});
+
+describe("one project on its own", () => {
+  it("refuses a request carrying no token", async () => {
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    const id = newProjectId();
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+
+    expect((await fetchPath(team.origin, `${PATH}/${id}`)).status).toBe(401);
+  });
+
+  it("says there is no such project, in one sentence", async () => {
+    const team = await harness(READ_NOTHING);
+    await account(team.database, "ada");
+
+    const answer = await fetchPath(
+      team.origin,
+      `${PATH}/0123456789abcdef0123456789abcdef`,
+      await team.tokenFor("ada"),
+    );
+
+    expect(answer.status).toBe(404);
+    expect(answer.body).toEqual({
+      error: "there is no project called 0123456789abcdef0123456789abcdef.",
+    });
+  });
+
+  it("is the project and what is in it", async () => {
+    const id = newProjectId();
+    const team = await harness(readerHolding({ [id]: READ_HARBOUR }));
+    const ada = await account(team.database, "ada");
+    createProject(team.database, {
+      id,
+      name: "harbour",
+      description: "the one everybody is working on",
+      createdBy: ada,
+    });
+
+    const answer = await fetchPath(team.origin, `${PATH}/${id}`, await team.tokenFor("ada"));
+
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({
+      project: {
+        id,
+        name: "harbour",
+        description: "the one everybody is working on",
+        createdBy: "ada",
+        createdAt: expect.any(Number),
+        remote: "lore://127.0.0.1:41337/harbour",
+        history: READ_HARBOUR.history,
+      },
+      file: READ_HARBOUR.file,
+    });
+  });
+
+  it("says the repository has not been read, rather than refusing", async () => {
+    // A project written by a newer Studio arrives here the same way, and for
+    // the same reason: what Team cannot make sense of is a sentence, never a
+    // refusal, so that this server does not have to be upgraded in step.
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    const id = newProjectId();
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+
+    const answer = await fetchPath(team.origin, `${PATH}/${id}`, await team.tokenFor("ada"));
+    const body = answer.body as { project: Record<string, unknown>; file: ProjectFileView };
+
+    expect(answer.status).toBe(200);
+    expect(body.file.readable).toBe(false);
+    expect(body.file.reason).toBe("Team has not read this project's repository yet");
+    expect(body.project).not.toHaveProperty("history");
+  });
+
+  it("is the same project whoever asks", async () => {
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    await account(team.database, "bob");
+    const id = newProjectId();
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+
+    const hers = await fetchPath(team.origin, `${PATH}/${id}`, await team.tokenFor("ada"));
+    const his = await fetchPath(team.origin, `${PATH}/${id}`, await team.tokenFor("bob"));
+
+    expect(hers.body).toEqual(his.body);
+  });
+});
+
+describe("the people on this server", () => {
+  it("refuses a request carrying no token", async () => {
+    const team = await harness();
+
+    expect((await fetchPath(team.origin, MEMBERS)).status).toBe(401);
+  });
+
+  it("is every account, with the address a revision is signed with", async () => {
+    const team = await harness();
+    await account(team.database, "ada", {
+      displayName: "Ada Lovelace",
+      email: "ada@example.lan",
+      groups: ["admin"],
+    });
+    await account(team.database, "bob", { displayName: "Bob" });
+
+    const answer = await fetchPath(team.origin, MEMBERS, await team.tokenFor("ada"));
+
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({
+      members: [
+        {
+          username: "ada",
+          displayName: "Ada Lovelace",
+          email: "ada@example.lan",
+          // A label saying this account administers the server. It is not a
+          // permission over any project: every account reaches every project.
+          operator: true,
+          disabled: false,
+          serviceAccount: false,
+          createdAt: expect.any(Number),
+        },
+        {
+          username: "bob",
+          displayName: "Bob",
+          operator: false,
+          disabled: false,
+          serviceAccount: false,
+          createdAt: expect.any(Number),
+        },
+      ],
+    });
+  });
+
+  it("lists somebody who has left, so their revisions still have a name on them", async () => {
+    const team = await harness();
+    await account(team.database, "ada");
+    await account(team.database, "bob");
+    disableUser(team.database, "bob");
+
+    const answer = await fetchPath(team.origin, MEMBERS, await team.tokenFor("ada"));
+    const { members } = answer.body as { members: Array<Record<string, unknown>> };
+
+    expect(members.map((member) => member["username"])).toEqual(["ada", "bob"]);
+    expect(members[1]).toMatchObject({ username: "bob", disabled: true });
+  });
+
+  it("keeps an operator's business out of it", async () => {
+    const team = await harness();
+    await account(team.database, "ada");
+    const token = await team.tokenFor("ada");
+    await account(team.database, "bob");
+    revokeUserTokens(team.database, "bob");
+
+    const answer = await fetchPath(team.origin, MEMBERS, token);
+    const { members } = answer.body as { members: Array<Record<string, unknown>> };
+
+    expect(members).toHaveLength(2);
+    for (const member of members) {
+      expect(member).not.toHaveProperty("tokensInvalidatedAt");
+      expect(member).not.toHaveProperty("role");
+      expect(member).not.toHaveProperty("id");
+    }
+  });
+});
+
+describe("a page of a project's revisions", () => {
+  const REVISIONS: RevisionPage = {
+    revisions: [
+      { id: "c3", at: 1_700_000_003_000, by: "ada", message: "the harbour scene, lit" },
+      { id: "c2", at: 1_700_000_002_000, by: "bob" },
+      { id: "c1", at: 1_700_000_001_000, by: "ada", message: "first" },
+    ],
+    more: false,
+  };
+
+  async function withHistory(): Promise<{ team: Harness; id: string }> {
+    const id = newProjectId();
+    const team = await harness(readerHolding({ [id]: READ_HARBOUR }, { [id]: REVISIONS }));
+    const ada = await account(team.database, "ada");
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+    return { team, id };
+  }
+
+  it("refuses a request carrying no token", async () => {
+    const { team, id } = await withHistory();
+
+    expect((await fetchPath(team.origin, `${PATH}/${id}/history`)).status).toBe(401);
+  });
+
+  it("says there is no such project, in one sentence", async () => {
+    const { team } = await withHistory();
+
+    const answer = await fetchPath(
+      team.origin,
+      `${PATH}/fedcba9876543210fedcba9876543210/history`,
+      await team.tokenFor("ada"),
+    );
+
+    expect(answer.status).toBe(404);
+    expect(answer.body).toEqual({
+      error: "there is no project called fedcba9876543210fedcba9876543210.",
+    });
+  });
+
+  it("is the revisions, newest first", async () => {
+    const { team, id } = await withHistory();
+
+    const answer = await fetchPath(
+      team.origin,
+      `${PATH}/${id}/history`,
+      await team.tokenFor("ada"),
+    );
+
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({ revisions: REVISIONS.revisions, more: false });
+  });
+
+  it("takes a page at a time, and says when there is another", async () => {
+    const { team, id } = await withHistory();
+    const token = await team.tokenFor("ada");
+
+    const first = await fetchPath(team.origin, `${PATH}/${id}/history?limit=2`, token);
+    const second = await fetchPath(team.origin, `${PATH}/${id}/history?limit=2&before=c2`, token);
+
+    expect(first.body).toEqual({ revisions: REVISIONS.revisions.slice(0, 2), more: true });
+    expect(second.body).toEqual({ revisions: REVISIONS.revisions.slice(2), more: false });
+  });
+
+  it("has no revisions to give for a project nobody has read yet", async () => {
+    // Absent rather than empty, for the same reason a row has no history: an
+    // empty page says this project has never been worked on.
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    const id = newProjectId();
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+
+    const answer = await fetchPath(
+      team.origin,
+      `${PATH}/${id}/history`,
+      await team.tokenFor("ada"),
+    );
+    const body = answer.body as Record<string, unknown>;
+
+    expect(answer.status).toBe(200);
+    expect(body).not.toHaveProperty("revisions");
+    expect(body["more"]).toBe(false);
+  });
+
+  it("answers a page rather than a complaint about the query string", async () => {
+    const { team, id } = await withHistory();
+
+    const answer = await fetchPath(
+      team.origin,
+      `${PATH}/${id}/history?limit=not-a-number`,
+      await team.tokenFor("ada"),
+    );
+
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({ revisions: REVISIONS.revisions, more: false });
+  });
+
+  it("takes GET, and says so about anything else", async () => {
+    const { team, id } = await withHistory();
+
+    const response = await fetch(`${team.origin}${PATH}/${id}/history`, { method: "POST" });
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+  });
+});
+
+describe("an address under this API that there is nothing at", () => {
+  it("says so itself, rather than leaving it to the arm that serves a page", async () => {
+    // On a server with the operator's page switched off, falling through would
+    // answer a mistyped API address with a sentence about a web interface.
+    const team = await harness(READ_NOTHING);
+    await account(team.database, "ada");
+
+    const answer = await fetchPath(
+      team.origin,
+      "/api/studio/v1/projects/anything/nowhere",
+      await team.tokenFor("ada"),
+    );
+
+    expect(answer.status).toBe(404);
+    expect(answer.body).toEqual({ error: "this server has nothing at that address." });
   });
 });

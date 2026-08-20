@@ -48,6 +48,7 @@ import { trustCommandFor } from "./tls/trust.js";
 import { VERSION } from "./version.js";
 import { OPERATOR_ROLE, type ApiOptions } from "./web/api.js";
 import { webHandler } from "./web/router.js";
+import { studioCapabilities, type StudioApiOptions } from "./web/studio.js";
 import { SessionStore } from "./web/sessions.js";
 
 export interface UpOptions extends LoreserverPorts {
@@ -237,18 +238,23 @@ export async function up(
       );
     }
 
-    // The one address an author is given resolves to the listener below. It
-    // answers before they have an account, which is the point: a server that
-    // cannot say where to sign in is a server somebody has to be told about in
-    // a chat message.
-    const discovery: DiscoveryDocument = {
-      protocol: 1,
-      name: hostOf(config.authOrigin),
-      auth: { required: options.identity === true, url: authUrl(config) },
-      data: { url: dataRemoteUrl(hostOf(config.authOrigin), config.dataPort) },
-      authority: { sha256: certificates.authority.fingerprint256 },
-      version: VERSION,
-    };
+    // The repositories are read beside both interfaces rather than in front of
+    // either, and they are read whether or not the operator's page is switched
+    // on. **That switch decides who may look at this server, not what this
+    // server knows about itself.** A Studio installation asks what a project's
+    // history says over the API below, which is served before the switch for
+    // exactly this reason — and a reader that only ran with --web would leave
+    // every one of those answers blank on the ordinary deployment, which has no
+    // page and no operator sitting in front of one.
+    const views = new ViewPublisher({
+      root: options.root,
+      database,
+      config,
+      healthPort: ports.healthPort,
+      fingerprint: certificates.authority.fingerprint256,
+    });
+    publisher = views;
+    views.start();
 
     // The web interface goes on that same listener rather than a port of its
     // own, so that the certificate an operator has already been asked to trust
@@ -258,14 +264,6 @@ export async function up(
     // src/actions.ts, so there is no second account of this server anywhere.
     let api: ApiOptions | undefined;
     if (options.web === true) {
-      const views = new ViewPublisher({
-        root: options.root,
-        database,
-        config,
-        healthPort: ports.healthPort,
-        fingerprint: certificates.authority.fingerprint256,
-      });
-      publisher = views;
       api = {
         context: views.context,
         sessions: new SessionStore(),
@@ -274,8 +272,35 @@ export async function up(
         subscribe: (listen) => views.subscribe(listen),
         log: (line) => stdout(`${line}\n`),
       };
-      views.start();
     }
+
+    const studio: StudioApiOptions = {
+      database,
+      keys,
+      config,
+      dataPort: ports.dataPort,
+      readings: views.readings,
+      log: (line) => {
+        stdout(`${line}\n`);
+      },
+    };
+
+    // The one address an author is given resolves to the listener below. It
+    // answers before they have an account, which is the point: a server that
+    // cannot say where to sign in is a server somebody has to be told about in
+    // a chat message.
+    const discovery: DiscoveryDocument = {
+      protocol: 1,
+      name: hostOf(config.authOrigin),
+      auth: { required: options.identity === true, url: authUrl(config) },
+      data: { url: dataRemoteUrl(hostOf(config.authOrigin), config.dataPort) },
+      // Asked of the thing that answers them rather than written out again
+      // here, so that a route added to src/web/studio.ts is announced by the
+      // same change that serves it.
+      capabilities: studioCapabilities(studio),
+      authority: { sha256: certificates.authority.fingerprint256 },
+      version: VERSION,
+    };
 
     authorizationTls = await startAuthorizationService({
       ...service,
@@ -287,19 +312,7 @@ export async function up(
       anyInterface: true,
       portOption: "--auth-tls-port",
       tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
-      http1: webHandler(discovery, {
-        ...(api === undefined ? {} : { api }),
-        studio: {
-          database,
-          keys,
-          config,
-          dataPort: ports.dataPort,
-          log: (line) => {
-            stdout(`${line}
-`);
-          },
-        },
-      }),
+      http1: webHandler(discovery, { ...(api === undefined ? {} : { api }), studio }),
     });
     stdout(
       `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +
