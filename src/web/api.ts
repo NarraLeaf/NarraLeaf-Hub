@@ -97,7 +97,7 @@ const MAX_BODY_BYTES = 16 * 1024;
  * of attempts a second, and the sentence it is answered with says nothing about
  * which half was wrong anyway.
  */
-const REFUSED_SIGN_IN_DELAY_MS = 500;
+export const REFUSED_SIGN_IN_DELAY_MS = 500;
 
 /** What the web interface needs in order to answer. */
 export interface ApiOptions {
@@ -216,6 +216,17 @@ function pause(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds).unref();
   });
+}
+
+/**
+ * Hold a refused sign-in for as long as every refused sign-in is held.
+ *
+ * Exported because there are two doors now — this interface and the API a
+ * Studio installation signs in at — and the rate a password may be guessed at
+ * should not depend on which one somebody knocks on.
+ */
+export function holdRefusedSignIn(): Promise<void> {
+  return pause(REFUSED_SIGN_IN_DELAY_MS);
 }
 
 /** Whether an account is in the group that may open this interface. */
@@ -366,7 +377,7 @@ async function signIn(
   if (result.kind === "refused") {
     // One sentence for every way it can fail, as `nlteam token mint` does:
     // whoever is at the other end learns nothing about which accounts exist.
-    await pause(REFUSED_SIGN_IN_DELAY_MS);
+    await holdRefusedSignIn();
     options.log?.(`web: sign-in refused for ${JSON.stringify(username)}`);
     sendJson(response, 401, { error: messages.refusal.signInRefused });
     return;
@@ -376,7 +387,7 @@ async function signIn(
     // A different sentence, and it can be: the password was right, so there is
     // nothing left to hide from whoever typed it. Saying "you are not an
     // operator here" is what stops a member trying their password again.
-    await pause(REFUSED_SIGN_IN_DELAY_MS);
+    await holdRefusedSignIn();
     options.log?.(`web: sign-in refused for ${result.user.username}, who is not an ${OPERATOR_ROLE}`);
     sendJson(response, 403, {
       error: messages.refusal.notAnOperator({ group: OPERATOR_ROLE }),

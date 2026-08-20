@@ -279,6 +279,10 @@ export async function up(
       keys,
       config,
       dataPort: ports.dataPort,
+      // For the token the sign-in route hands out, which travels to a machine
+      // that may not yet trust this server — the same claim `nlteam token mint`
+      // writes, for the same reason.
+      fingerprint: certificates.authority.fingerprint256,
       readings: views.readings,
       log: (line) => {
         stdout(`${line}\n`);

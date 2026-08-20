@@ -373,6 +373,20 @@ printf '%s' "$PASSWORD" | nlteam token mint ada --root /srv/team
 The token goes to standard output on its own; what is in it goes to standard
 error. It is a sign-in token, and it lasts thirty days.
 
+The same token is handed out over the network, to somebody who has the address
+and the password of an account here:
+
+```
+POST /api/studio/v1/sign-in   {"username": "ada", "password": "..."}
+```
+
+which answers `{"token": "...", "account": {…}}`, or one sentence. That sentence
+is the same for an account that is not here, a password that is wrong, an
+account that has been disabled and an account marked as a machine's, so nobody
+learns from it which accounts exist. It is the same mint the command makes,
+claim for claim, so an operator can hand over an address and let people sign in
+rather than sending each of them a token.
+
 There are two kinds of token here, with two lifetimes, and what separates them
 is who is asked before one is honoured.
 

@@ -165,9 +165,10 @@ export interface MintOptions {
    * The fingerprint of this Team server's authority, for a token that is going to
    * leave the building.
    *
-   * Written by `nlteam token mint` and by nothing else, because the token that
-   * command prints is the only one that travels to a machine which may not yet
-   * trust this Team server. Every other mint here happens on a connection that already
+   * Written by the two mints whose token travels to a machine which may not yet
+   * trust this Team server: `nlteam token mint`, which prints one for an
+   * operator to hand over, and the sign-in route a Studio installation calls
+   * with a password. Every other mint here happens on a connection that already
    * exists, and a fingerprint on those would be carried for nobody.
    *
    * **Why a fingerprint in a token is not circular reasoning.** Nothing

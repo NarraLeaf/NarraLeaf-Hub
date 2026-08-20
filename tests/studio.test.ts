@@ -25,17 +25,19 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { identityConfig } from "../src/identity/config.js";
+import { identityConfig, type IdentityConfig } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
 import { KeyStore } from "../src/identity/keys.js";
 import { identityLayout } from "../src/identity/layout.js";
+import { setTokenLifetimes } from "../src/identity/settings.js";
 import { ScryptPasswordHasher, type ScryptParameters } from "../src/identity/passwords.js";
-import { mintToken } from "../src/identity/tokens.js";
+import { decodeToken, mintToken, type TokenClaims } from "../src/identity/tokens.js";
 import {
   createUser,
   disableUser,
   requireUser,
   revokeUserTokens,
+  SIGN_IN_REFUSED_MESSAGE,
 } from "../src/identity/users.js";
 import { DISCOVERY_PATH, type DiscoveryDocument } from "../src/identity/discovery.js";
 import type { RevisionPage } from "../src/projects/read.js";
@@ -59,6 +61,10 @@ const hasher = new ScryptPasswordHasher(CHEAP);
 const PASSWORD = "a password nobody guesses";
 const PATH = "/api/studio/v1/projects";
 const MEMBERS = "/api/studio/v1/members";
+const SIGN_IN = "/api/studio/v1/sign-in";
+
+/** Stands in for a certificate authority, which these tests do not need one of. */
+const FINGERPRINT = "3D:38:9F:E6";
 
 const DISCOVERY: DiscoveryDocument = {
   protocol: 1,
@@ -90,9 +96,15 @@ interface Harness {
   readonly database: DatabaseSync;
   /** A token for one account, as `nlteam token mint` would produce. */
   readonly tokenFor: (username: string) => Promise<string>;
+  /** What that mint was made with, for comparing it against one the server made. */
+  readonly keys: KeyStore;
+  readonly config: IdentityConfig;
 }
 
-async function harness(readings?: StudioReadings): Promise<Harness> {
+async function harness(
+  readings?: StudioReadings,
+  log?: (line: string) => void,
+): Promise<Harness> {
   const root = await temporaryRoot();
   const layout = identityLayout(root);
   const database = await openMigratedDatabase(layout.databasePath);
@@ -105,7 +117,9 @@ async function harness(readings?: StudioReadings): Promise<Harness> {
     keys,
     config,
     dataPort: config.dataPort,
+    fingerprint: FINGERPRINT,
     ...(readings === undefined ? {} : { readings }),
+    ...(log === undefined ? {} : { log }),
   };
   const server = createServer(
     webHandler(() => ({ ...DISCOVERY, capabilities: studioCapabilities(studio) }), { studio }),
@@ -117,6 +131,8 @@ async function harness(readings?: StudioReadings): Promise<Harness> {
   return {
     origin: `http://127.0.0.1:${port}`,
     database,
+    keys,
+    config,
     tokenFor: (username: string): Promise<string> =>
       Promise.resolve(
         mintToken(requireUser(database, username), keys.signingKey, config, {
@@ -129,7 +145,12 @@ async function harness(readings?: StudioReadings): Promise<Harness> {
 async function account(
   database: DatabaseSync,
   username: string,
-  extra: { displayName?: string; email?: string; groups?: readonly string[] } = {},
+  extra: {
+    displayName?: string;
+    email?: string;
+    groups?: readonly string[];
+    isServiceAccount?: boolean;
+  } = {},
 ): Promise<string> {
   const user = await createUser(database, hasher, { username, password: PASSWORD, ...extra });
   return user.id;
@@ -333,6 +354,7 @@ describe("what a server says it serves", () => {
       "projects",
       "project-detail",
       "members",
+      "password-sign-in",
     ]);
   });
 
@@ -346,10 +368,23 @@ describe("what a server says it serves", () => {
     ).not.toContain("project-history");
   });
 
-  it("does not claim a sign-in this build has no route for", async () => {
-    expect(
-      studioCapabilities({ ...(await anyOptions()), readings: READ_NOTHING }),
-    ).not.toContain("password-sign-in");
+  it("claims the sign-in only while there is a route answering at that address", async () => {
+    // The list is what a client stops asking after, so a name in it that
+    // nothing answers would be a client waiting on a 404. Asserted against the
+    // address rather than against the list twice: this build says it serves a
+    // password sign-in, and this is that route refusing a sign-in rather than
+    // saying there is nothing here.
+    const team = await harness();
+    expect(studioCapabilities({ ...(await anyOptions()) })).toContain("password-sign-in");
+
+    const response = await fetch(`${team.origin}${SIGN_IN}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "nobody", password: "nothing at all" }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: SIGN_IN_REFUSED_MESSAGE });
   });
 
   it("is in the document one address turns into a server", async () => {
@@ -707,7 +742,154 @@ describe("what the reader this server actually runs makes it say", () => {
       "projects",
       "project-detail",
       "members",
+      "password-sign-in",
       "project-history",
     ]);
+  });
+});
+
+describe("signing in with a password", () => {
+  /** Ask for a token, however badly. */
+  async function signIn(
+    origin: string,
+    body: unknown,
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    const response = await fetch(`${origin}${SIGN_IN}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+    return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  }
+
+  /** The claims of a token, without the two that are a clock reading. */
+  function claimsOf(token: string): Omit<TokenClaims, "iat" | "exp"> {
+    const { iat: _iat, exp: _exp, ...rest } = decodeToken(token).claims as TokenClaims;
+    return rest;
+  }
+
+  it("hands back a token this API takes, and the account that was signed in", async () => {
+    const team = await harness();
+    await account(team.database, "ada", {
+      displayName: "Ada Lovelace",
+      email: "ada@example.lan",
+    });
+
+    const answer = await signIn(team.origin, { username: "ada", password: PASSWORD });
+
+    expect(answer.status).toBe(200);
+    expect(answer.body["account"]).toEqual({
+      username: "ada",
+      displayName: "Ada Lovelace",
+      email: "ada@example.lan",
+    });
+    // The token is the whole point, so it is used rather than only inspected.
+    const projects = await get(team.origin, answer.body["token"] as string);
+    expect(projects.status).toBe(200);
+  });
+
+  it("is the same token nlteam token mint would have printed", async () => {
+    // Studio compares a token's audience against the address it dialled and
+    // refuses one that differs, and reads the authority out of the claims to
+    // know which machine it was asked to trust. A token composed by hand here
+    // would drift from the command's the first time either changed.
+    const team = await harness();
+    await account(team.database, "ada", { email: "ada@example.lan", groups: ["admin"] });
+
+    const answer = await signIn(team.origin, { username: "ada", password: PASSWORD });
+    const minted = mintToken(
+      requireUser(team.database, "ada"),
+      team.keys.signingKey,
+      team.config,
+      { purpose: "sign-in", authorityFingerprint: FINGERPRINT },
+    );
+
+    expect(claimsOf(answer.body["token"] as string)).toEqual(claimsOf(minted.token));
+    // Named as well as compared, because these two are what a client acts on.
+    const claims = decodeToken(answer.body["token"] as string).claims as TokenClaims;
+    expect(claims.aud).toContain("https://127.0.0.1:41402");
+    expect(claims.authority_sha256).toBe(FINGERPRINT);
+  });
+
+  it("lasts as long as the stored sign-in lifetime says, read as it mints", async () => {
+    const team = await harness();
+    await account(team.database, "ada");
+    setTokenLifetimes(team.database, { signInTokenLifetimeSeconds: 3600 });
+
+    const answer = await signIn(team.origin, { username: "ada", password: PASSWORD });
+    const claims = decodeToken(answer.body["token"] as string).claims as TokenClaims;
+
+    expect(claims.exp - claims.iat).toBe(3600);
+  });
+
+  it("says one thing however it was refused", async () => {
+    // Four ways to be turned away, one status and one sentence: an unknown
+    // name, a wrong password, an account that has been disabled and one that
+    // belongs to a machine. Anything that told them apart would be a way to
+    // find out which accounts exist here.
+    const team = await harness();
+    await account(team.database, "ada");
+    await account(team.database, "bob");
+    disableUser(team.database, "bob");
+    await account(team.database, "builder", { isServiceAccount: true });
+
+    const answers = [
+      await signIn(team.origin, { username: "grace", password: PASSWORD }),
+      await signIn(team.origin, { username: "ada", password: "not the password" }),
+      await signIn(team.origin, { username: "bob", password: PASSWORD }),
+      await signIn(team.origin, { username: "builder", password: PASSWORD }),
+    ];
+
+    for (const answer of answers) {
+      expect(answer.status).toBe(401);
+      expect(answer.body).toEqual({ error: SIGN_IN_REFUSED_MESSAGE });
+    }
+  });
+
+  it("refuses a body larger than anything this API takes, rather than reading it", async () => {
+    const team = await harness();
+    await account(team.database, "ada");
+
+    const answer = await signIn(
+      team.origin,
+      JSON.stringify({ username: "ada", password: PASSWORD, filler: "x".repeat(8 * 1024) }),
+    );
+
+    expect(answer.status).toBe(400);
+    expect(answer.body["error"]).toContain("larger than anything this API takes");
+  });
+
+  it("says what a sign-in takes when it was sent something else", async () => {
+    const team = await harness();
+
+    expect((await signIn(team.origin, { username: "ada" })).status).toBe(400);
+    expect((await signIn(team.origin, { username: "ada", password: 12 })).status).toBe(400);
+    expect((await signIn(team.origin, "not json at all")).status).toBe(400);
+  });
+
+  it("takes POST, and says so about anything else", async () => {
+    const team = await harness();
+
+    const response = await fetch(`${team.origin}${SIGN_IN}`, { method: "GET" });
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("POST");
+  });
+
+  it("says nothing about a password, and names only the account in a refusal", async () => {
+    // The log is read beside everything else `up` prints, and a password in it
+    // would outlive every other copy of that password.
+    const lines: string[] = [];
+    const team = await harness(undefined, (line) => lines.push(line));
+    await account(team.database, "ada");
+
+    await signIn(team.origin, { username: "ada", password: "not the password" });
+    await signIn(team.origin, { username: "ada", password: PASSWORD });
+
+    expect(lines).toEqual(['studio: sign-in refused for "ada"', "studio: ada signed in"]);
+    for (const line of lines) {
+      expect(line).not.toContain(PASSWORD);
+      expect(line).not.toContain("not the password");
+    }
   });
 });

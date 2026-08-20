@@ -16,7 +16,8 @@
  * Authentication is the token itself, presented as a bearer, and checked by
  * exactly what the authorization service checks it with. There is no session
  * and nothing to sign out of: the token is what a person was handed, and its
- * lifetime is the whole of how long this works.
+ * lifetime is the whole of how long this works. The one route that takes no
+ * bearer is the one that hands a token out, and it takes a password instead.
  *
  * What it does not do is decide who may reach what. Every account of this
  * server reaches every project on it, so the list is the same list for
@@ -27,11 +28,19 @@
  * The routes
  * ----------
  *
+ *     POST /api/studio/v1/sign-in               a password, for a token
  *     GET  /api/studio/v1/projects              every project on this server
  *     POST /api/studio/v1/projects              make another
  *     GET  /api/studio/v1/projects/:id          one of them, and what is in it
  *     GET  /api/studio/v1/projects/:id/history  a page of its revisions
  *     GET  /api/studio/v1/members               every account, as a name
+ *
+ * The first of those is the one route that takes no token, because it is where
+ * a token comes from. It is a second door onto what `nlteam token mint` does at
+ * the server, for the same accounts and with the same refusals: an operator who
+ * would otherwise mint a token and send it through a chat window can hand over
+ * a username and a password instead. What it mints is the same token, claim for
+ * claim — see {@link answerSignIn}.
  *
  * What is absent and what is nought
  * ---------------------------------
@@ -52,10 +61,16 @@ import type { DatabaseSync } from "node:sqlite";
 import { audienceHosts, dataRemoteUrl, type IdentityConfig } from "../identity/config.js";
 import { bearerToken, describeRefusal, identifyToken } from "../identity/bearer.js";
 import type { KeyStore } from "../identity/keys.js";
+import { defaultPasswordHasher } from "../identity/passwords.js";
 import { storedTokenLifetimes } from "../identity/settings.js";
 import { mintToken } from "../identity/tokens.js";
 import type { UserRecord } from "../identity/users.js";
-import { findUserById, listUsers } from "../identity/users.js";
+import {
+  authenticate,
+  findUserById,
+  listUsers,
+  SIGN_IN_REFUSED_MESSAGE,
+} from "../identity/users.js";
 import type { RevisionPage } from "../projects/read.js";
 import {
   createProject,
@@ -68,7 +83,7 @@ import {
 import { loreserverUrl, repositoryCreate } from "../projects/repository.js";
 import { NOT_READ_YET } from "../tui/teamview.js";
 import type { ProjectFileView, RevisionView } from "../tui/teamview.js";
-import { isOperator } from "./api.js";
+import { holdRefusedSignIn, isOperator } from "./api.js";
 
 /** Where the routes live. Versioned, because a client older than the server is ordinary. */
 const PREFIX = "/api/studio/v1";
@@ -78,6 +93,9 @@ const PROJECTS = `${PREFIX}/projects`;
 
 /** Every account of this server, as names rather than as accounts. */
 const MEMBERS = `${PREFIX}/members`;
+
+/** Where a username and a password become a token. */
+const SIGN_IN = `${PREFIX}/sign-in`;
 
 /** What hangs off one project. */
 const HISTORY = "history";
@@ -129,6 +147,15 @@ export interface StudioApiOptions {
   readonly config: IdentityConfig;
   /** The port loreserver serves gRPC on, for creating a repository. */
   readonly dataPort: number;
+  /**
+   * The fingerprint of this server's authority, absent until one exists.
+   *
+   * Written into a token handed out by the sign-in route, because that token
+   * leaves this machine — the same reason `nlteam token mint` writes it. A
+   * server with no certificates yet still signs in; its tokens simply carry no
+   * fingerprint, and Studio falls back to asking a person for one.
+   */
+  readonly fingerprint?: string;
   /** What the repositories last said. Absent on a server that reads none. */
   readonly readings?: StudioReadings;
   /** Somewhere to say what happened, in the same place `up` says everything else. */
@@ -139,9 +166,7 @@ export interface StudioApiOptions {
  * The names Studio matches literally to know what this server answers.
  *
  * Words rather than a version number, because they are added one at a time and
- * a client wants to know about each on its own. `password-sign-in` is named
- * here and not emitted by this build: it belongs to a route that does not
- * exist yet, and the list says what is served rather than what is planned.
+ * a client wants to know about each on its own.
  */
 export type StudioCapability =
   | "projects"
@@ -151,15 +176,31 @@ export type StudioCapability =
   | "password-sign-in";
 
 /**
+ * What every build of this file serves, whatever it was given.
+ *
+ * These are the routes {@link serveStudioApi} answers unconditionally, and this
+ * is the list the discovery document is built from: a route that stops being
+ * served has to be taken out of one place, not two. `password-sign-in` is among
+ * them because the route below needs nothing beyond the database and the keys,
+ * both of which every caller of this API already has.
+ */
+const ALWAYS_SERVED: readonly StudioCapability[] = [
+  "projects",
+  "project-detail",
+  "members",
+  "password-sign-in",
+];
+
+/**
  * What this build serves, worked out from what it was given.
  *
  * Read from the options rather than written down, so that the discovery
- * document cannot come to say something this file does not do. The three
- * unconditional ones are unconditional in {@link serveStudioApi} too; the
- * history is there only where there is something to read a history out of.
+ * document cannot come to say something this file does not do. The history is
+ * the one that is not unconditional: it is there only where there is something
+ * to read a history out of.
  */
 export function studioCapabilities(options: StudioApiOptions): StudioCapability[] {
-  const capabilities: StudioCapability[] = ["projects", "project-detail", "members"];
+  const capabilities: StudioCapability[] = [...ALWAYS_SERVED];
   if (options.readings?.revisions !== undefined) {
     capabilities.push("project-history");
   }
@@ -386,6 +427,15 @@ export function serveStudioApi(
     return true;
   }
 
+  if (path === SIGN_IN) {
+    if (request.method !== "POST") {
+      onlyMethods(response, "POST", "POST");
+      return true;
+    }
+    void answerSignIn(options, request, response);
+    return true;
+  }
+
   const under = beneathProjects(path);
   if (under !== undefined) {
     if (request.method !== "GET") {
@@ -492,6 +542,87 @@ function answerProject(
   const read = options.readings?.get(project.id) ?? NOT_READ_YET;
   options.log?.(`studio: ${user.username} opened ${project.name} (${project.id})`);
   sendJson(response, 200, { project: projectBody(options, project), file: read.file });
+}
+
+/**
+ * A username and a password, for the token everything else here takes.
+ *
+ * The token is the one `nlteam token mint` prints, and it has to be: Studio
+ * compares a token's audience against the address it dialled and refuses one
+ * that differs, and it reads the authority's fingerprint out of the claims to
+ * know which machine it has been asked to trust. So the claims are not composed
+ * here — {@link mintToken} writes them, from the stored lifetimes and the same
+ * account record, exactly as the command does.
+ *
+ * Every refusal is the same refusal
+ * ---------------------------------
+ * One status and one sentence for an account that is not there, a password that
+ * is wrong, an account that has been disabled and an account that belongs to a
+ * machine. Whoever is at the other end learns nothing about which accounts
+ * exist on this server, which is the same rule `nlteam token mint` and the
+ * operator's sign-in are written to.
+ *
+ * A service account is refused for a different reason and answered the same
+ * way: it is an account no person signs in to, and a password prompt that
+ * accepted one would be an interactive door onto a machine's credentials.
+ *
+ * Nothing about the body is logged, ever. A refusal may name the username that
+ * was tried, because an operator reading the log needs to know what is being
+ * guessed at; the password does not appear in any line here, or in any error
+ * this can raise.
+ */
+async function answerSignIn(
+  options: StudioApiOptions,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  const body = await readJson(request);
+  if (typeof body === "string") {
+    // What was wrong with the request, which is not a statement about any
+    // account: a body too long or not JSON is answered before a password is
+    // read out of it.
+    refuse(response, 400, body);
+    return;
+  }
+  const username = text(body, "username");
+  const password = typeof body["password"] === "string" ? body["password"] : undefined;
+  if (username === undefined || password === undefined) {
+    refuse(response, 400, "a sign-in takes a username and a password");
+    return;
+  }
+
+  const result = await authenticate(
+    options.database,
+    defaultPasswordHasher(),
+    username,
+    password,
+  );
+  if (result.kind === "refused" || result.user.isServiceAccount) {
+    await holdRefusedSignIn();
+    options.log?.(`studio: sign-in refused for ${JSON.stringify(username)}`);
+    refuse(response, 401, SIGN_IN_REFUSED_MESSAGE);
+    return;
+  }
+
+  const config = { ...options.config, ...storedTokenLifetimes(options.database) };
+  const minted = mintToken(result.user, options.keys.signingKey, config, {
+    purpose: "sign-in",
+    ...(options.fingerprint === undefined ? {} : { authorityFingerprint: options.fingerprint }),
+  });
+
+  options.log?.(`studio: ${result.user.username} signed in`);
+  sendJson(response, 200, {
+    token: minted.token,
+    // The account as the person who just signed in is entitled to see it, which
+    // is their own row and nothing about anybody else's. What groups they are
+    // in is not here: it decides nothing about the projects this API serves,
+    // and Studio has no screen that would be different for an operator.
+    account: {
+      username: result.user.username,
+      displayName: result.user.displayName,
+      ...(result.user.email === undefined ? {} : { email: result.user.email }),
+    },
+  });
 }
 
 /**
