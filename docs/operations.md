@@ -507,7 +507,7 @@ same port it signs in at, carrying the token it was given:
 
 ```
 GET  /api/studio/v1/projects     what this server holds, with the remote for each
-POST /api/studio/v1/projects     {"name": "...", "description": "..."}
+POST /api/studio/v1/projects     {"name": "...", "description": "...", "repositoryId": "..."}
 ```
 
 Both are served whether or not the web interface is switched on, for the reason
@@ -516,6 +516,14 @@ is how every author finds their work. A repository created any other way —
 `lore` itself, an older Studio — is recorded when `loreserver` announces it,
 with whoever made it as its creator, so it does not become a repository nobody
 can open.
+
+`repositoryId` is optional and says which of two things the request is. Left
+out, Team generates an id and asks `loreserver` for the repository, exactly as
+`project create` does. Given, the repository already exists on the author's own
+machine and they are publishing it: Team records the row under that id and asks
+`loreserver` for nothing, because the copy that will fill it is the one the
+author pushes. It is thirty-two hexadecimal characters, and one that is already
+a project here is refused with `409` rather than taken over.
 
 ## Who may open the operator's view
 

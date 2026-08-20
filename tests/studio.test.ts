@@ -42,7 +42,13 @@ import {
 import { DISCOVERY_PATH, type DiscoveryDocument } from "../src/identity/discovery.js";
 import type { RevisionPage } from "../src/projects/read.js";
 import { ProjectReadings } from "../src/projects/refresh.js";
-import { createProject, newProjectId } from "../src/projects/registry.js";
+import {
+  createProject,
+  findProjectById,
+  listProjects,
+  newProjectId,
+  resourceIdOf,
+} from "../src/projects/registry.js";
 import type { ProjectFileView, RevisionView } from "../src/tui/teamview.js";
 import { webHandler } from "../src/web/router.js";
 import {
@@ -535,6 +541,181 @@ describe("one project on its own", () => {
     const his = await fetchPath(team.origin, `${PATH}/${id}`, await team.tokenFor("bob"));
 
     expect(hers.body).toEqual(his.body);
+  });
+});
+
+/**
+ * Putting a project that already exists on to this server.
+ *
+ * This half of the create route is testable end to end where the other half is
+ * not, and for the reason that makes it worth having: a request carrying a
+ * repository id asks loreserver for nothing. Nothing is listening on the data
+ * port in these tests, so a 201 out of this route is itself the assertion that
+ * no repository was asked for — the other half answers 502 here.
+ *
+ * What the author brings is the id their repository has carried since they
+ * enabled version control, and the name they want it known by. Both have to
+ * survive: the id because loreserver will ask permission questions about it
+ * character by character, and the name because it is what a collaborator
+ * clones by.
+ */
+describe("a project the author already has", () => {
+  async function publish(
+    origin: string,
+    token: string,
+    body: Record<string, unknown>,
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    const response = await fetch(`${origin}${PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  }
+
+  it("is recorded under the repository id it already has", async () => {
+    const team = await harness(READ_NOTHING);
+    await account(team.database, "ada");
+    const repositoryId = newProjectId();
+
+    const answer = await publish(team.origin, await team.tokenFor("ada"), {
+      name: "driftwood",
+      description: "eight months of it",
+      repositoryId,
+    });
+
+    expect(answer.status).toBe(201);
+    expect(answer.body["project"]).toMatchObject({
+      id: repositoryId,
+      name: "driftwood",
+      description: "eight months of it",
+      createdBy: "ada",
+      remote: "lore://127.0.0.1:41337/driftwood",
+    });
+    // The row is what loreserver is answered out of, so it is read back rather
+    // than inferred from the reply that was just built from it.
+    expect(findProjectById(team.database, repositoryId)).toMatchObject({ name: "driftwood" });
+  });
+
+  it("says nothing about a history it has not been sent yet", async () => {
+    // The project may have years of it. Absent says the reader has not been
+    // round; a nought would say the author published an empty project.
+    const team = await harness(READ_NOTHING);
+    await account(team.database, "ada");
+
+    const answer = await publish(team.origin, await team.tokenFor("ada"), {
+      name: "driftwood",
+      repositoryId: newProjectId(),
+    });
+
+    expect(answer.body["project"]).not.toHaveProperty("history");
+  });
+
+  it("takes the id in either spelling, and holds it in the one loreserver asks about", async () => {
+    const team = await harness(READ_NOTHING);
+    await account(team.database, "ada");
+    const repositoryId = newProjectId();
+
+    const answer = await publish(team.origin, await team.tokenFor("ada"), {
+      name: "driftwood",
+      repositoryId: repositoryId.toUpperCase(),
+    });
+
+    expect(answer.status).toBe(201);
+    expect(answer.body["project"]).toMatchObject({ id: repositoryId });
+    expect(resourceIdOf(repositoryId)).toBe(`urc-${repositoryId}`);
+  });
+
+  it("refuses something that is not a repository id, rather than storing it", async () => {
+    const team = await harness(READ_NOTHING);
+    await account(team.database, "ada");
+
+    const answer = await publish(team.origin, await team.tokenFor("ada"), {
+      name: "driftwood",
+      repositoryId: "not-a-repository-id",
+    });
+
+    expect(answer.status).toBe(400);
+    expect(answer.body["error"]).toContain("thirty-two");
+    expect(listProjects(team.database)).toEqual([]);
+  });
+
+  it("refuses a repository this server already holds, and says which", async () => {
+    // Somebody has published it. The author about to push into it has to know
+    // that before they do, which is why this is not a silent adoption.
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    const repositoryId = newProjectId();
+    createProject(team.database, {
+      id: repositoryId,
+      name: "driftwood",
+      description: "",
+      createdBy: ada,
+    });
+
+    const answer = await publish(team.origin, await team.tokenFor("ada"), {
+      name: "driftwood-again",
+      repositoryId,
+    });
+
+    expect(answer.status).toBe(409);
+    expect(answer.body["error"]).toContain(repositoryId);
+    expect(listProjects(team.database)).toHaveLength(1);
+  });
+
+  it("does not mistake another project's name for a repository id", async () => {
+    // A repository this server adopted under a taken name is named after its
+    // own id, so a name here really can look like one. Asking the name column
+    // would refuse the publish and blame a project that is not involved.
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    const named = newProjectId();
+    createProject(team.database, {
+      id: newProjectId(),
+      name: named,
+      description: "",
+      createdBy: ada,
+    });
+
+    const answer = await publish(team.origin, await team.tokenFor("ada"), {
+      name: "driftwood",
+      repositoryId: named,
+    });
+
+    expect(answer.status).toBe(201);
+    expect(answer.body["project"]).toMatchObject({ id: named, name: "driftwood" });
+  });
+
+  it("refuses a name that is taken, before anything is recorded", async () => {
+    const team = await harness(READ_NOTHING);
+    const ada = await account(team.database, "ada");
+    createProject(team.database, {
+      id: newProjectId(),
+      name: "driftwood",
+      description: "",
+      createdBy: ada,
+    });
+
+    const answer = await publish(team.origin, await team.tokenFor("ada"), {
+      name: "driftwood",
+      repositoryId: newProjectId(),
+    });
+
+    expect(answer.status).toBe(409);
+    expect(listProjects(team.database)).toHaveLength(1);
+  });
+
+  it("refuses a request carrying no token", async () => {
+    const team = await harness(READ_NOTHING);
+
+    const response = await fetch(`${team.origin}${PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "driftwood", repositoryId: newProjectId() }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(listProjects(team.database)).toEqual([]);
   });
 });
 

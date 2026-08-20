@@ -60,6 +60,23 @@ export const RESOURCE_PREFIX = "urc-";
 const REPOSITORY_ID_PATTERN = /^[0-9a-f]{32}$/;
 
 /**
+ * Whether a string could be a repository id.
+ *
+ * Exported because a client may now bring one of its own — a project that
+ * already exists on somebody's disk is published under the id its repository
+ * already has, rather than under one this server invents. Nothing downstream
+ * re-checks the shape: the id becomes a primary key and half of a resource id,
+ * and both of those compare character by character.
+ *
+ * Lower case only, exactly as {@link newProjectId} writes one. A caller holding
+ * the other spelling folds it before asking, the way {@link
+ * projectIdFromResourceId} does.
+ */
+export function isRepositoryId(value: string): boolean {
+  return REPOSITORY_ID_PATTERN.test(value);
+}
+
+/**
  * A project name, as loreserver will accept it.
  *
  * loreserver has validation rules of its own and refuses a name that breaks
@@ -221,6 +238,23 @@ export function findProject(
   const row = database
     .prepare(`${SELECT_PROJECT} WHERE id = ? OR name = ?`)
     .get(reference.toLowerCase(), reference);
+  return row === undefined ? undefined : toProject(row);
+}
+
+/**
+ * The project registered under one repository id, or undefined.
+ *
+ * Deliberately not {@link findProject}: that one takes a name as well, and a
+ * name can be a repository id — a repository this server adopts under a name
+ * already taken is named after its own id (see ./service.ts). So the question
+ * "is this repository already registered" has to be asked of the id column
+ * alone, or a second project's name answers it.
+ */
+export function findProjectById(
+  database: DatabaseSync,
+  projectId: string,
+): ProjectRecord | undefined {
+  const row = database.prepare(`${SELECT_PROJECT} WHERE id = ?`).get(projectId);
   return row === undefined ? undefined : toProject(row);
 }
 

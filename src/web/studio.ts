@@ -30,7 +30,7 @@
  *
  *     POST /api/studio/v1/sign-in               a password, for a token
  *     GET  /api/studio/v1/projects              every project on this server
- *     POST /api/studio/v1/projects              make another
+ *     POST /api/studio/v1/projects              make another, or register one
  *     GET  /api/studio/v1/projects/:id          one of them, and what is in it
  *     GET  /api/studio/v1/projects/:id/history  a page of its revisions
  *     GET  /api/studio/v1/members               every account, as a name
@@ -75,7 +75,9 @@ import type { RevisionPage } from "../projects/read.js";
 import {
   createProject,
   findProject,
+  findProjectById,
   forgetProject,
+  isRepositoryId,
   listProjects,
   newProjectId,
   type ProjectRecord,
@@ -752,6 +754,37 @@ function pageLimit(asked: string | null): number {
   return Math.min(wanted, MAXIMUM_HISTORY_LIMIT);
 }
 
+/**
+ * `POST /api/studio/v1/projects`: make a project, or register one that exists.
+ *
+ * ```
+ * {"name": "...", "description": "...", "repositoryId": "..."}
+ * ```
+ *
+ * Two acts behind one address, and `repositoryId` is what says which.
+ *
+ * **Without it**, this makes a project from nothing: an id is generated here
+ * and loreserver is asked for the repository to go with it. That is the whole
+ * of what this route used to do, and it is unchanged.
+ *
+ * **With it**, the repository already exists — on the author's own disk, under
+ * an id it has carried since the day they enabled version control — and what is
+ * missing is the row saying it belongs on this server. So the row is written
+ * and loreserver is not asked for anything: it is the client that will push,
+ * and asking for a repository under the same id would either be refused or
+ * would make a second one under a name the author had already claimed.
+ *
+ * The ordering note below is why publishing works at all. loreserver announces
+ * a repository to Team as it is created, and Team answers for one only when it
+ * has the row — so the row has to be there before the client's push, which is
+ * to say before this answers. It is, and nothing between here and the push can
+ * reorder them.
+ *
+ * A repository id already registered is a 409 rather than a silent adoption:
+ * the author is publishing what they believe is a new project, and the server
+ * already holding it means somebody has published it, which they have to know
+ * before they push into it.
+ */
 async function answerProjectCreate(
   options: StudioApiOptions,
   request: IncomingMessage,
@@ -773,16 +806,27 @@ async function answerProjectCreate(
   }
   const description = text(body, "description") ?? "";
 
+  // Folded, because hex is hex either way and everything downstream compares
+  // this character by character: it becomes the primary key, and the second
+  // half of the resource id loreserver asks permission questions about.
+  const claimed = text(body, "repositoryId")?.toLowerCase();
+  if (claimed !== undefined && !isRepositoryId(claimed)) {
+    refuse(response, 400, "a repository id is thirty-two hexadecimal characters");
+    return;
+  }
+  if (claimed !== undefined && findProjectById(options.database, claimed) !== undefined) {
+    refuse(response, 409, `the repository ${claimed} is already a project on this server.`);
+    return;
+  }
+
   // The row is written before loreserver is asked, and removed again if it
   // refuses. That order matters: loreserver announces the new repository back
   // to Team while the create call is still open, and a server that had not
   // recorded the project yet would have nothing to say about it.
-  const config = { ...options.config, ...storedTokenLifetimes(options.database) };
-  const minted = mintToken(user, options.keys.signingKey, config, { purpose: "repository" });
   let project: ProjectRecord;
   try {
     project = createProject(options.database, {
-      id: newProjectId(),
+      id: claimed ?? newProjectId(),
       name,
       description,
       createdBy: user.id,
@@ -792,6 +836,18 @@ async function answerProjectCreate(
     return;
   }
 
+  if (claimed !== undefined) {
+    options.log?.(`studio: ${user.username} registered ${project.name} (${project.id})`);
+    // No history, and for a different reason from the one below: this
+    // repository may have years of it, and none of it has arrived yet. Absent
+    // is what says the reader has not been round; a nought would say the
+    // author had published an empty project.
+    sendJson(response, 201, { project: projectBody(options, project) });
+    return;
+  }
+
+  const config = { ...options.config, ...storedTokenLifetimes(options.database) };
+  const minted = mintToken(user, options.keys.signingKey, config, { purpose: "repository" });
   try {
     await repositoryCreate({
       url: loreserverUrl(options.dataPort),
