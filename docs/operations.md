@@ -594,9 +594,9 @@ designed, tested and kept true. A wrong password and an account that does not
 exist are answered with one sentence, as `nlteam token mint` is, so nobody
 learns which accounts exist; a member whose password was right is told plainly
 that the interface is for the `admin` group, because there is nothing left to
-hide from somebody who has just proved who they are. The account made from the
-invitation `up` prints on a Team server with no accounts is in that group;
-anybody else needs an invitation made with `--role admin`.
+hide from somebody who has just proved who they are. The account `nlteam init`
+makes on a server with none is in that group; anybody else is put in it with
+`nlteam user grant-admin`, or made in it from the page.
 
 Five surfaces — Overview, Projects, Members, Decisions and Settings — drawn from
 the same view the terminal interface draws, and kept current by a stream the
@@ -604,9 +604,18 @@ server pushes each new view down rather than by the page asking again every few
 seconds. What Team could not work out reads "unknown" here for the same reason
 it does there.
 
-The three things the terminal interface names a command for, it can do: a
-browser has somewhere to type a project's name and to choose an account, so
-creating a project, granting access and revoking it are carried out on the page.
+What the terminal interface names a command for, this can do: a browser has
+somewhere to type into, so creating a project, disabling an account, refusing
+the tokens one holds and changing a setting are carried out on the page.
+
+Two of them are what an operator otherwise had to be at the server for. **New
+account** on the Members screen makes one the way `nlteam user create` does —
+a username, a display name, an address, a password, and whether it joins the
+`admin` group — and **Issue token** beside each account mints the token
+`nlteam token mint` prints. That token is shown once, on the screen that asked
+for it, and is in no log and no file: this server keeps no copy, so one nobody
+copied is one to ask for again.
+
 Restarting `loreserver` is still not among them — it belongs to the `nlteam up`
 that started it.
 

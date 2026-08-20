@@ -26,7 +26,15 @@ import {
 } from "./api.js";
 import { renderInto } from "./dom.js";
 import { rememberLocale } from "./language.js";
-import { LANGUAGE_MENU, shell, signInPage, waitingPage, type Handlers } from "./screens.js";
+import {
+  LANGUAGE_MENU,
+  NEW_ACCOUNT_FIELDS,
+  NEW_ACCOUNT_FORM,
+  shell,
+  signInPage,
+  waitingPage,
+  type Handlers,
+} from "./screens.js";
 
 const root = document.getElementById("root");
 if (root === null) {
@@ -71,6 +79,12 @@ function signedOut(problem?: string): void {
   draft.busy = false;
   draft.live = false;
   delete draft.notice;
+  // Whatever was on screen for one person to read is not on screen for the next
+  // one, and a password typed into a half-finished form goes with it.
+  delete draft.secret;
+  for (const field of NEW_ACCOUNT_FIELDS) {
+    draft.fields.delete(field);
+  }
   if (problem === undefined) {
     delete draft.problem;
   } else {
@@ -146,6 +160,9 @@ function watch(): void {
 async function perform(action: Action): Promise<void> {
   draft.busy = true;
   delete draft.problem;
+  // Whatever was shown once has been read by now, and leaving it up would
+  // attach it to whatever is being done next.
+  delete draft.secret;
   draw();
 
   const answer = await sendAction(draft.locale, action);
@@ -166,10 +183,23 @@ async function perform(action: Action): Promise<void> {
   // them name a thing that happened once and will not be repeated.
   draft.notice = answer.value.message;
   view = answer.value.view;
+  // Shown where it was asked for rather than in the notice bar: it is the thing
+  // itself rather than a sentence about it, and it is never written anywhere
+  // this page cannot drop it again.
+  if (answer.value.secret !== undefined && action.kind === "issue-token") {
+    draft.secret = { username: action.username, token: answer.value.secret };
+  }
   // Anything half-typed into the thing that just happened is finished with.
   if (action.kind === "create-project") {
     draft.fields.delete("new-project-name");
     draft.expanded.delete("new-project");
+  }
+  if (action.kind === "create-account") {
+    // The password among them, and this is the moment it stops being needed.
+    for (const key of NEW_ACCOUNT_FORM) {
+      draft.fields.delete(key);
+      draft.expanded.delete(key);
+    }
   }
   draw();
 }
@@ -182,6 +212,8 @@ const handlers: Handlers = {
     draft.screen = screen;
     delete draft.notice;
     delete draft.problem;
+    // It was shown on the screen that asked for it, and this is another screen.
+    delete draft.secret;
     draw();
   },
   setField: (key, value) => {
@@ -201,6 +233,7 @@ const handlers: Handlers = {
   dismiss: () => {
     delete draft.notice;
     delete draft.problem;
+    delete draft.secret;
     draw();
   },
   signOut: () => {

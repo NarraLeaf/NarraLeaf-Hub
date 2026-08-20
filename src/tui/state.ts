@@ -75,6 +75,25 @@ export type Action =
   | { readonly kind: "rotate-key" }
   | { readonly kind: "restart-loreserver" }
   | { readonly kind: "create-project"; readonly name: string; readonly owner: string }
+  /**
+   * Make an account, the way `nlteam user create` makes one.
+   *
+   * The password is here because there is nowhere else it could be: an account
+   * is created with one, and the operator's page is the only interface that has
+   * somewhere to type it. Nothing keeps it — it is hashed and forgotten inside
+   * the action — and nothing writes it down.
+   */
+  | {
+      readonly kind: "create-account";
+      readonly username: string;
+      readonly password: string;
+      readonly displayName?: string;
+      readonly email?: string;
+      /** Whether it joins the admin group rather than the default one. */
+      readonly operator: boolean;
+    }
+  /** Mint a sign-in token for an account, to be handed to the person. */
+  | { readonly kind: "issue-token"; readonly username: string }
   | { readonly kind: "set-user-disabled"; readonly username: string; readonly disabled: boolean }
   | { readonly kind: "revoke-tokens"; readonly username: string }
   | { readonly kind: "set-setting"; readonly index: number; readonly value: string };

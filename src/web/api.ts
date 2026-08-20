@@ -438,13 +438,23 @@ async function act(
   }
 
   try {
-    const message = await perform(options.context, action, messages);
+    const { message, secret } = await perform(options.context, action, messages);
+    // The sentence, never the secret and never the body. One of these actions
+    // carries a password in and another carries a token out, and this line is
+    // read by whoever is at the server rather than by whoever pressed the
+    // button — a credential in it would outlive every other copy.
     options.log?.(`web: ${operator.username}: ${action.kind}: ${message}`);
     // A view is gathered after every action rather than left to the stream, so
     // that the page which asked draws the result of its own request instead of
     // the state just before it.
     options.request();
-    sendJson(response, 200, { message, view: await options.gather() });
+    sendJson(response, 200, {
+      message,
+      // Answered to the browser that asked and to nothing else: it is not in
+      // the view, so the event stream does not carry it to another tab.
+      ...(secret === undefined ? {} : { secret }),
+      view: await options.gather(),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // The log is English, always: it is read beside everything else `up`
@@ -492,6 +502,33 @@ export function readAction(body: unknown, messages: Messages = en): Action | str
         return refusal.projectNeedsNameAndOwner;
       }
       return { kind, name, owner };
+    }
+    case "create-account": {
+      const username = text("username");
+      // Read as it was typed rather than through `text`, which trims: leading
+      // and trailing spaces are characters of a password, and an account whose
+      // password was silently shortened here could not sign in anywhere else.
+      const password = typeof candidate.password === "string" ? candidate.password : "";
+      if (username === undefined || password === "") {
+        return refusal.accountNeedsUsernameAndPassword;
+      }
+      const displayName = text("displayName");
+      const email = text("email");
+      return {
+        kind,
+        username,
+        password,
+        ...(displayName === undefined ? {} : { displayName }),
+        ...(email === undefined ? {} : { email }),
+        operator: candidate.operator === true,
+      };
+    }
+    case "issue-token": {
+      const username = text("username");
+      if (username === undefined) {
+        return refusal.needsAccount;
+      }
+      return { kind, username };
     }
     case "set-user-disabled": {
       const username = text("username");

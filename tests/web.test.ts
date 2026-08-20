@@ -21,7 +21,14 @@ import { identityConfig } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
 import { identityLayout } from "../src/identity/layout.js";
 import { ScryptPasswordHasher, type ScryptParameters } from "../src/identity/passwords.js";
-import { createUser, disableUser, revokeUserTokens } from "../src/identity/users.js";
+import { decodeToken, type TokenClaims } from "../src/identity/tokens.js";
+import {
+  createUser,
+  disableUser,
+  findUser,
+  revokeUserTokens,
+  setAdmin,
+} from "../src/identity/users.js";
 import type { TeamView } from "../src/tui/teamview.js";
 import type { ViewContext } from "../src/view.js";
 import { readAction, type ApiOptions } from "../src/web/api.js";
@@ -112,6 +119,8 @@ async function withOperator(groups: readonly string[]): Promise<{
   database: DatabaseSync;
   sessions: SessionStore;
   gathered: number;
+  /** Every line the server wrote, for asserting on what is not in them. */
+  logged: string[];
 }> {
   const { root, database } = await openStorage();
   await createUser(database, hasher, {
@@ -130,6 +139,7 @@ async function withOperator(groups: readonly string[]): Promise<{
   };
   const sessions = new SessionStore();
   const state = { gathered: 0 };
+  const logged: string[] = [];
   const origin = await serve({
     context,
     sessions,
@@ -139,12 +149,14 @@ async function withOperator(groups: readonly string[]): Promise<{
     },
     request: () => {},
     subscribe: () => () => {},
+    log: (line) => logged.push(line),
   });
 
   return {
     origin,
     database,
     sessions,
+    logged,
     get gathered() {
       return state.gathered;
     },
@@ -564,5 +576,170 @@ describe("the language it answers in", () => {
     expect(((await response.json()) as { error?: string }).error).toBe(
       en.refusal.notAnOperator({ group: "admin" }),
     );
+  });
+});
+
+describe("making an account from the operator's page", () => {
+  /** Ask for one thing to be done, as the page does. */
+  async function act(
+    origin: string,
+    cookie: string | undefined,
+    action: unknown,
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    const response = await fetch(`${origin}/api/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: cookie ?? "" },
+      body: JSON.stringify(action),
+    });
+    return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  }
+
+  const NEW_ACCOUNT = {
+    kind: "create-account",
+    username: "bob",
+    password: "a password nobody guesses either",
+    displayName: "Bob",
+    email: "bob@example.lan",
+    operator: false,
+  };
+
+  it("makes one the way nlteam user create makes one", async () => {
+    const { origin, database } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    const answer = await act(origin, cookie, NEW_ACCOUNT);
+
+    expect(answer.status).toBe(200);
+    expect(answer.body["message"]).toContain("bob");
+    const bob = findUser(database, "bob");
+    expect(bob?.displayName).toBe("Bob");
+    expect(bob?.email).toBe("bob@example.lan");
+    // The default group, which is the one the command's --role defaults to.
+    expect(bob?.groups).toEqual(["member"]);
+  });
+
+  it("puts one in the admin group when that is what was asked for", async () => {
+    const { origin, database } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    await act(origin, cookie, { ...NEW_ACCOUNT, username: "grace", operator: true });
+
+    expect(findUser(database, "grace")?.groups).toEqual(["admin"]);
+  });
+
+  it("refuses a name that is already an account here, and says which", async () => {
+    const { origin } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    const answer = await act(origin, cookie, { ...NEW_ACCOUNT, username: "ada" });
+
+    expect(answer.status).toBe(400);
+    expect(answer.body["error"]).toContain("ada");
+  });
+
+  it("refuses a browser that is not an operator's", async () => {
+    // Creating an account is a management action, and management is the whole
+    // of what the admin group decides. There is no session to try it with: a
+    // member cannot sign in to this interface at all.
+    const { origin, database, sessions } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    expect((await act(origin, undefined, NEW_ACCOUNT)).status).toBe(401);
+
+    // And the door is the account as it stands now, not as it stood at sign-in.
+    setAdmin(database, "ada", false);
+    expect((await act(origin, cookie, NEW_ACCOUNT)).status).toBe(401);
+    expect(sessions.size).toBeGreaterThan(0);
+    expect(findUser(database, "bob")).toBeUndefined();
+  });
+
+  it("says what an account needs when it was asked for one with no password", async () => {
+    const { origin, database } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    const answer = await act(origin, cookie, { kind: "create-account", username: "bob" });
+
+    expect(answer.status).toBe(400);
+    expect(findUser(database, "bob")).toBeUndefined();
+  });
+
+  it("writes no password into the log, whatever happened", async () => {
+    const { origin, logged } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    await act(origin, cookie, NEW_ACCOUNT);
+    await act(origin, cookie, NEW_ACCOUNT);
+
+    expect(logged.length).toBeGreaterThan(0);
+    for (const line of logged) {
+      expect(line).not.toContain(NEW_ACCOUNT.password);
+    }
+  });
+});
+
+describe("handing a token to somebody", () => {
+  async function issue(
+    origin: string,
+    cookie: string | undefined,
+    username: string,
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    const response = await fetch(`${origin}/api/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: cookie ?? "" },
+      body: JSON.stringify({ kind: "issue-token", username }),
+    });
+    return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  }
+
+  it("answers with the token beside the sentence, not inside it", async () => {
+    const { origin } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    const answer = await issue(origin, cookie, "ada");
+
+    expect(answer.status).toBe(200);
+    const secret = answer.body["secret"];
+    expect(typeof secret).toBe("string");
+    // A token this server signed, for the account that was named.
+    const claims = decodeToken(secret as string).claims as TokenClaims;
+    expect(claims.preferred_username).toBe("ada");
+    expect(claims.iss).toBe(identityConfig({}).issuer);
+    // The sentence is what everything else shows, and it is not the token.
+    expect(answer.body["message"]).not.toContain(secret);
+    expect(JSON.stringify(answer.body["view"])).not.toContain(secret);
+  });
+
+  it("writes no token into the log", async () => {
+    // The log is read beside everything else `up` prints and is kept as long as
+    // the file is. A token in it would outlive the person who was handed one.
+    const { origin, logged } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+
+    const answer = await issue(origin, cookie, "ada");
+    const secret = answer.body["secret"] as string;
+
+    expect(logged.some((line) => line.includes("issue-token"))).toBe(true);
+    for (const line of logged) {
+      expect(line).not.toContain(secret);
+    }
+  });
+
+  it("refuses one for an account that has been disabled", async () => {
+    const { origin, database } = await withOperator(["admin"]);
+    const { cookie } = await signIn(origin);
+    await createUser(database, hasher, { username: "bob", password: PASSWORD });
+    disableUser(database, "bob");
+
+    const answer = await issue(origin, cookie, "bob");
+
+    expect(answer.status).toBe(400);
+    expect(answer.body["error"]).toContain("bob");
+    expect(answer.body).not.toHaveProperty("secret");
+  });
+
+  it("refuses a browser that is not an operator's", async () => {
+    const { origin } = await withOperator(["admin"]);
+
+    expect((await issue(origin, undefined, "ada")).status).toBe(401);
   });
 });

@@ -45,11 +45,15 @@ export interface Attributes {
   readonly haspopup?: boolean;
   readonly autocomplete?: string;
   readonly autofocus?: boolean;
+  /** Whether a checkbox is ticked. A property, like `value`, for the same reason. */
+  readonly checked?: boolean;
   /** Named so a redraw can put the cursor back where it was. */
   readonly focusKey?: string;
   readonly onClick?: (event: MouseEvent) => void;
   readonly onInput?: (value: string) => void;
   readonly onChange?: (value: string) => void;
+  /** A checkbox changing, given whether it is now ticked rather than its value. */
+  readonly onToggle?: (checked: boolean) => void;
   readonly onSubmit?: (event: SubmitEvent) => void;
   readonly onKeyDown?: (event: KeyboardEvent) => void;
 }
@@ -110,6 +114,9 @@ export function h(tag: string, attributes: Attributes = {}, ...children: Child[]
   if (attributes.value !== undefined) {
     (element as HTMLInputElement).value = attributes.value;
   }
+  if (attributes.checked !== undefined) {
+    (element as HTMLInputElement).checked = attributes.checked;
+  }
 
   if (attributes.onClick !== undefined) {
     element.addEventListener("click", attributes.onClick as EventListener);
@@ -124,6 +131,12 @@ export function h(tag: string, attributes: Attributes = {}, ...children: Child[]
     const onChange = attributes.onChange;
     element.addEventListener("change", (event) => {
       onChange((event.target as HTMLInputElement).value);
+    });
+  }
+  if (attributes.onToggle !== undefined) {
+    const onToggle = attributes.onToggle;
+    element.addEventListener("change", (event) => {
+      onToggle((event.target as HTMLInputElement).checked);
     });
   }
   if (attributes.onSubmit !== undefined) {

@@ -108,6 +108,18 @@ export const zh: Messages = {
       enable: "启用",
       disable: "停用",
       revokeTokens: "吊销令牌",
+      newAccount: "新建账号",
+      username: "用户名",
+      displayName: "显示名称",
+      email: "邮箱",
+      password: "密码",
+      operator: "管理员",
+      create: "创建",
+      cancel: "取消",
+      issueToken: "签发令牌",
+      tokenFor: ({ username }) => `给 ${username} 的令牌`,
+      tokenShownOnce: "只显示这一次。服务器不会保留它的副本。",
+      done: "完成",
     },
     decisions: {
       when: "时间",
@@ -159,6 +171,10 @@ export const zh: Messages = {
     settingReadOnly: "这一行是只读的",
     settingChanged: ({ label, value }) =>
       `${label}现在是 ${value}；已经签发的令牌仍然保留它们当初拿到的有效期`,
+    accountCreated: ({ username, group }) =>
+      `已创建 ${username}，属于 ${group}；还需要给他们签发一个登录令牌`,
+    tokenIssued: ({ username, lifetime }) =>
+      `给 ${username} 的登录令牌，有效期 ${lifetime}`,
     projectCreated: ({ project, owner }) => `已创建 ${project}，拥有者是 ${owner}`,
     // 权限本身是数据，服务器存的就是 read / write；把它读成中文是这句话的事，
     // 不是数据库的事。
@@ -180,6 +196,7 @@ export const zh: Messages = {
     notSomethingWeDo: "这台服务器不做这件事",
     projectNeedsNameAndOwner: "创建项目需要项目名和拥有者",
     needsAccount: "这需要一个账号",
+    accountNeedsUsernameAndPassword: "创建账号需要用户名和密码",
     needsAccountAndDisabled: "这需要一个账号，以及要不要停用它",
     settingNeedsRowAndValue: "修改设置需要指明是哪一行和新的值",
     nothingAtThatAddress: "这个地址上没有东西",

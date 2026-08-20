@@ -106,6 +106,18 @@ export const en: Messages = {
       enable: "Enable",
       disable: "Disable",
       revokeTokens: "Revoke tokens",
+      newAccount: "New account",
+      username: "Username",
+      displayName: "Display name",
+      email: "Email",
+      password: "Password",
+      operator: "Operator",
+      create: "Create",
+      cancel: "Cancel",
+      issueToken: "Issue token",
+      tokenFor: ({ username }) => `Token for ${username}`,
+      tokenShownOnce: "Shown once. This server keeps no copy of it.",
+      done: "Done",
     },
     decisions: {
       when: "When",
@@ -160,6 +172,10 @@ export const en: Messages = {
     settingReadOnly: "that row is read only",
     settingChanged: ({ label, value }) =>
       `${label} is ${value}; tokens already minted keep the lifetime they were given`,
+    accountCreated: ({ username, group }) =>
+      `created ${username} in ${group}; issue a token for them to sign in with`,
+    tokenIssued: ({ username, lifetime }) =>
+      `a sign-in token for ${username}, good for ${lifetime}`,
     projectCreated: ({ project, owner }) => `created ${project}, owned by ${owner}`,
     loreserverNotOurs:
       "loreserver belongs to the nlteam up that started it; stop and start that",
@@ -180,6 +196,7 @@ export const en: Messages = {
     notSomethingWeDo: "that is not something this server does",
     projectNeedsNameAndOwner: "a project needs a name and an owner",
     needsAccount: "that needs an account",
+    accountNeedsUsernameAndPassword: "an account needs a username and a password",
     needsAccountAndDisabled: "that needs an account and whether it is disabled",
     settingNeedsRowAndValue: "a setting needs a row and a value",
     nothingAtThatAddress: "there is nothing at that address",

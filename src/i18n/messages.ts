@@ -125,6 +125,26 @@ export interface PageMessages {
     readonly enable: string;
     readonly disable: string;
     readonly revokeTokens: string;
+    /** Making one, which is a form of five fields and a button. */
+    readonly newAccount: string;
+    readonly username: string;
+    readonly displayName: string;
+    readonly email: string;
+    readonly password: string;
+    readonly operator: string;
+    readonly create: string;
+    readonly cancel: string;
+    /** Handing one over: the button, and what is said around the token. */
+    readonly issueToken: string;
+    readonly tokenFor: (fields: { readonly username: string }) => string;
+    /**
+     * Said beside a token that has just been shown.
+     *
+     * It is the whole of what a person has to know about it: this server keeps
+     * no copy, so a token nobody copied is a token to ask for again.
+     */
+    readonly tokenShownOnce: string;
+    readonly done: string;
   };
   readonly decisions: {
     readonly when: string;
@@ -170,6 +190,14 @@ export interface ActionMessages {
     readonly label: string;
     readonly value: string;
   }) => string;
+  readonly accountCreated: (fields: {
+    readonly username: string;
+    readonly group: string;
+  }) => string;
+  readonly tokenIssued: (fields: {
+    readonly username: string;
+    readonly lifetime: string;
+  }) => string;
   readonly projectCreated: (fields: {
     readonly project: string;
     readonly owner: string;
@@ -192,6 +220,7 @@ export interface RefusalMessages {
   readonly notSomethingWeDo: string;
   readonly projectNeedsNameAndOwner: string;
   readonly needsAccount: string;
+  readonly accountNeedsUsernameAndPassword: string;
   readonly needsAccountAndDisabled: string;
   readonly settingNeedsRowAndValue: string;
   readonly nothingAtThatAddress: string;

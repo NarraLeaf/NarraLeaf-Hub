@@ -29,6 +29,19 @@ export interface Operator {
 /** The five surfaces, in the order the rail lists them. */
 export type Screen = "overview" | "projects" | "members" | "decisions" | "settings";
 
+/**
+ * A credential the server answered with once, and who it is for.
+ *
+ * Draft state, and the only draft state that is worth saying something about:
+ * it is in this tab's memory and nowhere else. The server keeps no copy, it is
+ * not in the view, so it never arrives down the event stream, and it is dropped
+ * the moment the screen changes or anything else is asked for.
+ */
+export interface Secret {
+  readonly username: string;
+  readonly token: string;
+}
+
 /** What this browser knows that the server does not. */
 export interface Draft {
   screen: Screen;
@@ -45,6 +58,8 @@ export interface Draft {
   notice?: string;
   /** Why the last thing asked for did not happen. */
   problem?: string;
+  /** A token the last action produced, shown on the screen that asked for it. */
+  secret?: Secret;
   /** True while a request is out, so a button cannot be pressed twice. */
   busy: boolean;
   /** Whether the connection to the event stream is up. */
@@ -163,7 +178,7 @@ export function fetchView(locale: Locale): Promise<Answer<TeamView>> {
 export function sendAction(
   locale: Locale,
   action: Action,
-): Promise<Answer<{ message: string; view: TeamView }>> {
+): Promise<Answer<{ message: string; secret?: string; view: TeamView }>> {
   return request("/api/action", locale, { ...JSON_POST, body: JSON.stringify(action) });
 }
 

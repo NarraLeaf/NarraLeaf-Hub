@@ -103,6 +103,18 @@ export const ja: Messages = {
       enable: "有効にする",
       disable: "無効にする",
       revokeTokens: "トークンを失効",
+      newAccount: "アカウントを作成",
+      username: "ユーザー名",
+      displayName: "表示名",
+      email: "メールアドレス",
+      password: "パスワード",
+      operator: "管理者",
+      create: "作成",
+      cancel: "キャンセル",
+      issueToken: "トークンを発行",
+      tokenFor: ({ username }) => `${username} のトークン`,
+      tokenShownOnce: "表示はこの一回だけです。このサーバーは控えを保存しません。",
+      done: "完了",
     },
     decisions: {
       when: "日時",
@@ -154,6 +166,10 @@ export const ja: Messages = {
     settingReadOnly: "この行は読み取り専用です",
     settingChanged: ({ label, value }) =>
       `${label}は ${value} になりました。発行済みのトークンは受け取った有効期間のままです`,
+    accountCreated: ({ username, group }) =>
+      `${username} を ${group} に作成しました。サインイン用のトークンを発行して渡してください`,
+    tokenIssued: ({ username, lifetime }) =>
+      `${username} のサインイントークンです。有効期間は ${lifetime} です`,
     projectCreated: ({ project, owner }) => `${project} を作成しました。オーナーは ${owner} です`,
     // レベルはデータで、サーバーが保存しているのは read / write そのものです。
     // それを日本語で読ませるのはこの文の仕事で、データベースの仕事ではありません。
@@ -178,6 +194,7 @@ export const ja: Messages = {
     notSomethingWeDo: "このサーバーはそれを行いません",
     projectNeedsNameAndOwner: "プロジェクトには名前とオーナーが必要です",
     needsAccount: "アカウントが必要です",
+    accountNeedsUsernameAndPassword: "アカウントにはユーザー名とパスワードが必要です",
     needsAccountAndDisabled: "アカウントと、無効にするかどうかが必要です",
     settingNeedsRowAndValue: "設定にはどの行かと新しい値が必要です",
     nothingAtThatAddress: "そのアドレスには何もありません",

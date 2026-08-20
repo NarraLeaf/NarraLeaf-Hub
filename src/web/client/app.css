@@ -769,6 +769,29 @@ body {
   flex: 1 1 180px;
 }
 
+/* A box to tick, and the word for what it decides, as one thing to click. */
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: var(--text-small);
+  cursor: pointer;
+}
+
+/* A credential, shown once. It wraps rather than scrolls, and one click
+   selects the whole of it: half a token pasted is worse than none. */
+.token {
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 /* A word for an action that is not a button: it is text, and it reads as text. */
 .link {
   border: 0;

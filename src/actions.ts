@@ -32,7 +32,16 @@ import {
   storedTokenLifetimes,
 } from "./identity/settings.js";
 import { mintToken } from "./identity/tokens.js";
-import { disableUser, enableUser, requireUser, revokeUserTokens } from "./identity/users.js";
+import { defaultPasswordHasher } from "./identity/passwords.js";
+import {
+  ADMIN_ROLE,
+  createUser,
+  DEFAULT_ROLE,
+  disableUser,
+  enableUser,
+  requireUser,
+  revokeUserTokens,
+} from "./identity/users.js";
 import {
   createProject,
   forgetProject,
@@ -149,6 +158,31 @@ function writeSetting(
 }
 
 /**
+ * What one action came to.
+ *
+ * The sentence is what every interface shows and what the log records. The
+ * secret is neither: it is a credential the action produced once — a token
+ * minted for somebody to be handed — and it is answered separately precisely so
+ * that the thing which logs the sentence cannot log it by accident.
+ */
+export interface Performed {
+  readonly message: string;
+  /**
+   * Something to put on the screen that asked, and nowhere else.
+   *
+   * Not written to the log, not kept in the view, and not stored anywhere: the
+   * interface that asked shows it until somebody navigates away, and a person
+   * who missed it asks for another.
+   */
+  readonly secret?: string;
+}
+
+/** An action that said something and produced nothing to keep. */
+function said(message: string): Performed {
+  return { message };
+}
+
+/**
  * Carry out one thing an interface asked for.
  *
  * The one that names a command rather than doing anything needs something
@@ -159,28 +193,74 @@ export async function perform(
   context: ViewContext,
   action: Action,
   messages: Messages = en,
-): Promise<string> {
+): Promise<Performed> {
   const { database, root } = context;
   switch (action.kind) {
     case "rotate-key": {
       const keys = await KeyStore.open(identityLayout(root).keysDir);
       const key = await keys.rotate();
-      return messages.action.keyRotated({ kid: key.kid, published: keys.published.length });
+      return said(messages.action.keyRotated({ kid: key.kid, published: keys.published.length }));
     }
     case "set-user-disabled": {
       if (action.disabled) {
         disableUser(database, action.username);
-        return messages.action.userDisabled({ username: action.username });
+        return said(messages.action.userDisabled({ username: action.username }));
       }
       enableUser(database, action.username);
-      return messages.action.userEnabled({ username: action.username });
+      return said(messages.action.userEnabled({ username: action.username }));
     }
     case "revoke-tokens": {
       revokeUserTokens(database, action.username);
-      return revokedMessage(database, action.username, messages);
+      return said(revokedMessage(database, action.username, messages));
     }
     case "set-setting":
-      return writeSetting(context, action.index, action.value, messages);
+      return said(writeSetting(context, action.index, action.value, messages));
+    case "create-account": {
+      // The same call `nlteam user create` makes, with the same hasher, so that
+      // what a username may be, which group is the default and what happens to
+      // a name already taken are answered once for both.
+      const user = await createUser(database, defaultPasswordHasher(), {
+        username: action.username,
+        password: action.password,
+        ...(action.displayName === undefined ? {} : { displayName: action.displayName }),
+        ...(action.email === undefined ? {} : { email: action.email }),
+        groups: [action.operator ? ADMIN_ROLE : DEFAULT_ROLE],
+      });
+      // The same thing the command says last, for the same reason: an account
+      // nobody was given a token for reaches nothing, and that is the step it
+      // is easiest to stop one short of.
+      return said(
+        messages.action.accountCreated({
+          username: user.username,
+          group: user.groups.join(", "),
+        }),
+      );
+    }
+    case "issue-token": {
+      // What `nlteam token mint` mints, minus the password: whoever asked has
+      // already proved who they are to this interface, and an operator who can
+      // disable the account can hardly be stopped from issuing it a token.
+      const user = requireUser(database, action.username);
+      const keys = await KeyStore.open(identityLayout(root).keysDir);
+      const config = identityConfig({ ...context.config, ...storedTokenLifetimes(database) });
+      const minted = mintToken(user, keys.signingKey, config, {
+        purpose: "sign-in",
+        // The claim that lets the machine this is pasted into decide whether to
+        // trust this server, on a token that is about to leave the building.
+        ...(context.fingerprint === undefined
+          ? {}
+          : { authorityFingerprint: context.fingerprint }),
+      });
+      return {
+        message: messages.action.tokenIssued({
+          username: user.username,
+          lifetime: describeDuration(config.signInTokenLifetimeSeconds, messages),
+        }),
+        // Beside the sentence rather than inside it, so that what is logged and
+        // what is shown are two different strings.
+        secret: minted.token,
+      };
+    }
     case "create-project": {
       // The same sequence `project create` runs, and for the same reason it
       // runs it in that order: the row is written first so that a repository
@@ -207,16 +287,18 @@ export async function perform(
         forgetProject(database, project.id);
         throw error;
       }
-      return messages.action.projectCreated({
-        project: project.name,
-        owner: owner.username,
-      });
+      return said(
+        messages.action.projectCreated({
+          project: project.name,
+          owner: owner.username,
+        }),
+      );
     }
     case "restart-loreserver":
-      return messages.action.loreserverNotOurs;
+      return said(messages.action.loreserverNotOurs);
     case "quit":
     case "refresh":
       // Neither reaches here: an interface acts on both itself.
-      return "";
+      return said("");
   }
 }

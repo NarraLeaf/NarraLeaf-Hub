@@ -37,7 +37,7 @@ import type {
   TeamView,
   UserView,
 } from "../../tui/teamview.js";
-import type { Draft, Operator, Screen } from "./api.js";
+import type { Draft, Operator, Screen, Secret } from "./api.js";
 import { group, h, icon, type Child } from "./dom.js";
 
 /** Everything a screen can ask the page to do. */
@@ -132,6 +132,58 @@ function textField(
     autocomplete: "off",
     onInput: (value) => handlers.setField(key, value),
   });
+}
+
+/**
+ * A field for a password, which differs from the one above in two ways.
+ *
+ * What is typed is not shown, and the browser is told this is a password being
+ * chosen rather than one it has saved, so it does not offer to fill in the
+ * operator's own. It is held in the draft exactly like every other field —
+ * a redraw would otherwise empty it under somebody halfway through typing —
+ * and main.ts drops it the moment the account exists.
+ */
+function secretField(
+  draft: Draft,
+  handlers: Handlers,
+  key: string,
+  placeholder: string,
+): HTMLElement {
+  return h("input", {
+    class: "input",
+    type: "password",
+    placeholder,
+    focusKey: key,
+    value: draft.fields.get(key) ?? "",
+    autocomplete: "new-password",
+    onInput: (value) => handlers.setField(key, value),
+  });
+}
+
+/**
+ * A box to tick, whose state is this browser's like every other draft value.
+ *
+ * It sits in the same set as the disclosures because it is the same kind of
+ * thing — a boolean this page holds and the server is never told about — and a
+ * second store for one checkbox would be a second thing to clear.
+ */
+function checkbox(
+  draft: Draft,
+  handlers: Handlers,
+  key: string,
+  label: string,
+): HTMLElement {
+  return h(
+    "label",
+    { class: "check" },
+    h("input", {
+      type: "checkbox",
+      focusKey: key,
+      checked: draft.expanded.has(key),
+      onToggle: () => handlers.toggle(key),
+    }),
+    label,
+  );
 }
 
 function chooser(
@@ -399,7 +451,81 @@ function projects(view: TeamView, draft: Draft, handlers: Handlers, m: Messages)
 // Members
 // ---------------------------------------------------------------------------
 
-function memberRow(user: UserView, handlers: Handlers, m: Messages): HTMLElement {
+/** What is being made on this screen, by the key each field is held under. */
+const NEW_ACCOUNT = "new-account";
+const ACCOUNT_FIELDS = [
+  "new-account-username",
+  "new-account-display-name",
+  "new-account-email",
+  "new-account-password",
+] as const;
+
+/** The tick that decides which group a new account joins. */
+const ACCOUNT_OPERATOR = "new-account-operator";
+
+/**
+ * A token, once, and nothing that survives leaving this screen.
+ *
+ * It is drawn where it was asked for rather than in the notice bar every other
+ * answer uses, because it is not a sentence about what happened: it is the
+ * thing itself, and somebody has to be able to select it. The server keeps no
+ * copy, which the line under it says, so a person who missed it asks again.
+ */
+function issuedToken(secret: Secret, handlers: Handlers, m: Messages): HTMLElement {
+  const words = m.page.members;
+  return card(
+    words.tokenFor({ username: secret.username }),
+    h("div", { class: "token mono" }, secret.token),
+    h("p", { class: "caution" }, words.tokenShownOnce),
+    h("div", { class: "card-foot" }, button(words.done, () => handlers.dismiss())),
+  );
+}
+
+/** The form that makes an account, which is the one `nlteam user create` makes. */
+function newAccount(draft: Draft, handlers: Handlers, m: Messages): HTMLElement {
+  const words = m.page.members;
+  const [username, displayName, email, password] = ACCOUNT_FIELDS;
+  return h(
+    "div",
+    { class: "form is-standalone" },
+    textField(draft, handlers, username, words.username),
+    textField(draft, handlers, displayName, words.displayName),
+    textField(draft, handlers, email, words.email),
+    secretField(draft, handlers, password, words.password),
+    checkbox(draft, handlers, ACCOUNT_OPERATOR, words.operator),
+    button(
+      words.create,
+      () => {
+        const name = fieldValue(draft, username);
+        // Not trimmed: spaces at either end are characters of a password, and
+        // one shortened here would not be the password anywhere else.
+        const secret = draft.fields.get(password) ?? "";
+        if (name === "" || secret === "") {
+          return;
+        }
+        const chosen = fieldValue(draft, displayName);
+        const address = fieldValue(draft, email);
+        handlers.perform({
+          kind: "create-account",
+          username: name,
+          password: secret,
+          ...(chosen === "" ? {} : { displayName: chosen }),
+          ...(address === "" ? {} : { email: address }),
+          operator: draft.expanded.has(ACCOUNT_OPERATOR),
+        });
+      },
+      { variant: "primary", disabled: draft.busy },
+    ),
+    button(words.cancel, () => handlers.toggle(NEW_ACCOUNT)),
+  );
+}
+
+function memberRow(
+  user: UserView,
+  draft: Draft,
+  handlers: Handlers,
+  m: Messages,
+): HTMLElement {
   const words = m.page.members;
   return h(
     "tr",
@@ -438,29 +564,43 @@ function memberRow(user: UserView, handlers: Handlers, m: Messages): HTMLElement
       button(words.revokeTokens, () =>
         handlers.perform({ kind: "revoke-tokens", username: user.username }),
       ),
+      // Not offered for an account that has been disabled: nothing new is
+      // issued for one, and a button that answered with that refusal every
+      // time would be a button that never works.
+      button(
+        words.issueToken,
+        () => handlers.perform({ kind: "issue-token", username: user.username }),
+        { disabled: draft.busy || user.disabled },
+      ),
     ),
   );
 }
 
-function members(view: TeamView, handlers: Handlers, m: Messages): HTMLElement {
+function members(view: TeamView, draft: Draft, handlers: Handlers, m: Messages): HTMLElement {
   const words = m.page.members;
   return h(
-    "table",
-    { class: "table" },
+    "div",
+    { class: "stack" },
+    draft.secret !== undefined && issuedToken(draft.secret, handlers, m),
+    draft.expanded.has(NEW_ACCOUNT) && newAccount(draft, handlers, m),
     h(
-      "thead",
-      {},
+      "table",
+      { class: "table" },
       h(
-        "tr",
+        "thead",
         {},
-        h("th", {}, words.account),
-        h("th", {}, words.role),
-        h("th", {}, words.added),
-        h("th", {}, words.state),
-        h("th", {}, ""),
+        h(
+          "tr",
+          {},
+          h("th", {}, words.account),
+          h("th", {}, words.role),
+          h("th", {}, words.added),
+          h("th", {}, words.state),
+          h("th", {}, ""),
+        ),
       ),
+      h("tbody", {}, ...view.users.map((user) => memberRow(user, draft, handlers, m))),
     ),
-    h("tbody", {}, ...view.users.map((user) => memberRow(user, handlers, m))),
   );
 }
 
@@ -655,6 +795,13 @@ function headerActions(
           disabled: draft.busy || view.users.length === 0,
         }),
       ];
+    case "members":
+      return [
+        button(m.page.members.newAccount, () => handlers.toggle(NEW_ACCOUNT), {
+          variant: "primary",
+          disabled: draft.busy,
+        }),
+      ];
     case "settings":
       return [
         button(m.page.settings.rotateKey, () => handlers.perform({ kind: "rotate-key" }), {
@@ -677,7 +824,7 @@ function body(view: TeamView, draft: Draft, handlers: Handlers, m: Messages): HT
     case "projects":
       return projects(view, draft, handlers, m);
     case "members":
-      return members(view, handlers, m);
+      return members(view, draft, handlers, m);
     case "decisions":
       return decisions(view, m);
     case "settings":
@@ -704,6 +851,19 @@ function body(view: TeamView, draft: Draft, handlers: Handlers, m: Messages): HT
  * main.ts, because it belongs to the page rather than to this control.
  */
 export const LANGUAGE_MENU = "language-menu";
+
+/**
+ * Everything the account form holds, for the page to drop once it is made.
+ *
+ * Exported because clearing it belongs to whoever knows the account was made,
+ * which is main.ts, and because one of these fields is a password: a form left
+ * holding one after the account exists would hold it for as long as the tab is
+ * open.
+ */
+export const NEW_ACCOUNT_FORM = [NEW_ACCOUNT, ACCOUNT_OPERATOR, ...ACCOUNT_FIELDS] as const;
+
+/** The fields of it, which are the ones with text in them. */
+export const NEW_ACCOUNT_FIELDS = ACCOUNT_FIELDS;
 
 /**
  * A globe: the one mark that means "language" without being written in one.
@@ -883,9 +1043,10 @@ export function waitingPage(): HTMLElement {
  * The sign-in page.
  *
  * A password field and nothing else. There is no way to make an account from
- * here: accounts are made by an operator, at the server, with `nlteam init` for
- * the first and `nlteam user create` for the rest. A link offering it would be
- * a link to a page that does not exist.
+ * here: accounts are made by an operator, who is already signed in — on the
+ * members screen, or with `nlteam user create` at the server — and the first
+ * one with `nlteam init`. A link offering it would be a link to a page that
+ * does not exist.
  */
 export function signInPage(
   draft: Draft,

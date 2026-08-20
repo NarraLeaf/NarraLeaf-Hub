@@ -84,7 +84,10 @@ export async function terminalInterface(
           publisher.request();
           return publisher.gather();
         },
-        perform: (action) => perform(publisher.context, action),
+        // The sentence, which is the whole of what this interface shows. An
+        // action that also produced a credential has nowhere to put one here:
+        // the two the operator's page uses for that are not on any key.
+        perform: async (action) => (await perform(publisher.context, action)).message,
         subscribe: (listen) => publisher.subscribe(listen),
       });
     } finally {
