@@ -50,6 +50,21 @@ export interface DiscoveryDocument {
     /** The remote the repositories live on. Studio stores it and shows it to nobody. */
     readonly url: string;
   };
+  /**
+   * What this build of Team serves a Studio installation, by name.
+   *
+   * Additive, and it does not move `protocol`. An older client that has never
+   * heard of this field ignores it and asks for what it has always asked for,
+   * which is the behaviour wanted: `protocol` says what an old client can no
+   * longer rely on, and nothing here takes anything away.
+   *
+   * A newer client matches these strings literally and asks for nothing it did
+   * not find one for, so a route added to a later Team is a route Studio waits
+   * to see rather than one it has to discover by getting a 404. The list is
+   * built from what this build answers — see {@link studioCapabilities} in
+   * src/web/studio.ts, which is the same file that decides it.
+   */
+  readonly capabilities: readonly string[];
   readonly authority: {
     /**
      * SHA-256 of the authority this endpoint's certificate chains to.

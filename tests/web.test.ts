@@ -92,6 +92,7 @@ const DISCOVERY = {
   name: "team.example.lan",
   auth: { required: true, url: "https://team.example.lan:41402" },
   data: { url: "lore://team.example.lan:41401" },
+  capabilities: ["projects", "project-detail", "members"],
   authority: { sha256: "AA:BB" },
   version: "0.0.0-test",
 } as const;
