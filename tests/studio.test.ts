@@ -39,6 +39,7 @@ import {
 } from "../src/identity/users.js";
 import { DISCOVERY_PATH, type DiscoveryDocument } from "../src/identity/discovery.js";
 import type { RevisionPage } from "../src/projects/read.js";
+import { ProjectReadings } from "../src/projects/refresh.js";
 import { createProject, newProjectId } from "../src/projects/registry.js";
 import type { ProjectFileView, RevisionView } from "../src/tui/teamview.js";
 import { webHandler } from "../src/web/router.js";
@@ -686,5 +687,27 @@ describe("an address under this API that there is nothing at", () => {
 
     expect(answer.status).toBe(404);
     expect(answer.body).toEqual({ error: "this server has nothing at that address." });
+  });
+});
+
+describe("what the reader this server actually runs makes it say", () => {
+  it("is a history, because that reader can read one", async () => {
+    // The gap this closes is between the capability being worked out correctly
+    // and the thing `up` hands it being the thing it was worked out from. A
+    // reader that grew a different name for this would go on serving histories
+    // while the document stopped announcing them.
+    const options = await anyOptions();
+    const readings = new ProjectReadings({
+      root: await temporaryRoot(),
+      database: options.database,
+      config: options.config,
+    });
+
+    expect(studioCapabilities({ ...options, readings })).toEqual([
+      "projects",
+      "project-detail",
+      "members",
+      "project-history",
+    ]);
   });
 });
