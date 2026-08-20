@@ -296,6 +296,33 @@ function refuse(response: ServerResponse, status: number, message: string): void
   sendJson(response, status, { error: message });
 }
 
+/**
+ * Answer, and turn anything nobody planned for into one sentence.
+ *
+ * Every route here is reached over the network and one of them is reached
+ * before any token has been presented, so a handler whose promise rejects is an
+ * unhandled rejection — which takes the whole server down rather than the one
+ * request. A body abandoned halfway through is enough to make one. The same
+ * guard ./api.ts puts in front of the operator's interface, for the same
+ * reason.
+ */
+function answering(
+  options: StudioApiOptions,
+  response: ServerResponse,
+  work: Promise<void>,
+): void {
+  void work.catch((error: unknown) => {
+    options.log?.(`studio: ${error instanceof Error ? error.message : String(error)}`);
+    if (response.headersSent) {
+      // Whatever was being written is finished with; the socket must not be
+      // left open on a page waiting for the rest of an answer.
+      response.end();
+      return;
+    }
+    refuse(response, 500, "something went wrong answering that");
+  });
+}
+
 function projectBody(options: StudioApiOptions, project: ProjectRecord): ProjectBody {
   const { database, config } = options;
   const maker = findUserById(database, project.createdBy);
@@ -411,7 +438,7 @@ export function serveStudioApi(
       return true;
     }
     if (request.method === "POST") {
-      void answerProjectCreate(options, request, response);
+      answering(options, response, answerProjectCreate(options, request, response));
       return true;
     }
     onlyMethods(response, "GET, POST", "GET and POST");
@@ -432,7 +459,7 @@ export function serveStudioApi(
       onlyMethods(response, "POST", "POST");
       return true;
     }
-    void answerSignIn(options, request, response);
+    answering(options, response, answerSignIn(options, request, response));
     return true;
   }
 
@@ -447,7 +474,11 @@ export function serveStudioApi(
       return true;
     }
     if (under.rest === HISTORY) {
-      void answerProjectHistory(options, request, response, under.reference);
+      answering(
+        options,
+        response,
+        answerProjectHistory(options, request, response, under.reference),
+      );
       return true;
     }
   }
