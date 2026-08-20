@@ -22,7 +22,7 @@ import {
   projectCheckoutPath,
   repositoryUrl,
 } from "../src/projects/cache.js";
-import { readProject } from "../src/projects/read.js";
+import { readProject, readRevisionPage } from "../src/projects/read.js";
 import { storageRootOf } from "../src/view.js";
 import { useTemporaryRoots } from "./temporary.js";
 
@@ -174,5 +174,25 @@ describe.skipIf(!libraryPresent)("a project whose repository cannot be reached",
 
     const path = projectCheckoutPath(root, "0123456789abcdef0123456789abcdef");
     await expect(stat(path)).rejects.toThrow();
+  }, 120_000);
+});
+
+describe.skipIf(!libraryPresent)("a page of a project's revisions", () => {
+  it("is absent for a project there is no checkout of, rather than empty", async () => {
+    // The difference this asserts is the whole discipline: a project the
+    // reader has not reached yet must not answer like one with no revisions in
+    // it. Nothing is cloned here — a page is read out of a checkout that
+    // already exists or it is not read at all, so that a request cannot end up
+    // waiting on the slowest thing this server does.
+    const root = await temporaryRoot();
+
+    const page = await readRevisionPage({
+      root,
+      projectId: "0123456789abcdef0123456789abcdef",
+      limit: 20,
+    });
+
+    expect(page).toBeUndefined();
+    await expect(stat(projectCheckoutPath(root, "0123456789abcdef0123456789abcdef"))).rejects.toThrow();
   }, 120_000);
 });

@@ -25,7 +25,12 @@ import { mintToken } from "../identity/tokens.js";
 import { findUserById } from "../identity/users.js";
 import { readAuthority } from "../tls/authority.js";
 import { listProjects, PROJECT_PERMISSIONS, resourceIdOf } from "./registry.js";
-import { readProject, type ProjectReading } from "./read.js";
+import {
+  readProject,
+  readRevisionPage,
+  type ProjectReading,
+  type RevisionPage,
+} from "./read.js";
 
 /** A failure in words, whatever it arrived as. */
 function describe(error: unknown): string {
@@ -52,6 +57,18 @@ export interface ProjectReadingsOptions {
  */
 export class ProjectReadings {
   private readonly readings = new Map<string, ProjectReading>();
+  /**
+   * The projects a read is inside of right now, whichever read it is.
+   *
+   * One checkout cannot be read twice at once. The pass below replaces a
+   * checkout wholesale when it has to clone again, and on Windows a directory
+   * the library is holding cannot be removed — so a page being served out of
+   * one is a reason for the pass to leave it alone this time round, and a pass
+   * already in a project is a reason for the page to say it has not been read.
+   * Neither waits for the other: a pass takes as long as a clone takes, and
+   * nothing answering a request may sit behind one.
+   */
+  private readonly inside = new Set<string>();
   private keys: KeyStore | undefined;
   private trusted = false;
   private timer: NodeJS.Timeout | undefined;
@@ -64,6 +81,37 @@ export class ProjectReadings {
   /** What Team last read about one project, or undefined if it has not. */
   get(projectId: string): ProjectReading | undefined {
     return this.readings.get(projectId);
+  }
+
+  /**
+   * One page of a project's revision history, read when it is asked for.
+   *
+   * Never on the interval: this is here rather than in {@link pass} because a
+   * history is read by one person looking at one project, and putting it on a
+   * loop would make every server pay for every page nobody asked for.
+   *
+   * Undefined for a project Team has no checkout of, and for one a pass is
+   * inside of at this moment. Both mean the same thing to whoever asked — Team
+   * has not got this to hand — and neither is worth holding a request open for.
+   */
+  async revisions(
+    projectId: string,
+    page: { readonly limit: number; readonly before?: string },
+  ): Promise<RevisionPage | undefined> {
+    if (this.inside.has(projectId)) {
+      return undefined;
+    }
+    this.inside.add(projectId);
+    try {
+      return await readRevisionPage({
+        root: this.options.root,
+        projectId,
+        limit: page.limit,
+        ...(page.before === undefined ? {} : { before: page.before }),
+      });
+    } finally {
+      this.inside.delete(projectId);
+    }
   }
 
   /** Begin reading, and keep reading on an interval until stopped. */
@@ -169,6 +217,13 @@ export class ProjectReadings {
       if (this.stopped) {
         return;
       }
+      if (this.inside.has(project.id)) {
+        // Somebody is reading a page out of this checkout. Left as it was and
+        // picked up next time round, which costs this project one minute of
+        // freshness and costs the request nothing.
+        continue;
+      }
+      this.inside.add(project.id);
       try {
         const token = this.mint(project.id, project.createdBy);
         const reading = await readProject({
@@ -195,6 +250,8 @@ export class ProjectReadings {
           file: { readable: false, reason: `Team could not read this project: ${describe(error)}` },
           cloned: false,
         });
+      } finally {
+        this.inside.delete(project.id);
       }
       this.options.onChange?.();
     }

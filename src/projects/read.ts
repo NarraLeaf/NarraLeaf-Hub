@@ -24,10 +24,17 @@ import {
   revisionDetails,
   revisionHistory,
   type RevisionDetails,
+  type RevisionEntry,
   type StoreHandle,
   type TreeHandle,
 } from "../lore/verbs.js";
-import { ensureCheckout, offlineGlobals, onlineGlobals, type CheckoutOptions } from "./cache.js";
+import {
+  ensureCheckout,
+  offlineGlobals,
+  onlineGlobals,
+  projectCheckoutPath,
+  type CheckoutOptions,
+} from "./cache.js";
 import { readProjectFile, revisionSizes, type RevisionFile, type RevisionSource } from "./content.js";
 
 import type { LoreGlobals } from "../lore/call.js";
@@ -246,4 +253,109 @@ function unreachable(error: unknown): string {
 function unreadableRevision(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   return `the latest revision of this project could not be read: ${detail}`;
+}
+
+/**
+ * One page of a project's revision history, on demand.
+ *
+ * Separate from {@link readProject} and deliberately not part of it. What the
+ * refresh loop reads is a summary — how many revisions there are and what the
+ * newest one says — because that is what a screen shows and what it costs is
+ * paid once a minute for every project on the server. A page of revisions is
+ * asked for by one person looking at one project, so it is read when they ask
+ * and never on the loop.
+ *
+ * It reads a checkout that already exists and never makes one. A project the
+ * refresh has not reached yet answers undefined rather than waiting on a
+ * clone: the caller says "not read yet", which is the same thing it already
+ * says about that project's history, rather than holding a request open for
+ * the slowest read this server does.
+ *
+ * Nothing here opens a store. The branch and every revision's metadata come
+ * off the disk with no network at all — see ./cache.ts on why a checkout that
+ * holds nothing can still answer this.
+ */
+export interface RevisionPageRequest {
+  readonly root: string;
+  /** The repository id, which is what the checkout is keyed by. */
+  readonly projectId: string;
+  /** How many revisions this page holds at most. */
+  readonly limit: number;
+  /** The revision the last page ended at; this one starts after it. */
+  readonly before?: string;
+}
+
+/** One revision, as a history is read. Everything but the id may be absent. */
+export interface RevisionPageEntry {
+  readonly id: string;
+  /** Epoch milliseconds. */
+  readonly at?: number;
+  readonly by?: string;
+  readonly message?: string;
+}
+
+export interface RevisionPage {
+  /** Newest first, which is the order a history is read in. */
+  readonly revisions: readonly RevisionPageEntry[];
+  /** Whether asking again with the last id here would answer with anything. */
+  readonly more: boolean;
+}
+
+/**
+ * Read one page of revisions, or answer undefined. Never throws.
+ *
+ * Undefined means Team has no checkout of this project to read, which is a
+ * different fact from a project with no revisions in it — the second answers
+ * with an empty page.
+ */
+export async function readRevisionPage(
+  request: RevisionPageRequest,
+): Promise<RevisionPage | undefined> {
+  const globals = offlineGlobals(projectCheckoutPath(request.root, request.projectId));
+  try {
+    // Newest first, which is the order somebody reads a history in and the
+    // reverse of the order it arrives in.
+    const history = (await revisionHistory(globals)).reverse();
+
+    // A cursor naming a revision this repository does not have is answered
+    // with the end of the history rather than the start of it: it is a page
+    // token from a history that has since been rewritten, and beginning again
+    // from the top would look to whoever sent it like the list looping.
+    const after = request.before === undefined ? -1 : indexOfRevision(history, request.before);
+    const start = after === undefined ? history.length : after + 1;
+    const page = history.slice(start, start + request.limit);
+
+    const revisions: RevisionPageEntry[] = [];
+    for (const entry of page) {
+      // A revision whose metadata cannot be read still counts as a revision:
+      // the id is true either way, and the who and the when are absent rather
+      // than the page being lost.
+      const details: RevisionDetails = await revisionDetails(globals, entry.revision).catch(
+        () => ({}),
+      );
+      revisions.push({
+        id: entry.revision,
+        ...(details.timestamp === undefined ? {} : { at: details.timestamp }),
+        ...(details.author === undefined ? {} : { by: details.author }),
+        ...(details.message === undefined ? {} : { message: details.message }),
+      });
+    }
+
+    return { revisions, more: start + page.length < history.length };
+  } catch {
+    // A project with no checkout, or one whose checkout is half made. Both are
+    // "Team has not read this yet", and neither is an error a person can act on.
+    return undefined;
+  } finally {
+    // On Windows a file the library still holds cannot be deleted, and this
+    // directory is one the refresh may be about to replace.
+    await releaseRepository(globals).catch(() => undefined);
+  }
+}
+
+/** Where a revision sits in a history, or undefined if it is not in one. */
+function indexOfRevision(history: readonly RevisionEntry[], revision: string): number | undefined {
+  const wanted = revision.toLowerCase();
+  const at = history.findIndex((entry) => entry.revision.toLowerCase() === wanted);
+  return at === -1 ? undefined : at;
 }

@@ -71,6 +71,17 @@ export class ViewPublisher {
     return this.#context;
   }
 
+  /**
+   * What the repositories last said, for whoever answers a request out of it.
+   *
+   * The same reader the views are gathered from, handed out rather than made a
+   * second time: two of them would clone every project twice and disagree
+   * about which of the two answers was the fresher.
+   */
+  get readings(): ProjectReadings {
+    return this.#readings;
+  }
+
   /** Start reading the repositories. */
   start(): void {
     this.#readings.start();
