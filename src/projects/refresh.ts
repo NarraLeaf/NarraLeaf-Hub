@@ -100,6 +100,27 @@ export class ProjectReadings {
   }
 
   /**
+   * Drop what was read about one project, because it is no longer one.
+   *
+   * For when a project is taken off this server. The reading would otherwise
+   * outlive the row it belongs to, and a repository registered again under the
+   * same id — which is exactly what an author retrying a publish does — would
+   * be answered for out of what was read before it went away.
+   *
+   * What was said out loud about it goes with it, so that a repository which
+   * could not be read, was removed, and came back is reported on again rather
+   * than being held to a verdict reached about the last one.
+   *
+   * The checkout on disk is left alone. It is a cache keyed by repository id,
+   * the id is the same repository either way, and throwing a directory away is
+   * work that can fail while nothing is waiting on it.
+   */
+  forget(projectId: string): void {
+    this.readings.delete(projectId);
+    this.announced.delete(projectId);
+  }
+
+  /**
    * One page of a project's revision history, read when it is asked for.
    *
    * Never on the interval: this is here rather than in {@link pass} because a

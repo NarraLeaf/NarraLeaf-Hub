@@ -28,12 +28,13 @@
  * The routes
  * ----------
  *
- *     POST /api/studio/v1/sign-in               a password, for a token
- *     GET  /api/studio/v1/projects              every project on this server
- *     POST /api/studio/v1/projects              make another, or register one
- *     GET  /api/studio/v1/projects/:id          one of them, and what is in it
- *     GET  /api/studio/v1/projects/:id/history  a page of its revisions
- *     GET  /api/studio/v1/members               every account, as a name
+ *     POST   /api/studio/v1/sign-in               a password, for a token
+ *     GET    /api/studio/v1/projects              every project on this server
+ *     POST   /api/studio/v1/projects              make another, or register one
+ *     GET    /api/studio/v1/projects/:id          one of them, and what is in it
+ *     DELETE /api/studio/v1/projects/:id          take it off this server's list
+ *     GET    /api/studio/v1/projects/:id/history  a page of its revisions
+ *     GET    /api/studio/v1/members               every account, as a name
  *
  * The first of those is the one route that takes no token, because it is where
  * a token comes from. It is a second door onto what `nlteam token mint` does at
@@ -41,6 +42,10 @@
  * would otherwise mint a token and send it through a chat window can hand over
  * a username and a password instead. What it mints is the same token, claim for
  * claim — see {@link answerSignIn}.
+ *
+ * The DELETE is the narrowest of them, and its wording is load-bearing: it takes
+ * a project off this server's list and does not touch what the repository
+ * holds. See {@link answerProjectForget}.
  *
  * What is absent and what is nought
  * ---------------------------------
@@ -140,6 +145,16 @@ export interface StudioReadings {
     projectId: string,
     page: { readonly limit: number; readonly before?: string },
   ) => Promise<RevisionPage | undefined>;
+  /**
+   * Drop what was read about one project, because it is no longer one.
+   *
+   * Called when a project is taken off this server, so that the reading does
+   * not outlive the row. Optional for the same reason {@link revisions} is: a
+   * build serving no reader has nothing to drop, and a stand-in for one in a
+   * test need not grow a method to be handed to a route that has no reading to
+   * forget anyway.
+   */
+  readonly forget?: (projectId: string) => void;
 }
 
 /** Everything this API needs that is not in the request. */
@@ -285,6 +300,19 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
     "cache-control": "no-store",
   });
   response.end(text);
+}
+
+/**
+ * It is done, and there is nothing to say about it.
+ *
+ * No body at all rather than an empty object: 204 is the answer to a request
+ * whose whole result is that it worked, and a client parsing one has nothing to
+ * read out of it. Deliberately not {@link sendJson}, which would give it a
+ * content length and a type for a body that is not there.
+ */
+function sendNothing(response: ServerResponse): void {
+  response.writeHead(204, { "cache-control": "no-store" });
+  response.end();
 }
 
 /**
@@ -467,15 +495,23 @@ export function serveStudioApi(
 
   const under = beneathProjects(path);
   if (under !== undefined) {
-    if (request.method !== "GET") {
-      onlyMethods(response, "GET", "GET");
-      return true;
-    }
     if (under.rest === undefined) {
-      answerProject(options, request, response, under.reference);
+      if (request.method === "GET") {
+        answerProject(options, request, response, under.reference);
+        return true;
+      }
+      if (request.method === "DELETE") {
+        answerProjectForget(options, request, response, under.reference);
+        return true;
+      }
+      onlyMethods(response, "GET, DELETE", "GET and DELETE");
       return true;
     }
     if (under.rest === HISTORY) {
+      if (request.method !== "GET") {
+        onlyMethods(response, "GET", "GET");
+        return true;
+      }
       answering(
         options,
         response,
@@ -575,6 +611,76 @@ function answerProject(
   const read = options.readings?.get(project.id) ?? NOT_READ_YET;
   options.log?.(`studio: ${user.username} opened ${project.name} (${project.id})`);
   sendJson(response, 200, { project: projectBody(options, project), file: read.file });
+}
+
+/**
+ * `DELETE /api/studio/v1/projects/:id`: take a project off this server's list.
+ *
+ * 204 and no body when it is gone, 404 when there was nothing by that name or
+ * id, 401 without a token this server signed.
+ *
+ * What it removes and what it does not
+ * ------------------------------------
+ * It removes the row: this server stops listing the project, stops reading its
+ * repository on the interval, and stops answering permission questions about
+ * it — a resource nothing here has a project for is not one of ours, which is
+ * what src/projects/service.ts already answers.
+ *
+ * **It does not delete anything the repository holds.** loreserver keeps the
+ * store, the branches and every revision in them, exactly as they were. This
+ * is the same act as {@link forgetProject}, which is why it is that function
+ * and not a new one: Team's row and the repository's contents are two things,
+ * and only the first of them is this server's to remove. An author whose
+ * project was taken off a server by mistake publishes it again, under the id
+ * their repository has always carried, and gets their history back with it.
+ *
+ * That asymmetry is deliberate and is not an oversight to be tidied up later.
+ * loreserver has a verb that would destroy the store; it is not called from
+ * anywhere in Team, and nothing about an operator clearing a stray row off a
+ * list is a reason to reach for it.
+ *
+ * Who may
+ * -------
+ * Any account that can present a token this server signed, which is the same
+ * rule every other project route here is written to: an account of this server
+ * reaches every project on it. No group is consulted — not `operator`, which
+ * is a label about the management page, and not the account that created the
+ * project, which is a name shown beside it rather than a claim over it.
+ *
+ * Why the reading is dropped
+ * --------------------------
+ * The reader keeps what it last read under the repository id, and the id is
+ * the one thing a re-registration keeps. Left behind, it would answer for the
+ * next registration of that repository with a history read before it was
+ * removed — including, in the case this exists for, a reading of nothing at
+ * all taken while a stray empty project sat on the list.
+ */
+function answerProjectForget(
+  options: StudioApiOptions,
+  request: IncomingMessage,
+  response: ServerResponse,
+  reference: string,
+): void {
+  const user = caller(options, request, response);
+  if (user === undefined) {
+    return;
+  }
+  // By id or by name, as the read of one project is, because a client holding
+  // a stray row has both and neither is more correct than the other.
+  const project = findProject(options.database, reference);
+  if (project === undefined) {
+    // The same sentence a read of a project that is not here answers with. A
+    // second delete of the same project lands here, which is the right answer
+    // to it: there is nothing by that name on this server.
+    refuse(response, 404, `there is no project called ${reference}.`);
+    return;
+  }
+  forgetProject(options.database, project.id);
+  options.readings?.forget?.(project.id);
+  // The name is read out of the row before it goes, because this is the one
+  // line here whose subject does not exist by the time anybody reads it.
+  options.log?.(`studio: ${user.username} forgot ${project.name} (${project.id})`);
+  sendNothing(response);
 }
 
 /**

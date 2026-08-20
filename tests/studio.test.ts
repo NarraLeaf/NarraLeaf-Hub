@@ -225,6 +225,24 @@ function readerHolding(
 const READ_NOTHING = readerHolding({});
 
 /**
+ * A reader whose readings can be taken away again.
+ *
+ * The map is held rather than copied, so what a route did to it is a thing the
+ * test can look at afterwards — which is the whole of what the delete route is
+ * asserted to do to a reading.
+ */
+function readerForgetting(
+  held: Record<string, { history: RevisionView; file: ProjectFileView }>,
+): StudioReadings {
+  return {
+    get: (projectId) => held[projectId],
+    forget: (projectId) => {
+      delete held[projectId];
+    },
+  };
+}
+
+/**
  * Options with nothing interesting in them.
  *
  * What this build serves is decided by what it was given, so the capability
@@ -541,6 +559,201 @@ describe("one project on its own", () => {
     const his = await fetchPath(team.origin, `${PATH}/${id}`, await team.tokenFor("bob"));
 
     expect(hers.body).toEqual(his.body);
+  });
+});
+
+/**
+ * Taking a project off this server.
+ *
+ * The act is narrow on purpose and the tests are about the edge of it: the row
+ * goes, the reading goes with it, and nothing is asked of loreserver. That last
+ * one is assertable here for the reason the publish tests below are — nothing
+ * is listening on the data port in this file, so an answer that arrives at all
+ * is an answer that spoke to nobody.
+ */
+describe("taking a project off this server", () => {
+  async function remove(
+    origin: string,
+    reference: string,
+    token?: string,
+  ): Promise<{ status: number; text: string }> {
+    const response = await fetch(`${origin}${PATH}/${reference}`, {
+      method: "DELETE",
+      headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
+    });
+    return { status: response.status, text: await response.text() };
+  }
+
+  /** A server with one project on it, and the id of that project. */
+  async function withOneProject(
+    readings: ReadingsFor = READ_NOTHING,
+    log?: (line: string) => void,
+  ): Promise<{ team: Harness; id: string }> {
+    const team = await harness(readings, log);
+    const ada = await account(team.database, "ada");
+    const id = newProjectId();
+    createProject(team.database, {
+      id,
+      name: "harbour",
+      description: "the one everybody is working on",
+      createdBy: ada,
+    });
+    return { team, id };
+  }
+
+  it("refuses a request carrying no token, and the project stays", async () => {
+    const { team, id } = await withOneProject();
+
+    const answer = await remove(team.origin, id);
+
+    expect(answer.status).toBe(401);
+    expect(listProjects(team.database)).toHaveLength(1);
+  });
+
+  it("refuses a token this server did not sign, and the project stays", async () => {
+    const { team, id } = await withOneProject();
+
+    const answer = await remove(team.origin, id, "not.a.token");
+
+    expect(answer.status).toBe(401);
+    expect(findProjectById(team.database, id)).toBeDefined();
+  });
+
+  it("refuses an account that has been disabled", async () => {
+    // The same door as every other route: whoever may not reach a repository
+    // may not take one off the list either.
+    const { team, id } = await withOneProject();
+    const token = await team.tokenFor("ada");
+    disableUser(team.database, "ada");
+
+    const answer = await remove(team.origin, id, token);
+
+    expect(answer.status).toBe(401);
+    expect(findProjectById(team.database, id)).toBeDefined();
+  });
+
+  it("answers 204 with no body at all, and the project is gone from the list", async () => {
+    const { team, id } = await withOneProject();
+    const token = await team.tokenFor("ada");
+
+    const answer = await remove(team.origin, id, token);
+
+    expect(answer.status).toBe(204);
+    expect(answer.text).toBe("");
+    expect(listProjects(team.database)).toEqual([]);
+    expect(findProjectById(team.database, id)).toBeUndefined();
+    // Read back through the API rather than only out of the database, because
+    // the list is what an operator was looking at when they asked for this.
+    expect((await get(team.origin, token)).body).toEqual({ projects: [] });
+    expect((await fetchPath(team.origin, `${PATH}/${id}`, token)).status).toBe(404);
+  });
+
+  it("says there is no such project the second time, in the same sentence a read does", async () => {
+    const { team, id } = await withOneProject();
+    const token = await team.tokenFor("ada");
+
+    expect((await remove(team.origin, id, token)).status).toBe(204);
+    const again = await remove(team.origin, id, token);
+
+    expect(again.status).toBe(404);
+    expect(JSON.parse(again.text)).toEqual({ error: `there is no project called ${id}.` });
+  });
+
+  it("says there is no such project for an id this server never had", async () => {
+    const team = await harness(READ_NOTHING);
+    await account(team.database, "ada");
+
+    const answer = await remove(
+      team.origin,
+      "0123456789abcdef0123456789abcdef",
+      await team.tokenFor("ada"),
+    );
+
+    expect(answer.status).toBe(404);
+    expect(listProjects(team.database)).toEqual([]);
+  });
+
+  it("takes a name as well as an id, as the read of one project does", async () => {
+    const { team } = await withOneProject();
+
+    const answer = await remove(team.origin, "harbour", await team.tokenFor("ada"));
+
+    expect(answer.status).toBe(204);
+    expect(listProjects(team.database)).toEqual([]);
+  });
+
+  it("is any account of this server, not only the one that created it", async () => {
+    // The standing rule, asserted where it would be easiest to quietly break:
+    // an account of this server reaches every project on it, and the name
+    // beside a project is a name rather than a claim over it.
+    const { team, id } = await withOneProject();
+    await account(team.database, "bob");
+
+    const answer = await remove(team.origin, id, await team.tokenFor("bob"));
+
+    expect(answer.status).toBe(204);
+    expect(findProjectById(team.database, id)).toBeUndefined();
+  });
+
+  it("drops what was read, so the same repository published again is not answered for out of it", async () => {
+    // The case this route exists for leaves a stray project behind, and the
+    // author publishes the real one under the same repository id a moment
+    // later. A reading kept from the stray would become that project's
+    // history.
+    const id = newProjectId();
+    const held = { [id]: READ_HARBOUR };
+    const team = await harness(readerForgetting(held));
+    const ada = await account(team.database, "ada");
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+    const token = await team.tokenFor("ada");
+    // The reading is there to begin with, or what follows would assert nothing.
+    expect(
+      (await fetchPath(team.origin, `${PATH}/${id}`, token)).body,
+    ).toMatchObject({ project: { history: READ_HARBOUR.history } });
+
+    expect((await remove(team.origin, "harbour", token)).status).toBe(204);
+    expect(held).toEqual({});
+
+    const republished = await fetch(`${team.origin}${PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: "harbour", repositoryId: id }),
+    });
+    expect(republished.status).toBe(201);
+
+    const answer = await fetchPath(team.origin, `${PATH}/${id}`, token);
+    const body = answer.body as { project: Record<string, unknown>; file: ProjectFileView };
+    expect(body.project).not.toHaveProperty("history");
+    expect(body.file.readable).toBe(false);
+  });
+
+  it("says who did it, and what it was called before it went", async () => {
+    const lines: string[] = [];
+    const { team, id } = await withOneProject(READ_NOTHING, (line) => lines.push(line));
+
+    await remove(team.origin, id, await team.tokenFor("ada"));
+
+    expect(lines).toEqual([`studio: ada forgot harbour (${id})`]);
+  });
+
+  it("takes GET and DELETE, and says so about anything else", async () => {
+    const { team, id } = await withOneProject();
+
+    const response = await fetch(`${team.origin}${PATH}/${id}`, { method: "PUT" });
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET, DELETE");
+  });
+
+  it("leaves the collection itself taking GET and POST and nothing else", async () => {
+    // The delete hangs off one project. A DELETE of the whole list is not a
+    // shorter way of saying it, and must go on being refused.
+    const { team } = await withOneProject();
+
+    const response = await fetch(`${team.origin}${PATH}`, { method: "DELETE" });
+
+    expect(response.status).toBe(405);
+    expect(listProjects(team.database)).toHaveLength(1);
   });
 });
 
@@ -966,6 +1179,26 @@ describe("what the reader this server actually runs makes it say", () => {
     expect(answer.status).toBe(200);
     expect(answer.body).toEqual({ more: false });
   }, 120_000);
+
+  it("drops a reading through that reader rather than throwing on it", async () => {
+    // The same trap as the one above, on the route that takes a project off
+    // this server: `forget` is a method of a class that keeps two maps, and a
+    // route which lifted it off the reader and called the copy would answer 500
+    // on every real server while every stand-in here — an object literal that
+    // never wanted a `this` — went on passing.
+    const id = newProjectId();
+    const team = await harness((of) => new ProjectReadings(of));
+    const ada = await account(team.database, "ada");
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+
+    const response = await fetch(`${team.origin}${PATH}/${id}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${await team.tokenFor("ada")}` },
+    });
+
+    expect(response.status).toBe(204);
+    expect(listProjects(team.database)).toEqual([]);
+  });
 });
 
 describe("signing in with a password", () => {
