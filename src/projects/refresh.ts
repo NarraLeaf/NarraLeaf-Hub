@@ -23,7 +23,6 @@ import { KeyStore } from "../identity/keys.js";
 import { identityLayout } from "../identity/layout.js";
 import { mintToken } from "../identity/tokens.js";
 import { findUserById } from "../identity/users.js";
-import { readAuthority } from "../tls/authority.js";
 import { listProjects, PROJECT_PERMISSIONS, resourceIdOf } from "./registry.js";
 import {
   readProject,
@@ -88,7 +87,6 @@ export class ProjectReadings {
    */
   private readonly announced = new Map<string, string>();
   private keys: KeyStore | undefined;
-  private trusted = false;
   private timer: NodeJS.Timeout | undefined;
   private running = false;
   private wanted = false;
@@ -223,48 +221,15 @@ export class ProjectReadings {
     );
   }
 
-  /**
-   * Let the version control library trust this Team server's own authority.
-   *
-   * A loreserver told to demand a token sends its clients to Team's https
-   * endpoint to exchange one, and Team is one of those clients. Lore's TLS is
-   * rustls, which verifies that endpoint's certificate against its own trust
-   * store — and a Team server's authority is one it generated for itself, which no
-   * store on earth holds. Without this the exchange fails with "failed to
-   * connect to auth endpoint: transport error" and every clone that follows is
-   * refused with "Not authorized to access repository", which reads as a
-   * permission problem and is not one.
-   *
-   * `SSL_CERT_FILE` is the channel because it is the one rustls-native-certs
-   * offers, and it is what `up` already hands loreserver for the same reason.
-   * It replaces the trust store rather than adding to it, which is exactly
-   * right here: everything this library talks to is this Team server. Node's own
-   * outbound TLS — the release downloads — does not read it. An operator who
-   * set it themselves is left alone.
-   */
-  private async trustOwnAuthority(): Promise<void> {
-    if (this.trusted) {
-      return;
-    }
-    if (process.env["SSL_CERT_FILE"] !== undefined && process.env["SSL_CERT_FILE"] !== "") {
-      this.trusted = true;
-      return;
-    }
-    try {
-      const authority = await readAuthority(this.options.root);
-      process.env["SSL_CERT_FILE"] = authority.layout.caCertPath;
-      this.trusted = true;
-    } catch {
-      // A Team server that has not been brought up has no authority yet. Left to be
-      // tried again on the next pass rather than latched as done.
-    }
-  }
-
   private async pass(): Promise<void> {
     const { root, database, config } = this.options;
     const remote = dataRemoteUrl(audienceHosts(config)[0] ?? "127.0.0.1", config.dataPort);
 
-    await this.trustOwnAuthority();
+    // Nothing here settles the environment the version control library reads.
+    // Both variables it takes are decided in src/lore/environment.ts, once,
+    // before the command that owns this reader starts it — see that file for
+    // why deciding them on the first pass was a race this could not win and a
+    // failure nobody could see.
 
     // Once per pass rather than once per project, and re-read each pass so
     // that a key rotated in another terminal is picked up without this being

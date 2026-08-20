@@ -55,6 +55,35 @@ Only on the change, never on the interval. This is not an error, nothing waits
 on it and no screen turns red — what it prevents is a reader that has never once
 worked being indistinguishable from one whose first clone is still running.
 
+### The two variables the library reads
+
+Both are settled in `src/lore/environment.ts`, once, before the command that
+reads anything starts its reader. Neither may be decided lazily: they are read
+by native code on connections Team does not schedule.
+
+`SSL_CERT_FILE` names `<root>/tls/ca.crt`, so that the client trusts this
+server's own authority when it signs in at the https endpoint. Without it the
+exchange fails with "failed to connect to auth endpoint: transport error".
+
+`LORE_AUTH_PATH` names `<root>/credentials`, and it matters more than it looks.
+Lore keeps signed-in sessions in **one store per machine and per user** and
+selects one **by the host of the remote** — not the port, not the auth endpoint,
+not the identity in the call. Measured:
+
+```
+[lore_transport::auth::exchange] Selected identity 6ef48853-…, authenticated for 127.0.0.1
+```
+
+where that account belonged to a different Team server that had run on the same
+machine earlier. `loreserver` then has no signing key for the token, refuses
+with `Not allowed (KeyNotFound(NotFound))`, and the client reports **"Not
+authorized to access repository"** — before Team is asked whether the caller may
+have it, which is why such a server has nothing in its authorization log at all.
+A store of Team's own holds one identity, so there is nothing else to select. It
+also keeps Team out of the store an operator's own Studio is using.
+
+An operator who set either variable themselves is left alone.
+
 ## The authorization service
 
 `loreserver` does not decide who may touch a repository. It asks, over gRPC, at

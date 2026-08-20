@@ -14,6 +14,7 @@ import type { WriteText } from "./cli.js";
 import type { IdentityConfig } from "./identity/config.js";
 import { openMigratedDatabase } from "./identity/database.js";
 import { identityLayout } from "./identity/layout.js";
+import { prepareLoreEnvironment } from "./lore/environment.js";
 import { ViewPublisher } from "./publisher.js";
 import { runInterface } from "./tui/run.js";
 import { readAuthority } from "./tls/authority.js";
@@ -64,6 +65,16 @@ export async function terminalInterface(
     } catch {
       fingerprint = undefined;
     }
+
+    // Before the reader below exists, for the reason src/lore/environment.ts
+    // sets out. This command reaches the same repositories `up` does and is not
+    // reached through it, so settling that environment in `up` alone would
+    // leave the interface reading as somebody else's session.
+    //
+    // Nothing is printed about it. A root with no authority yet is drawn as a
+    // server that has not been brought up, which this interface already says
+    // better than a line above the screen would.
+    prepareLoreEnvironment(options.root);
 
     // What is inside a repository is read over the network, so it is read
     // beside the interface rather than in front of it: the first view is

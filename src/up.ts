@@ -25,6 +25,7 @@ import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
 import { namedTokenLifetimes } from "./identity/settings.js";
 import { countUsers } from "./identity/users.js";
+import { prepareLoreEnvironment } from "./lore/environment.js";
 import {
   ensureLorelibNotices,
   LORELIB_VERSION,
@@ -236,6 +237,20 @@ export async function up(
       stdout(
         `issued a certificate for the auth endpoint: ${certificates.issuedLeafBecause}\n`,
       );
+    }
+
+    // Everything the version control library reads out of the environment is
+    // settled here, before a single thing in this process can ask it for
+    // anything — src/lore/environment.ts says what the two variables are and
+    // what each one costs to get wrong. Deliberately not left to the reader's
+    // first pass: a decision made inside a loop is a decision that has to win a
+    // race, and the one it kept losing looked exactly like a permission error.
+    const lore = prepareLoreEnvironment(options.root);
+    if (lore.credentials !== undefined) {
+      stdout(`this server signs in to its own repositories through ${lore.credentials}\n`);
+    }
+    if (lore.withoutAuthority !== undefined) {
+      stderr(`nlteam: ${lore.withoutAuthority}\n`);
     }
 
     // The repositories are read beside both interfaces rather than in front of

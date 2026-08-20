@@ -4,8 +4,11 @@
  *
  * This is the one step of the whole arrangement that a person has to do
  * deliberately, and it cannot be automated away: a Studio installation's client
- * library builds a chain against the host's own trust store, offers no place to
- * pin a certificate, and ignores `SSL_CERT_FILE` on Windows. So the decision to
+ * library builds a chain against the host's own trust store and offers no place
+ * to pin a certificate. It does read `SSL_CERT_FILE`, on every platform — that
+ * is how Team's own reader and the loreserver it supervises trust this server's
+ * authority — but that variable belongs to whoever starts the process, and on a
+ * collaborator's machine that is Studio rather than Team. So the decision to
  * trust this Team server is made once, by somebody who has compared a fingerprint
  * against one printed on the server.
  *

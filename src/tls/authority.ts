@@ -5,10 +5,12 @@
  * Why an authority at all, rather than one self-signed certificate: a Studio
  * installation's client library will not talk to the auth endpoint over
  * anything but TLS, and it checks the certificate against the host's own trust
- * store. There is no pinning hook, and `SSL_CERT_FILE` has no effect on
- * Windows, so trust cannot be established inside the connection — a person has
- * to put something into the trust store once, having compared a fingerprint out
- * of band. That thing should not be the certificate the endpoint presents: a
+ * store. There is no pinning hook. The one lever there is — `SSL_CERT_FILE`,
+ * which that library does read on every platform including Windows — belongs to
+ * whoever starts the process, and on a collaborator's machine that is not Team.
+ * So trust cannot be established inside the connection: a person has to put
+ * something into the trust store once, having compared a fingerprint out of
+ * band. That thing should not be the certificate the endpoint presents: a
  * leaf expires, and moving a Team server or adding a host name changes its names, and
  * every one of those would otherwise mean going round every machine again. So
  * the long-lived authority is what is trusted, and the endpoint's certificate is

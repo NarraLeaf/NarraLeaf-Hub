@@ -22,6 +22,8 @@ everything Team writes goes underneath it:
 <root>/team.db                      the accounts, the invitations, the projects and the decisions
 <root>/keys/                       the RSA private keys tokens are signed with
 <root>/tls/                        the certificate authority and the auth endpoint's certificate
+<root>/credentials/                the session Team signs in to its own repositories with
+<root>/cache/projects/             Team's own checkouts, disposable at any moment
 ```
 
 The binaries are the one thing that is not under it. A downloaded release is
@@ -46,6 +48,12 @@ A Team server that has already run keeps whatever it has. An installation under
 it would mean renaming a directory whose executable a running `loreserver` was
 started from, which Windows refuses outright. Deleting `<root>/bin` while Team is
 stopped is safe, and the next start fetches one copy into the cache.
+
+`<root>/credentials/` is Team's own Lore session store, and it is there rather
+than in the machine-wide one on purpose: Lore selects a stored session by the
+host of the remote, so a machine that has run two Team servers has two sessions
+for `127.0.0.1` and the wrong one is chosen without a word. `docs/internals.md`
+records what that failure looks like. Deleting the directory costs one sign-in.
 
 `<root>/keys/`, `<root>/tls/` and `<root>/team.db` are what is worth guarding:
 together they are every account on this Team server, the authority to issue a token for
@@ -166,9 +174,11 @@ looks like from the outside.
 The transport is not a choice. Studio's client library accepts the `https` and
 `ucs-auth` schemes and refuses `http` and `grpc` by name, and it verifies the
 endpoint's certificate against its own host's trust store. There is no
-certificate-pinning hook, and `SSL_CERT_FILE` has no effect on Windows, so
-nothing inside the connection can establish trust the first time — a person has
-to. That is the one manual step, and it is deliberately manual:
+certificate-pinning hook. The library does read `SSL_CERT_FILE`, on every
+platform — it is how Team's own reader trusts this server — but that variable
+belongs to whoever starts the process, and on a collaborator's machine that is
+Studio. So nothing inside the connection can establish trust the first time — a
+person has to. That is the one manual step, and it is deliberately manual:
 
 ```sh
 nlteam trust --root /srv/team                # prints a fingerprint; changes nothing
