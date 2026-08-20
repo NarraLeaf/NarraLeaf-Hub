@@ -196,8 +196,8 @@ describe("nlteam settings list", () => {
     // number through an upgrade and one that follows the default.
     expect(out).toBe(
       "server.name                        the server's host  default\n" +
-        "token.sign_in_lifetime_seconds     30 days       default\n" +
-        "token.repository_lifetime_seconds  15 minutes    default\n",
+        "token.sign_in_lifetime_seconds     30 days            default\n" +
+        "token.repository_lifetime_seconds  15 minutes         default\n",
     );
   });
 
@@ -209,8 +209,8 @@ describe("nlteam settings list", () => {
 
     const { out } = await invoke((stdout, stderr) => settingsList({ root }, stdout, stderr));
 
-    expect(out).toContain("token.repository_lifetime_seconds  5 minutes     set here");
-    expect(out).toContain("token.sign_in_lifetime_seconds     30 days       default");
+    expect(out).toContain("token.repository_lifetime_seconds  5 minutes          set here");
+    expect(out).toContain("token.sign_in_lifetime_seconds     30 days            default");
   });
 });
 
@@ -397,7 +397,10 @@ describe("nlteam settings set, on the name", () => {
 
     const { out } = await invoke((stdout, stderr) => settingsList({ root }, stdout, stderr));
 
+    // Every column lines up whatever a name is: the widest value there is
+    // decides the column, rather than a number chosen for two durations.
     expect(out).toContain("server.name                        Winterlight   set here");
+    expect(out).toContain("token.sign_in_lifetime_seconds     30 days       default");
   });
 
   it("refuses a name it will not store, and changes nothing", async () => {

@@ -51,6 +51,9 @@ function describeError(error: unknown): string {
 /** The widest key, so the values line up under each other. */
 const KEY_WIDTH = Math.max(...SETTING_KEYS.map((key) => key.length));
 
+/** How wide the value column is even where every value is short. */
+const MINIMUM_VALUE_WIDTH = 12;
+
 /**
  * What answers for the name on a server nobody has named.
  *
@@ -82,10 +85,15 @@ export async function settingsList(
   const layout = identityLayout(options.root);
   const database = await openMigratedDatabase(layout.databasePath);
   try {
-    for (const key of SETTING_KEYS) {
-      const value = settingValue(database, key);
+    const values = SETTING_KEYS.map((key) => settingValue(database, key));
+    // Wide enough for the widest value there is, rather than a number chosen
+    // for the two durations: a name is as long as somebody made it, and a
+    // column that fitted only the old settings would put the last column of one
+    // row five characters right of the others.
+    const width = Math.max(MINIMUM_VALUE_WIDTH, ...values.map((value) => value.length));
+    for (const [index, key] of SETTING_KEYS.entries()) {
       const source = isSettingStored(database, key) ? "set here" : "default";
-      stdout(`${key.padEnd(KEY_WIDTH)}  ${value.padEnd(12)}  ${source}\n`);
+      stdout(`${key.padEnd(KEY_WIDTH)}  ${(values[index] ?? "").padEnd(width)}  ${source}\n`);
     }
     return 0;
   } catch (error) {
