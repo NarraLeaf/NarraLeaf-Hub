@@ -43,6 +43,18 @@ not the shape its name claims, a project nobody has pushed to, a repository that
 cannot be reached — each of them leaves the parts Team did understand on screen
 and says in words what it could not read.
 
+A repository Team cannot read is also said once on `up`'s own output, and once
+more if it starts working:
+
+```
+cannot read driftwood's repository: this project's repository could not be read: …
+read driftwood's repository again
+```
+
+Only on the change, never on the interval. This is not an error, nothing waits
+on it and no screen turns red — what it prevents is a reader that has never once
+worked being indistinguishable from one whose first clone is still running.
+
 ## The authorization service
 
 `loreserver` does not decide who may touch a repository. It asks, over gRPC, at

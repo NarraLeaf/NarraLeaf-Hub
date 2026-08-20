@@ -252,9 +252,19 @@ export async function up(
       config,
       healthPort: ports.healthPort,
       fingerprint: certificates.authority.fingerprint256,
+      // The one place a repository Team cannot read is said out loud. It is not
+      // an error and nothing waits on it: `up` goes on to start loreserver
+      // whatever this says, and every screen goes on drawing the project as
+      // unread. What it stops is a reader that has never once worked being
+      // indistinguishable from one that has not finished its first clone.
+      onReadability: (line) => stdout(`${line}\n`),
     });
     publisher = views;
-    views.start();
+    // Made here because both interfaces below are handed what it holds, and
+    // started further down, once loreserver is answering. Reading before then
+    // is a pass that fails for the one reason nobody needs telling about — the
+    // server it reads through has not started yet — and the sentence it
+    // produced said so about every project on every start.
 
     // The web interface goes on that same listener rather than a port of its
     // own, so that the certificate an operator has already been asked to trust
@@ -450,6 +460,12 @@ export async function up(
       `healthy after ${(elapsedMs / 1000).toFixed(1)}s: ${healthCheckUrl(ports.healthPort)}\n`,
     );
     stdout(`gRPC and QUIC on port ${ports.dataPort}\n`);
+
+    // Now, and not before: every read goes through the server that has just
+    // this moment become able to answer. Nothing waits on this — the API and
+    // the interface have been served for several steps already, and a project
+    // nobody has read yet is drawn as one nobody has read yet.
+    views.start();
 
     // Last, so that it is the thing left on the screen rather than something
     // scrolled away by a download.

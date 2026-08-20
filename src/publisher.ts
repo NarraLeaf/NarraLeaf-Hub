@@ -39,6 +39,13 @@ export interface PublisherOptions {
   readonly healthPort: number;
   /** The fingerprint of this server's authority, absent until one exists. */
   readonly fingerprint: string | undefined;
+  /**
+   * Where to say that a repository stopped being readable, or started again.
+   *
+   * Handed on to the reader unchanged. Absent for an interface with nowhere to
+   * put a line — see src/projects/refresh.ts on when it is called.
+   */
+  readonly onReadability?: (line: string) => void;
 }
 
 /** The views of one server, as they change. */
@@ -55,6 +62,7 @@ export class ViewPublisher {
       database: options.database,
       config: options.config,
       onChange: () => this.#schedule(),
+      ...(options.onReadability === undefined ? {} : { onReadability: options.onReadability }),
     });
     this.#context = {
       root,

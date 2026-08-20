@@ -46,6 +46,18 @@ export interface ProjectReadingsOptions {
   readonly config: IdentityConfig;
   /** Called each time a project's reading changes what is on screen. */
   readonly onChange?: () => void;
+  /**
+   * Called when a project stops being readable, or starts again.
+   *
+   * Only on the change, never on the interval: a repository that has been
+   * unreadable for a week is one sentence, not ten thousand. See
+   * {@link ProjectReadings.announce}.
+   *
+   * Optional because only `up` has anywhere to put a line. The terminal
+   * interface owns the alternate screen and a browser is holding a view; both
+   * read the same failure off the project itself.
+   */
+  readonly onReadability?: (line: string) => void;
   readonly intervalMs?: number;
 }
 
@@ -69,6 +81,12 @@ export class ProjectReadings {
    * nothing answering a request may sit behind one.
    */
   private readonly inside = new Set<string>();
+  /**
+   * What was last said out loud about each project, so that nothing is said
+   * twice. The empty string is "this one reads", which is worth saying once
+   * after it has not.
+   */
+  private readonly announced = new Map<string, string>();
   private keys: KeyStore | undefined;
   private trusted = false;
   private timer: NodeJS.Timeout | undefined;
@@ -165,6 +183,47 @@ export class ProjectReadings {
   }
 
   /**
+   * Say — once — that a project's repository could not be read, and why.
+   *
+   * The rule about *data* is unchanged and is not up for negotiation: a
+   * project Team has not read has no history rather than a history of nought,
+   * and nothing on any screen turns into an error. This is the other half of
+   * that, which was missing: a reader that has never once worked looked
+   * exactly like a reader that had not got round to it yet, and a defect that
+   * emptied every project on every real deployment survived because of it.
+   *
+   * Said when the outcome changes and at no other time. A server whose
+   * loreserver is down says one sentence, not one a minute for a fortnight,
+   * and says one more when it comes back.
+   *
+   * What counts as read is the count, not the file: a repository nobody has
+   * pushed to answers with nought revisions and no file, and that is a
+   * complete, correct reading of an empty project rather than a failure.
+   *
+   * A project nothing has been said about yet is taken to be readable, so a
+   * server where everything works says nothing at all. Announcing the first
+   * success would put a line about every project on the screen of every
+   * healthy server, and a notice printed when nothing is wrong is the fastest
+   * way to teach somebody not to read them.
+   */
+  private announce(project: { id: string; name: string }, reading: ProjectReading): void {
+    const report = this.options.onReadability;
+    if (report === undefined) {
+      return;
+    }
+    const because = reading.history.revisions === undefined ? (reading.file.reason ?? "") : "";
+    if ((this.announced.get(project.id) ?? "") === because) {
+      return;
+    }
+    this.announced.set(project.id, because);
+    report(
+      because === ""
+        ? `read ${project.name}'s repository again`
+        : `cannot read ${project.name}'s repository: ${because}`,
+    );
+  }
+
+  /**
    * Let the version control library trust this Team server's own authority.
    *
    * A loreserver told to demand a token sends its clients to Team's https
@@ -239,17 +298,20 @@ export class ProjectReadings {
           ...(token === undefined ? {} : { token, authUrl: authUrl(config) }),
         });
         this.readings.set(project.id, reading);
+        this.announce(project, reading);
       } catch (error) {
         // readProject answers rather than raising, so anything reaching here is
         // Team's own doing — minting a token, or something worse. It is put
         // where every other thing Team could not read goes, which is the screen,
         // rather than into a log nobody has open. The pass carries on: one
         // project that cannot be read must not cost the others theirs.
-        this.readings.set(project.id, {
+        const reading: ProjectReading = {
           history: {},
           file: { readable: false, reason: `Team could not read this project: ${describe(error)}` },
           cloned: false,
-        });
+        };
+        this.readings.set(project.id, reading);
+        this.announce(project, reading);
       } finally {
         this.inside.delete(project.id);
       }
