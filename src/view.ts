@@ -31,6 +31,7 @@ import { checkHealth } from "./loreserver/health.js";
 import { instanceLayout } from "./loreserver/layout.js";
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { listProjects } from "./projects/registry.js";
+import { NOT_READ_YET } from "./tui/teamview.js";
 import type {
   TeamView,
   ProjectFileView,
@@ -160,18 +161,6 @@ function userView(database: DatabaseSync, user: ReturnType<typeof listUsers>[num
       : { tokensInvalidatedAt: user.tokensInvalidatedAt }),
   };
 }
-
-/**
- * What is said about a project nobody has read yet.
- *
- * An empty history rather than a zeroed one: absent draws as unknown, and a
- * project that has been worked on for months must not read as one nobody has
- * touched while the first clone of it is still running.
- */
-const NOT_READ_YET: { history: RevisionView; file: ProjectFileView } = {
-  history: {},
-  file: { readable: false, reason: "Team has not read this project's repository yet" },
-};
 
 function projectView(
   context: ViewContext,

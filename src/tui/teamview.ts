@@ -149,3 +149,20 @@ export interface TeamView {
   readonly settings: ReadonlyArray<SettingView>;
   readonly signingKeys: number;
 }
+
+/**
+ * What is said about a project nobody has read yet.
+ *
+ * An empty history rather than a zeroed one: absent draws as unknown, and a
+ * project that has been worked on for months must not read as one nobody has
+ * touched while the first clone of it is still running.
+ *
+ * It is here, beside the shapes it is made of, rather than beside either of
+ * the surfaces that answer with it. The terminal interface and the API a
+ * Studio installation talks to both have to say this, and two spellings of it
+ * would be two sentences about the same silence.
+ */
+export const NOT_READ_YET: { history: RevisionView; file: ProjectFileView } = {
+  history: {},
+  file: { readable: false, reason: "Team has not read this project's repository yet" },
+};
