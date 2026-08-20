@@ -704,8 +704,8 @@ async function answerProjectHistory(
     refuse(response, 404, `there is no project called ${reference}.`);
     return;
   }
-  const read = options.readings?.revisions;
-  if (read === undefined) {
+  const readings = options.readings;
+  if (readings?.revisions === undefined) {
     // A build serving no history says so in its capabilities, so a client that
     // read them does not ask. One that asked anyway is answered the same way a
     // project nobody has read is: absent, rather than a refusal it can do
@@ -718,7 +718,12 @@ async function answerProjectHistory(
   const limit = pageLimit(query.get("limit"));
   const before = query.get("before") ?? undefined;
 
-  const page = await read(project.id, {
+  // Called on the reader rather than through a reference lifted off it. The
+  // reader is a class, its `revisions` keeps a set of the projects a read is
+  // inside of, and a copy of the method called on its own has no `this` to
+  // find that set on — which every stand-in for it in a test does have, being
+  // an object literal, so this answered in the suite and threw on every server.
+  const page = await readings.revisions(project.id, {
     limit,
     ...(before === undefined || before === "" ? {} : { before }),
   });

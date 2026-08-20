@@ -101,8 +101,19 @@ interface Harness {
   readonly config: IdentityConfig;
 }
 
+/**
+ * What a harness is given to read repositories with.
+ *
+ * A function where the reader has to be the real one: `ProjectReadings` needs
+ * the database and the storage root this harness makes, and handing it back a
+ * wrapper afterwards would hide exactly the mistake one test below is about.
+ */
+type ReadingsFor =
+  | StudioReadings
+  | ((of: { root: string; database: DatabaseSync; config: IdentityConfig }) => StudioReadings);
+
 async function harness(
-  readings?: StudioReadings,
+  readings?: ReadingsFor,
   log?: (line: string) => void,
 ): Promise<Harness> {
   const root = await temporaryRoot();
@@ -111,6 +122,8 @@ async function harness(
   openDatabases.push(database);
   const keys = await KeyStore.open(layout.keysDir);
   const config = identityConfig({});
+  const held =
+    typeof readings === "function" ? readings({ root, database, config }) : readings;
 
   const studio = {
     database,
@@ -118,7 +131,7 @@ async function harness(
     config,
     dataPort: config.dataPort,
     fingerprint: FINGERPRINT,
-    ...(readings === undefined ? {} : { readings }),
+    ...(held === undefined ? {} : { readings: held }),
     ...(log === undefined ? {} : { log }),
   };
   const server = createServer(
@@ -746,6 +759,32 @@ describe("what the reader this server actually runs makes it say", () => {
       "project-history",
     ]);
   });
+
+  it("answers a history request with that reader rather than throwing on it", async () => {
+    // Every stand-in above is an object literal, whose `revisions` is a
+    // function that never wanted a `this`. The reader `up` hands this route is
+    // a class whose `revisions` keeps a set of the projects a read is inside
+    // of — so a route that lifted the method off it and called the copy threw
+    // on every real server and passed here, and `/history` was empty on every
+    // deployment while this file stayed green.
+    //
+    // Nothing is cloned: there is no checkout of this project, so the honest
+    // answer is that there is no page, which is the same answer a project the
+    // reader has not reached yet gets.
+    const id = newProjectId();
+    const team = await harness((of) => new ProjectReadings(of));
+    const ada = await account(team.database, "ada");
+    createProject(team.database, { id, name: "harbour", description: "", createdBy: ada });
+
+    const answer = await fetchPath(
+      team.origin,
+      `${PATH}/${id}/history?limit=5`,
+      await team.tokenFor("ada"),
+    );
+
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({ more: false });
+  }, 120_000);
 });
 
 describe("signing in with a password", () => {
