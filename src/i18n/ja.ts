@@ -120,12 +120,14 @@ export const ja: Messages = {
       cancel: "キャンセル",
       rotateKey: "署名鍵をローテーション",
       groupNames: {
+        server: "サーバー",
         tokens: "トークン",
         identity: "アイデンティティ",
         loreserver: "loreserver",
         authority: "認証局",
       },
       rowNames: {
+        name: "名前",
         "sign-in token": "サインイントークンの有効期間",
         "repository token": "リポジトリトークンの有効期間",
         issuer: "発行者",
@@ -202,6 +204,9 @@ export const ja: Messages = {
       `${directory} の鍵はすべて退役していて、署名できるものがありません。ローテーションして新しい鍵を作ってください。`,
     invalidSetting: ({ label, value, minimum, maximum }) =>
       `${label}を「${value}」にはできません。トークンの有効期間は整数の秒で、最小 ${minimum}、最大 ${maximum} です。`,
+    invalidServerName: ({ value, maximum }) =>
+      `「${value}」はこのサーバーの名前にできません。名前は 1 文字以上 ${maximum} 文字以下で、` +
+      "制御文字を含みません。アドレスではなく、人が読むラベルです。",
     notADuration: ({ value }) =>
       `「${value}」は期間ではありません。30分、48時間、7日 のように書いてください。`,
     durationTooSmall: "有効期間は 0 より大きくなければなりません",

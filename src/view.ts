@@ -22,10 +22,24 @@ import { dirname, join } from "node:path";
 
 import { describeDuration } from "./duration.js";
 import { listDecisions } from "./identity/audit.js";
-import { audienceHosts, authUrl, dataRemoteUrl, type IdentityConfig } from "./identity/config.js";
+import {
+  audienceHosts,
+  authUrl,
+  dataRemoteUrl,
+  hostOf,
+  type IdentityConfig,
+} from "./identity/config.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
-import { REPOSITORY_LIFETIME_CAUTION, storedTokenLifetimes } from "./identity/settings.js";
+import {
+  REPOSITORY_LIFETIME_CAUTION,
+  REPOSITORY_LIFETIME_KEY,
+  SERVER_NAME_KEY,
+  SIGN_IN_LIFETIME_KEY,
+  storedServerName,
+  storedTokenLifetimes,
+  type SettingKey,
+} from "./identity/settings.js";
 import { findUserById, listUsers } from "./identity/users.js";
 import { checkHealth } from "./loreserver/health.js";
 import { instanceLayout } from "./loreserver/layout.js";
@@ -89,14 +103,38 @@ const STORAGE_FILE_LIMIT = 50_000;
 const AUDIT_LIMIT = 100;
 
 /**
- * The labels of the two rows Team has somewhere to write.
+ * The labels of the three rows Team has somewhere to write.
  *
  * Named here rather than typed twice, because the settings surface finds a row
  * by its position and the writer finds it by its label; two spellings of the
  * same string would put a new value in the wrong place.
  */
+export const SERVER_NAME_SETTING = "name";
 export const SIGN_IN_SETTING = "sign-in token";
 export const REPOSITORY_SETTING = "repository token";
+
+/**
+ * The setting one of those labels stands for, or undefined for a row nothing
+ * is stored for.
+ *
+ * The row a person edits is found by its position on the screen and written by
+ * its key in the table, and this is the one place the two are put together. A
+ * writer that worked it out for itself would be a second answer to "which
+ * setting is this row", and the two would disagree the first time a row was
+ * added above another.
+ */
+export function settingKeyOf(label: string): SettingKey | undefined {
+  switch (label) {
+    case SERVER_NAME_SETTING:
+      return SERVER_NAME_KEY;
+    case SIGN_IN_SETTING:
+      return SIGN_IN_LIFETIME_KEY;
+    case REPOSITORY_SETTING:
+      return REPOSITORY_LIFETIME_KEY;
+    default:
+      return undefined;
+  }
+}
 
 /** The word for a value Team has but cannot show. */
 const UNKNOWN_FINGERPRINT = "unknown";
@@ -194,6 +232,16 @@ export function settingRows(context: ViewContext): SettingView[] {
   const storageRoot = storageRootOf(context.root);
   const { config } = context;
   return [
+    {
+      group: "server",
+      label: SERVER_NAME_SETTING,
+      // The host until somebody chooses otherwise, which is what the discovery
+      // document says too. The row shows what is in effect rather than what is
+      // stored, so a server nobody has named reads as the address people
+      // already reach it at rather than as a blank.
+      value: storedServerName(context.database, hostOf(config.authOrigin)),
+      editable: true,
+    },
     {
       group: "tokens",
       label: SIGN_IN_SETTING,

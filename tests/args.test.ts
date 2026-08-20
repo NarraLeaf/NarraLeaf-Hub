@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseArgs } from "../src/args.js";
 import {
   REPOSITORY_LIFETIME_KEY,
+  SERVER_NAME_KEY,
   SETTING_KEYS,
   SIGN_IN_LIFETIME_KEY,
 } from "../src/identity/settings.js";
@@ -301,18 +302,33 @@ describe("parseArgs, the settings commands", () => {
       {
         kind: "settings-set",
         root: "/srv/team",
-        key: SIGN_IN_LIFETIME_KEY,
-        seconds: 7 * 24 * 60 * 60,
+        change: { key: SIGN_IN_LIFETIME_KEY, seconds: 7 * 24 * 60 * 60 },
       },
     );
     // The same spellings --token-lifetime takes, because somebody who knows one
     // of them should not have to discover a second.
     expect(
       parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "30m", "--root", "/srv/team"]),
-    ).toMatchObject({ key: REPOSITORY_LIFETIME_KEY, seconds: 30 * 60 });
+    ).toMatchObject({ change: { key: REPOSITORY_LIFETIME_KEY, seconds: 30 * 60 } });
     expect(
       parseArgs(["settings", "set", REPOSITORY_LIFETIME_KEY, "900", "--root", "/srv/team"]),
-    ).toMatchObject({ seconds: 900 });
+    ).toMatchObject({ change: { seconds: 900 } });
+  });
+
+  it("leaves a name as it was written, rather than reading a duration out of it", () => {
+    // Every check on a name is the database's. What reaches here is what was
+    // typed, spaces and all, so that a deployment called "7d" is not stored as
+    // a week and one called "Studio" is not refused by the command line.
+    expect(parseArgs(["settings", "set", SERVER_NAME_KEY, "Winterlight", "--root", "/srv/team"])).toEqual(
+      {
+        kind: "settings-set",
+        root: "/srv/team",
+        change: { key: SERVER_NAME_KEY, name: "Winterlight" },
+      },
+    );
+    expect(
+      parseArgs(["settings", "set", SERVER_NAME_KEY, "7d", "--root", "/srv/team"]),
+    ).toMatchObject({ change: { key: SERVER_NAME_KEY, name: "7d" } });
   });
 
   it("names the settings there are when it is given one there is not", () => {

@@ -123,12 +123,14 @@ export const en: Messages = {
       cancel: "Cancel",
       rotateKey: "Rotate signing key",
       groupNames: {
+        server: "server",
         tokens: "tokens",
         identity: "identity",
         loreserver: "loreserver",
         authority: "authority",
       },
       rowNames: {
+        name: "name",
         "sign-in token": "sign-in token",
         "repository token": "repository token",
         issuer: "issuer",
@@ -206,6 +208,9 @@ export const en: Messages = {
     invalidSetting: ({ label, value, minimum, maximum }) =>
       `${label} cannot be "${value}". A token lifetime is a whole number of seconds, at ` +
       `least ${minimum} and at most ${maximum}.`,
+    invalidServerName: ({ value, maximum }) =>
+      `"${value}" cannot be this server's name. A name is 1 to ${maximum} characters and ` +
+      "carries no control characters. It is a label a person reads, not an address.",
     notADuration: ({ value }) => `"${value}" is not a duration. Write it as 30 minutes, 48 hours or 7 days.`,
     durationTooSmall: "a lifetime must be more than zero",
     loreserverRefused: ({ detail }) => `loreserver refused it: ${detail}`,

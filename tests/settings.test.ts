@@ -7,13 +7,19 @@ import { DEFAULT_IDENTITY } from "../src/identity/config.js";
 import { openMigratedDatabase } from "../src/identity/database.js";
 import { identityLayout } from "../src/identity/layout.js";
 import {
+  InvalidServerNameError,
   InvalidSettingError,
+  isSettingStored,
+  MAXIMUM_SERVER_NAME_LENGTH,
   MAXIMUM_TOKEN_LIFETIME_SECONDS,
   MINIMUM_TOKEN_LIFETIME_SECONDS,
   namedTokenLifetimes,
   REPOSITORY_LIFETIME_KEY,
+  SERVER_NAME_KEY,
+  setServerName,
   setTokenLifetimes,
   SIGN_IN_LIFETIME_KEY,
+  storedServerName,
   storedTokenLifetimes,
 } from "../src/identity/settings.js";
 import { settingsList, settingsSet } from "../src/settings.js";
@@ -189,7 +195,8 @@ describe("nlteam settings list", () => {
     // been touched — which is the difference between a Team server that keeps this
     // number through an upgrade and one that follows the default.
     expect(out).toBe(
-      "token.sign_in_lifetime_seconds     30 days       default\n" +
+      "server.name                        the server's host  default\n" +
+        "token.sign_in_lifetime_seconds     30 days       default\n" +
         "token.repository_lifetime_seconds  15 minutes    default\n",
     );
   });
@@ -212,7 +219,11 @@ describe("nlteam settings set", () => {
     const root = await temporaryRoot();
 
     const { code, out, err } = await invoke((stdout, stderr) =>
-      settingsSet({ root, key: SIGN_IN_LIFETIME_KEY, seconds: 7 * 24 * 60 * 60 }, stdout, stderr),
+      settingsSet(
+        { root, change: { key: SIGN_IN_LIFETIME_KEY, seconds: 7 * 24 * 60 * 60 } },
+        stdout,
+        stderr,
+      ),
     );
 
     expect(code).toBe(0);
@@ -227,7 +238,11 @@ describe("nlteam settings set", () => {
     const root = await temporaryRoot();
 
     const { out } = await invoke((stdout, stderr) =>
-      settingsSet({ root, key: REPOSITORY_LIFETIME_KEY, seconds: 5 * 60 }, stdout, stderr),
+      settingsSet(
+        { root, change: { key: REPOSITORY_LIFETIME_KEY, seconds: 5 * 60 } },
+        stdout,
+        stderr,
+      ),
     );
 
     expect(out).toBe(
@@ -242,7 +257,7 @@ describe("nlteam settings set", () => {
     const root = await temporaryRoot();
 
     await invoke((stdout, stderr) =>
-      settingsSet({ root, key: SIGN_IN_LIFETIME_KEY, seconds: 3600 }, stdout, stderr),
+      settingsSet({ root, change: { key: SIGN_IN_LIFETIME_KEY, seconds: 3600 } }, stdout, stderr),
     );
 
     const connection = await openMigratedDatabase(identityLayout(root).databasePath);
@@ -257,7 +272,7 @@ describe("nlteam settings set", () => {
     const root = await temporaryRoot();
 
     const { code, out, err } = await invoke((stdout, stderr) =>
-      settingsSet({ root, key: SIGN_IN_LIFETIME_KEY, seconds: 1 }, stdout, stderr),
+      settingsSet({ root, change: { key: SIGN_IN_LIFETIME_KEY, seconds: 1 } }, stdout, stderr),
     );
 
     expect(code).toBe(1);
@@ -286,5 +301,121 @@ describe("namedTokenLifetimes", () => {
     // Which is what lets it be spread over the stored settings without hiding
     // them: an empty object changes nothing, and `undefined` values would.
     expect(namedTokenLifetimes({})).toEqual({});
+  });
+});
+
+describe("the name a server calls itself", () => {
+  it("is the host it is reached at until somebody chooses one", async () => {
+    const connection = await database();
+
+    // No row, and therefore no name of its own. The fallback is handed in
+    // rather than worked out here, because who this server is reached as is a
+    // fact about the deployment rather than about the setting.
+    expect(storedServerName(connection, "team.example.lan")).toBe("team.example.lan");
+    expect(isSettingStored(connection, SERVER_NAME_KEY)).toBe(false);
+  });
+
+  it("is what was chosen, once somebody has", async () => {
+    const connection = await database();
+
+    expect(setServerName(connection, "Winterlight")).toBe("Winterlight");
+    expect(storedServerName(connection, "team.example.lan")).toBe("Winterlight");
+    expect(isSettingStored(connection, SERVER_NAME_KEY)).toBe(true);
+  });
+
+  it("is stored without the spaces around it", async () => {
+    const connection = await database();
+
+    expect(setServerName(connection, "  Winterlight  ")).toBe("Winterlight");
+    expect(storedServerName(connection, "elsewhere")).toBe("Winterlight");
+  });
+
+  it("refuses a name that is nothing, however it was written", async () => {
+    const connection = await database();
+
+    expect(() => setServerName(connection, "")).toThrow(InvalidServerNameError);
+    expect(() => setServerName(connection, "   ")).toThrow(InvalidServerNameError);
+    expect(isSettingStored(connection, SERVER_NAME_KEY)).toBe(false);
+  });
+
+  it("refuses one longer than a label", async () => {
+    const connection = await database();
+    const longest = "n".repeat(MAXIMUM_SERVER_NAME_LENGTH);
+
+    expect(setServerName(connection, longest)).toBe(longest);
+    expect(() => setServerName(connection, `${longest}n`)).toThrow(InvalidServerNameError);
+    // The refused one changed nothing: what is stored is still the name that
+    // was accepted.
+    expect(storedServerName(connection, "elsewhere")).toBe(longest);
+  });
+
+  it("refuses control characters, which are one interface writing another's lines", async () => {
+    const connection = await database();
+
+    expect(() => setServerName(connection, "Winter\nlight")).toThrow(InvalidServerNameError);
+    expect(() => setServerName(connection, "Winter\u001b[31mlight")).toThrow(
+      InvalidServerNameError,
+    );
+    // Every other alphabet is a name somebody calls a deployment by.
+    expect(setServerName(connection, "\u51ac\u306e\u5149")).toBe("\u51ac\u306e\u5149");
+  });
+
+  it("falls back to the host rather than raising over a stored name nobody can use", async () => {
+    const connection = await database();
+    // Nothing Team writes could put this here; whoever has the storage root has
+    // the file. Refusing to answer would take out the document that says where
+    // to sign in, over a caption - which is the opposite of what a lifetime
+    // read back as nonsense does, and deliberately.
+    store(connection, SERVER_NAME_KEY, "  ");
+
+    expect(storedServerName(connection, "team.example.lan")).toBe("team.example.lan");
+  });
+});
+
+describe("nlteam settings set, on the name", () => {
+  it("says what it now is, what it was, and that nothing has to be restarted", async () => {
+    const root = await temporaryRoot();
+
+    const { code, out, err } = await invoke((stdout, stderr) =>
+      settingsSet({ root, change: { key: SERVER_NAME_KEY, name: "Winterlight" } }, stdout, stderr),
+    );
+
+    expect(code).toBe(0);
+    expect(err).toBe("");
+    expect(out).toBe(
+      "server.name is Winterlight, and was the server's host\n" +
+        "The next client to read this server's address is told the new name; nothing is " +
+        "restarted.\n",
+    );
+  });
+
+  it("says a name was set here once somebody has set one", async () => {
+    const root = await temporaryRoot();
+    await invoke((stdout, stderr) =>
+      settingsSet({ root, change: { key: SERVER_NAME_KEY, name: "Winterlight" } }, stdout, stderr),
+    );
+
+    const { out } = await invoke((stdout, stderr) => settingsList({ root }, stdout, stderr));
+
+    expect(out).toContain("server.name                        Winterlight   set here");
+  });
+
+  it("refuses a name it will not store, and changes nothing", async () => {
+    const root = await temporaryRoot();
+
+    const { code, out, err } = await invoke((stdout, stderr) =>
+      settingsSet({ root, change: { key: SERVER_NAME_KEY, name: "  " } }, stdout, stderr),
+    );
+
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    expect(err).toContain("cannot be this server's name");
+
+    const connection = await openMigratedDatabase(identityLayout(root).databasePath);
+    try {
+      expect(isSettingStored(connection, SERVER_NAME_KEY)).toBe(false);
+    } finally {
+      connection.close();
+    }
   });
 });

@@ -125,12 +125,14 @@ export const zh: Messages = {
       cancel: "取消",
       rotateKey: "轮换签名密钥",
       groupNames: {
+        server: "服务器",
         tokens: "令牌",
         identity: "身份",
         loreserver: "loreserver",
         authority: "证书授权",
       },
       rowNames: {
+        name: "名称",
         "sign-in token": "登录令牌有效期",
         "repository token": "仓库令牌有效期",
         issuer: "签发者",
@@ -201,6 +203,9 @@ export const zh: Messages = {
       `${directory} 里的密钥全部已退役，没有东西可以签名了。轮换一次以生成新的密钥。`,
     invalidSetting: ({ label, value, minimum, maximum }) =>
       `${label}不能是“${value}”。令牌有效期是一个整数秒，最少 ${minimum}，最多 ${maximum}。`,
+    invalidServerName: ({ value, maximum }) =>
+      `“${value}”不能作为这台服务器的名称。名称是 1 到 ${maximum} 个字符，且不含控制字符。` +
+      "它是给人看的标签，不是地址。",
     notADuration: ({ value }) => `“${value}”不是一段时长。可以写成 30 分钟、48 小时或 7 天。`,
     durationTooSmall: "有效期必须大于零",
     loreserverRefused: ({ detail }) => `loreserver 拒绝了它：${detail}`,

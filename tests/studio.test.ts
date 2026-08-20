@@ -108,7 +108,7 @@ async function harness(readings?: StudioReadings): Promise<Harness> {
     ...(readings === undefined ? {} : { readings }),
   };
   const server = createServer(
-    webHandler({ ...DISCOVERY, capabilities: studioCapabilities(studio) }, { studio }),
+    webHandler(() => ({ ...DISCOVERY, capabilities: studioCapabilities(studio) }), { studio }),
   );
   openServers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));

@@ -42,12 +42,17 @@ export interface WebOptions {
 /**
  * Serve one HTTP/1.1 request.
  *
- * Returned as a handler rather than exported as a function of many arguments
- * because that is the shape the listener takes, and because it lets the
- * discovery document be settled once at start rather than rebuilt per request.
+ * Returned as a handler rather than exported as a function of many arguments,
+ * because that is the shape the listener takes.
+ *
+ * The discovery document arrives as something to call rather than as a value.
+ * Most of it is settled when `up` starts, but the name a server calls itself is
+ * a stored setting — one somebody changes from another terminal while this
+ * process is running — and a document composed once would go on announcing the
+ * name that server had at boot.
  */
 export function webHandler(
-  discovery: DiscoveryDocument,
+  discovery: () => DiscoveryDocument,
   options: WebOptions,
 ): (request: IncomingMessage, response: ServerResponse) => void {
   const assets = staticAssets();
@@ -59,7 +64,7 @@ export function webHandler(
     const path = new URL(request.url ?? "/", "http://team.invalid").pathname;
 
     if (path === "/.well-known/nlteam") {
-      serveDiscovery(discovery, request, response);
+      serveDiscovery(discovery(), request, response);
       return;
     }
 

@@ -123,7 +123,7 @@ between programs on the server machine and are bound to the loopback.
 | `nlteam token mint <name>` | Sign a token for an account |
 | `nlteam project create <name>` | Create a repository and record it |
 | `nlteam project list` | List the projects |
-| `nlteam settings list\|set <key> <value>` | Show or change the token lifetimes |
+| `nlteam settings list\|set <key> <value>` | Show or change the token lifetimes and this server's name |
 | `nlteam key list\|rotate` | Show the signing keys, or sign with a new one |
 
 `nlteam --help` prints the options for each.

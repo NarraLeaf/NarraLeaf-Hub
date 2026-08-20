@@ -23,7 +23,14 @@ import { en } from "./i18n/en.js";
 import { identityConfig } from "./identity/config.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
-import { setTokenLifetimes, storedTokenLifetimes } from "./identity/settings.js";
+import {
+  lifetimeUnder,
+  SERVER_NAME_KEY,
+  setServerName,
+  setTokenLifetimes,
+  SIGN_IN_LIFETIME_KEY,
+  storedTokenLifetimes,
+} from "./identity/settings.js";
 import { mintToken } from "./identity/tokens.js";
 import { disableUser, enableUser, requireUser, revokeUserTokens } from "./identity/users.js";
 import {
@@ -34,7 +41,7 @@ import {
 import { loreserverUrl, repositoryCreate } from "./projects/repository.js";
 import type { Messages } from "./i18n/messages.js";
 import type { Action } from "./tui/state.js";
-import { settingRows, SIGN_IN_SETTING, type ViewContext } from "./view.js";
+import { settingKeyOf, settingRows, type ViewContext } from "./view.js";
 
 import type { DatabaseSync } from "node:sqlite";
 
@@ -106,29 +113,38 @@ function writeSetting(
   messages: Messages,
 ): string {
   const row = settingRows(context)[index];
-  if (row === undefined || !row.editable) {
+  const key = row === undefined ? undefined : settingKeyOf(row.label);
+  if (row === undefined || !row.editable || key === undefined) {
     return messages.action.settingReadOnly;
   }
+
+  // The row is found by the label the view carries, and drawn by whatever this
+  // language calls it. A row no language has a name for is named by the label,
+  // which is what the page showed.
+  const label = messages.page.settings.rowNames[row.label] ?? row.label;
+
+  // Not every setting is a duration any more. The name is stored as it was
+  // typed, and reading it as one would refuse every name that is not a number.
+  if (key === SERVER_NAME_KEY) {
+    return messages.action.settingChanged({
+      label,
+      value: setServerName(context.database, value),
+    });
+  }
+
   const seconds = readDuration(value, messages);
   if (typeof seconds === "string") {
     return seconds;
   }
   const lifetimes = setTokenLifetimes(
     context.database,
-    row.label === SIGN_IN_SETTING
+    key === SIGN_IN_LIFETIME_KEY
       ? { signInTokenLifetimeSeconds: seconds }
       : { repositoryTokenLifetimeSeconds: seconds },
   );
-  const now =
-    row.label === SIGN_IN_SETTING
-      ? lifetimes.signInTokenLifetimeSeconds
-      : lifetimes.repositoryTokenLifetimeSeconds;
   return messages.action.settingChanged({
-    // The row is found by the label the view carries, and drawn by whatever
-    // this language calls it. A row no language has a name for is named by the
-    // label, which is what the page showed.
-    label: messages.page.settings.rowNames[row.label] ?? row.label,
-    value: describeDuration(now, messages),
+    label,
+    value: describeDuration(lifetimeUnder(lifetimes, key), messages),
   });
 }
 

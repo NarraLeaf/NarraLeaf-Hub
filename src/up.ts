@@ -19,7 +19,7 @@ import {
   type IdentityConfig,
 } from "./identity/config.js";
 import { openMigratedDatabase } from "./identity/database.js";
-import type { DiscoveryDocument } from "./identity/discovery.js";
+import { discoveryDocument, type DiscoverySource } from "./identity/discovery.js";
 import { IdentityEndpoint } from "./identity/endpoint.js";
 import { KeyStore } from "./identity/keys.js";
 import { identityLayout } from "./identity/layout.js";
@@ -289,9 +289,11 @@ export async function up(
     // answers before they have an account, which is the point: a server that
     // cannot say where to sign in is a server somebody has to be told about in
     // a chat message.
-    const discovery: DiscoveryDocument = {
-      protocol: 1,
-      name: hostOf(config.authOrigin),
+    const discovery: DiscoverySource = {
+      database,
+      // What this server is called until somebody names it, which is read out
+      // of the database as each request is answered rather than here.
+      host: hostOf(config.authOrigin),
       auth: { required: options.identity === true, url: authUrl(config) },
       data: { url: dataRemoteUrl(hostOf(config.authOrigin), config.dataPort) },
       // Asked of the thing that answers them rather than written out again
@@ -312,7 +314,10 @@ export async function up(
       anyInterface: true,
       portOption: "--auth-tls-port",
       tls: { cert: certificates.leafCertPem, key: certificates.leafKeyPem },
-      http1: webHandler(discovery, { ...(api === undefined ? {} : { api }), studio }),
+      http1: webHandler(() => discoveryDocument(discovery), {
+        ...(api === undefined ? {} : { api }),
+        studio,
+      }),
     });
     stdout(
       `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +

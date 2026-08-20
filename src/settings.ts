@@ -7,10 +7,11 @@
  * over ssh, from a script, or on a machine with no terminal to draw on.
  *
  * What is shown is what is in effect, which is not the same as what is stored:
- * a setting nobody has chosen has no row at all and the default answers for it,
- * so the listing says which of the two each value is. Changing one reaches a
- * Team that is already running, because a lifetime is read as each token is
- * minted rather than held from the moment `up` started.
+ * a setting nobody has chosen has no row at all and something else answers for
+ * it, so the listing says which of the two each value is. Changing one reaches
+ * a Team that is already running, because every setting is read where it is
+ * used — a lifetime as each token is minted, the name as each discovery
+ * document is answered — rather than held from the moment `up` started.
  */
 import type { WriteText } from "./cli.js";
 import { describeDuration } from "./duration.js";
@@ -21,11 +22,17 @@ import {
   lifetimeUnder,
   REPOSITORY_LIFETIME_CAUTION,
   REPOSITORY_LIFETIME_KEY,
+  SERVER_NAME_KEY,
+  setServerName,
   setTokenLifetime,
   SETTING_KEYS,
+  storedServerName,
   storedTokenLifetimes,
+  type SettingChange,
   type SettingKey,
 } from "./identity/settings.js";
+
+import type { DatabaseSync } from "node:sqlite";
 
 export interface SettingsListOptions {
   readonly root: string;
@@ -33,9 +40,8 @@ export interface SettingsListOptions {
 
 export interface SettingsSetOptions {
   readonly root: string;
-  readonly key: SettingKey;
-  /** The new value, already read out of whatever duration was typed. */
-  readonly seconds: number;
+  /** The setting and its new value, as src/args.ts read them off the line. */
+  readonly change: SettingChange;
 }
 
 function describeError(error: unknown): string {
@@ -44,6 +50,28 @@ function describeError(error: unknown): string {
 
 /** The widest key, so the values line up under each other. */
 const KEY_WIDTH = Math.max(...SETTING_KEYS.map((key) => key.length));
+
+/**
+ * What answers for the name on a server nobody has named.
+ *
+ * The host, and this command cannot say which host: the auth origin is named on
+ * the command line that starts `up`, not stored here, so a run of `settings
+ * list` on a server that is not up has nothing to read it from. Describing it
+ * is honest where printing 127.0.0.1 would be a guess, and the column beside it
+ * already says the value was nobody's choice.
+ */
+const THE_SERVERS_HOST = "the server's host";
+
+/** One setting as it stands, in the words somebody would have typed. */
+function settingValue(database: DatabaseSync, key: SettingKey): string {
+  if (key === SERVER_NAME_KEY) {
+    return storedServerName(database, THE_SERVERS_HOST);
+  }
+  // The duration in the words somebody would have typed, not the seconds
+  // the key names: 2592000 is correct and nobody can hold it up against
+  // what they set.
+  return describeDuration(lifetimeUnder(storedTokenLifetimes(database), key));
+}
 
 /** Print every setting, its value, and where that value came from. */
 export async function settingsList(
@@ -54,12 +82,8 @@ export async function settingsList(
   const layout = identityLayout(options.root);
   const database = await openMigratedDatabase(layout.databasePath);
   try {
-    const lifetimes = storedTokenLifetimes(database);
     for (const key of SETTING_KEYS) {
-      // The duration in the words somebody would have typed, not the seconds
-      // the key names: 2592000 is correct and nobody can hold it up against
-      // what they set.
-      const value = describeDuration(lifetimeUnder(lifetimes, key));
+      const value = settingValue(database, key);
       const source = isSettingStored(database, key) ? "set here" : "default";
       stdout(`${key.padEnd(KEY_WIDTH)}  ${value.padEnd(12)}  ${source}\n`);
     }
@@ -75,11 +99,13 @@ export async function settingsList(
 /**
  * Change one setting, and say what it was and what it now is.
  *
- * Both numbers, because the reason somebody runs this is to make a change and
+ * Both values, because the reason somebody runs this is to make a change and
  * the thing they want to see is the change. The sentence after it is the part
- * that surprises people: a shorter lifetime does not shorten a token that has
- * already been minted, and on the repository lifetime it does not shorten a
- * connection either.
+ * that surprises people, and it is a different surprise for each: a shorter
+ * lifetime does not shorten a token that has already been minted, and on the
+ * repository lifetime it does not shorten a connection either — while a name
+ * reaches everything reading this server's address without anything being
+ * restarted, which is the thing nobody expects to be true.
  */
 export async function settingsSet(
   options: SettingsSetOptions,
@@ -88,16 +114,24 @@ export async function settingsSet(
 ): Promise<number> {
   const layout = identityLayout(options.root);
   const database = await openMigratedDatabase(layout.databasePath);
+  const { change } = options;
   try {
-    const before = lifetimeUnder(storedTokenLifetimes(database), options.key);
-    const after = lifetimeUnder(
-      setTokenLifetime(database, options.key, options.seconds),
-      options.key,
-    );
+    const before = settingValue(database, change.key);
 
-    stdout(`${options.key} is ${describeDuration(after)}, and was ${describeDuration(before)}\n`);
+    if (change.key === SERVER_NAME_KEY) {
+      const after = setServerName(database, change.name);
+      stdout(`${change.key} is ${after}, and was ${before}\n`);
+      stdout(
+        "The next client to read this server's address is told the new name; nothing is " +
+          "restarted.\n",
+      );
+      return 0;
+    }
+
+    const after = lifetimeUnder(setTokenLifetime(database, change.key, change.seconds), change.key);
+    stdout(`${change.key} is ${describeDuration(after)}, and was ${before}\n`);
     stdout("Tokens already minted keep the lifetime they were given.\n");
-    if (options.key === REPOSITORY_LIFETIME_KEY) {
+    if (change.key === REPOSITORY_LIFETIME_KEY) {
       stdout(`${REPOSITORY_LIFETIME_CAUTION}\n`);
     }
     return 0;

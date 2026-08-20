@@ -99,7 +99,7 @@ const DISCOVERY = {
 
 /** A listener with the interface on it, and the address to reach it at. */
 async function serve(api: ApiOptions | undefined): Promise<string> {
-  const server = createServer(webHandler(DISCOVERY, api === undefined ? {} : { api }));
+  const server = createServer(webHandler(() => DISCOVERY, api === undefined ? {} : { api }));
   openServers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
   const { port } = server.address() as AddressInfo;

@@ -21,9 +21,12 @@
 import { GrpcCallError, GrpcConnectionError } from "../grpc/client.js";
 import { NoSigningKeyError } from "../identity/keys.js";
 import {
+  InvalidServerNameError,
   InvalidSettingError,
+  MAXIMUM_SERVER_NAME_LENGTH,
   MAXIMUM_TOKEN_LIFETIME_SECONDS,
   MINIMUM_TOKEN_LIFETIME_SECONDS,
+  SIGN_IN_LIFETIME_KEY,
 } from "../identity/settings.js";
 import { DisabledAccountError } from "../identity/tokens.js";
 import { UnknownUserError } from "../identity/users.js";
@@ -70,6 +73,12 @@ export function describeError(error: unknown, messages: Messages): string {
       maximum: String(MAXIMUM_TOKEN_LIFETIME_SECONDS),
     });
   }
+  if (error instanceof InvalidServerNameError) {
+    return m.invalidServerName({
+      value: error.value,
+      maximum: String(MAXIMUM_SERVER_NAME_LENGTH),
+    });
+  }
   if (error instanceof GrpcConnectionError) {
     // Which of the two matters to an operator: a loreserver that never answered
     // is a process to go and look at, and one that answered no is a thing about
@@ -89,11 +98,13 @@ export function describeError(error: unknown, messages: Messages): string {
 /**
  * A settings key as the interface writes it.
  *
- * `InvalidSettingError` names the column — `signInTokenLifetimeSeconds` — and
- * nobody reading a page has seen that word. The view's label is what they have
- * seen, so it is what the sentence says.
+ * `InvalidSettingError` names the key the table stores —
+ * `token.sign_in_lifetime_seconds` — and nobody reading a page has seen that
+ * word. The view's label is what they have seen, so it is what the sentence
+ * says. Only a lifetime reaches here: it is the one setting stored as a number
+ * with a range, and the name has a refusal of its own.
  */
 function labelOf(key: string, messages: Messages): string {
-  const label = key.startsWith("signIn") ? "sign-in token" : "repository token";
+  const label = key === SIGN_IN_LIFETIME_KEY ? "sign-in token" : "repository token";
   return messages.page.settings.rowNames[label] ?? label;
 }

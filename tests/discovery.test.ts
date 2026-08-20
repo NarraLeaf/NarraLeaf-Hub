@@ -1,12 +1,25 @@
+import { createServer, type Server } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
+import type { AddressInfo } from "node:net";
+import type { DatabaseSync } from "node:sqlite";
 import type { ConnectionOptions } from "node:tls";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { unaryCall } from "../src/grpc/client.js";
 import { GrpcServer } from "../src/grpc/server.js";
-import { DISCOVERY_PATH, serveDiscovery, type DiscoveryDocument } from "../src/identity/discovery.js";
+import { openMigratedDatabase } from "../src/identity/database.js";
+import {
+  DISCOVERY_PATH,
+  discoveryDocument,
+  serveDiscovery,
+  type DiscoveryDocument,
+  type DiscoverySource,
+} from "../src/identity/discovery.js";
+import { identityLayout } from "../src/identity/layout.js";
+import { setServerName } from "../src/identity/settings.js";
 import { ensureCertificates } from "../src/tls/authority.js";
+import { webHandler } from "../src/web/router.js";
 import { useTemporaryRoots } from "./temporary.js";
 
 const temporaryRoot = useTemporaryRoots("nlteam-discovery-");
@@ -123,5 +136,95 @@ describe("the address an author is given", () => {
         } finally {
             await stop();
         }
+    });
+});
+
+describe("the name a server answers with", () => {
+    const openServers: Server[] = [];
+    const openDatabases: DatabaseSync[] = [];
+
+    afterEach(async () => {
+        while (openServers.length > 0) {
+            const server = openServers.pop();
+            await new Promise<void>((resolve) => {
+                server?.closeAllConnections();
+                server?.close(() => resolve());
+            });
+        }
+        while (openDatabases.length > 0) {
+            openDatabases.pop()?.close();
+        }
+    });
+
+    /** A source over a database of its own, with nothing chosen in it yet. */
+    async function source(): Promise<DiscoverySource & { database: DatabaseSync }> {
+        const database = await openMigratedDatabase(
+            identityLayout(await temporaryRoot()).databasePath,
+        );
+        openDatabases.push(database);
+        return {
+            database,
+            host: "team.example.lan",
+            auth: DOCUMENT.auth,
+            data: DOCUMENT.data,
+            capabilities: DOCUMENT.capabilities,
+            authority: DOCUMENT.authority,
+            version: DOCUMENT.version,
+        };
+    }
+
+    /** The listener `up` puts this document on, without the TLS around it. */
+    async function serving(from: DiscoverySource): Promise<string> {
+        const server = createServer(webHandler(() => discoveryDocument(from), {}));
+        openServers.push(server);
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+        const { port } = server.address() as AddressInfo;
+        return `http://127.0.0.1:${String(port)}`;
+    }
+
+    async function nameAt(origin: string): Promise<string> {
+        const response = await fetch(`${origin}${DISCOVERY_PATH}`);
+        return ((await response.json()) as DiscoveryDocument).name;
+    }
+
+    it("is the host this server is reached at, until somebody names it", async () => {
+        const from = await source();
+
+        // Measured on a running server before this existed: the document said
+        // "127.0.0.1", which is the address the client already had. A name that
+        // is the host under a different label gains nobody anything.
+        expect(discoveryDocument(from).name).toBe("team.example.lan");
+    });
+
+    it("is the name that was chosen", async () => {
+        const from = await source();
+        setServerName(from.database, "Winterlight");
+
+        expect(discoveryDocument(from).name).toBe("Winterlight");
+    });
+
+    it("is the new name on the next request, without anything being restarted", async () => {
+        // The whole of the no-restart requirement, asserted rather than assumed.
+        // The listener is up and answering throughout; only the row changes.
+        const from = await source();
+        const origin = await serving(from);
+
+        expect(await nameAt(origin)).toBe("team.example.lan");
+
+        setServerName(from.database, "Winterlight");
+
+        expect(await nameAt(origin)).toBe("Winterlight");
+
+        setServerName(from.database, "Harbour");
+
+        expect(await nameAt(origin)).toBe("Harbour");
+    });
+
+    it("changes nothing else about the document", async () => {
+        const from = await source();
+        setServerName(from.database, "Winterlight");
+
+        // An older client reads the rest of it exactly as it always did.
+        expect(discoveryDocument(from)).toEqual({ ...DOCUMENT, name: "Winterlight" });
     });
 });

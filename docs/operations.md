@@ -293,6 +293,7 @@ GET /.well-known/nlteam
   "name": "team.example.lan",
   "auth": { "required": true, "url": "https://team.example.lan:41402" },
   "data": { "url": "lore://team.example.lan:41337" },
+  "capabilities": ["projects", "project-detail", "members", "project-history"],
   "authority": { "sha256": "3D:38:9F:E6:…" },
   "version": "0.1.0"
 }
@@ -312,6 +313,17 @@ interface would make it something people learn and type. `authority.sha256` lets
 a client that has already trusted this server notice, before anything else
 happens, that the machine answering is the one it trusted; it arrives over the
 connection it describes, so it is a label and not evidence.
+
+`name` is what this deployment calls itself, and it is what Studio shows in
+place of the address. Until somebody chooses one it is the server's own host,
+which is honest and says nothing the address did not:
+
+```sh
+nlteam settings set server.name "Winterlight" --root /srv/team
+```
+
+It is read as each document is answered, so the next client to ask is told the
+new name and nothing is restarted.
 
 `protocol` is a number rather than a range, so a client can say "this server
 speaks something I do not" in one comparison. It changes only when a field an
@@ -388,10 +400,12 @@ alone.
 nlteam settings list --root /srv/team
 nlteam settings set token.sign_in_lifetime_seconds 7d --root /srv/team
 nlteam settings set token.repository_lifetime_seconds 5m --root /srv/team
+nlteam settings set server.name "Winterlight" --root /srv/team
 ```
 
-A value is written as `--token-lifetime` takes one: `30m`, `48h`, `7d`, or a
-bare number of seconds. `list` says of each setting whether it is the default or
+A lifetime is written as `--token-lifetime` takes one: `30m`, `48h`, `7d`, or a
+bare number of seconds. `server.name` takes the name itself, which is what a
+person reads in Studio rather than an address. `list` says of each setting whether it is the default or
 something somebody chose here, because those are different facts — a Team server that
 never chose follows a later version of Team if the default moves, and one that
 chose keeps its number. A setting can be edited from the terminal interface as

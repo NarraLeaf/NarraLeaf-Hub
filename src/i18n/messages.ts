@@ -219,6 +219,10 @@ export interface ErrorMessages {
     readonly minimum: string;
     readonly maximum: string;
   }) => string;
+  readonly invalidServerName: (fields: {
+    readonly value: string;
+    readonly maximum: string;
+  }) => string;
   readonly notADuration: (fields: { readonly value: string }) => string;
   readonly durationTooSmall: string;
   readonly loreserverRefused: (fields: { readonly detail: string }) => string;

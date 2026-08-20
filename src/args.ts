@@ -7,7 +7,12 @@
 import { isIP } from "node:net";
 
 import { DEFAULT_IDENTITY } from "./identity/config.js";
-import { isSettingKey, SETTING_KEYS, type SettingKey } from "./identity/settings.js";
+import {
+  isLifetimeKey,
+  isSettingKey,
+  SETTING_KEYS,
+  type SettingChange,
+} from "./identity/settings.js";
 import { DEFAULT_ROLE } from "./identity/users.js";
 import { DEFAULT_PORTS } from "./loreserver/layout.js";
 
@@ -123,17 +128,18 @@ export type Invocation =
   /**
    * Change one setting.
    *
-   * The value arrives here as the seconds it will be stored as, because the
+   * A lifetime arrives here as the seconds it will be stored as, because the
    * duration it was written with — `7d`, `30m`, a bare number of seconds — is a
-   * question about the command line and belongs in this file. What is out of
-   * range is not: the bounds are the database's, and src/identity/settings.ts
-   * refuses one with a sentence saying what they are.
+   * question about the command line and belongs in this file. A name arrives as
+   * it was typed, because there is nothing to read out of it. What is out of
+   * range or malformed is not settled here: the bounds are the database's, and
+   * src/identity/settings.ts refuses either with a sentence saying what they
+   * are.
    */
   | {
       readonly kind: "settings-set";
       readonly root: string;
-      readonly key: SettingKey;
-      readonly seconds: number;
+      readonly change: SettingChange;
     }
   /** Show the signing keys. */
   | { readonly kind: "key-list"; readonly root: string }
@@ -842,12 +848,18 @@ function parseSettings(argv: readonly string[]): Invocation {
       return missingRoot("settings set");
     }
     // Named, rather than left as "unknown setting": somebody who has typed the
-    // wrong one of two keys is one line away from the right one, and a message
+    // wrong one of the keys is one line away from the right one, and a message
     // that only says no is a message that sends them to the source.
     if (!isSettingKey(key)) {
       return error(
-        `there is no setting called ${key}. The settings are ${SETTING_KEYS.join(" and ")}.`,
+        `there is no setting called ${key}. The settings are ${SETTING_KEYS.join(", ")}.`,
       );
+    }
+    // A name is stored as it was written, and every check on it is the
+    // database's: what is too long, empty or unprintable is the same question
+    // wherever the name came from, and answering it twice would be two answers.
+    if (!isLifetimeKey(key)) {
+      return { kind: "settings-set", root, change: { key, name: value } };
     }
     // The durations `--token-lifetime` takes, read by the same function, so
     // that 7d means the same thing on every command line here.
@@ -855,7 +867,11 @@ function parseSettings(argv: readonly string[]): Invocation {
     if (typeof milliseconds === "string") {
       return error(milliseconds);
     }
-    return { kind: "settings-set", root, key, seconds: Math.floor(milliseconds / 1000) };
+    return {
+      kind: "settings-set",
+      root,
+      change: { key, seconds: Math.floor(milliseconds / 1000) },
+    };
   }
 
   return error(`unknown settings command: ${verb}`);

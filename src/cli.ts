@@ -1,7 +1,7 @@
 import { parseArgs } from "./args.js";
 import { describeDuration } from "./duration.js";
 import { DEFAULT_IDENTITY, identityConfig } from "./identity/config.js";
-import { SETTING_KEYS } from "./identity/settings.js";
+import { SERVER_NAME_KEY, SETTING_KEYS } from "./identity/settings.js";
 import { DEFAULT_ROLE } from "./identity/users.js";
 import { init } from "./init.js";
 import { terminalInterface } from "./interface.js";
@@ -146,8 +146,10 @@ Options:
   -v, --version    Print the version and exit
   -h, --help       Print this message and exit
 
-settings set takes a duration written the way --token-lifetime is: 30m, 48h,
-7d, or a bare number of seconds. The keys are
+settings set takes the keys below. The two lifetimes take a duration written
+the way --token-lifetime is: 30m, 48h, 7d, or a bare number of seconds.
+${SERVER_NAME_KEY} takes the name this deployment is called in Studio, which is
+its host until somebody chooses one. The keys are
 ${SETTING_KEYS.map((key) => `  ${key}`).join("\n")}
 
 init, user create and token mint read the password from standard input.
@@ -278,7 +280,7 @@ export async function run(
       return await settingsList({ root: invocation.root }, stdout, stderr);
     case "settings-set":
       return await settingsSet(
-        { root: invocation.root, key: invocation.key, seconds: invocation.seconds },
+        { root: invocation.root, change: invocation.change },
         stdout,
         stderr,
       );

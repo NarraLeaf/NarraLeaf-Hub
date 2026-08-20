@@ -19,6 +19,9 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { DatabaseSync } from "node:sqlite";
+
+import { storedServerName } from "./settings.js";
 
 /** The path this document is served at, and the only path the HTTP/1.1 side answers. */
 export const DISCOVERY_PATH = "/.well-known/nlteam";
@@ -32,7 +35,15 @@ export const DISCOVERY_PATH = "/.well-known/nlteam";
  */
 export interface DiscoveryDocument {
   readonly protocol: 1;
-  /** What this deployment calls itself, for a list of servers a person reads. */
+  /**
+   * What this deployment calls itself, for a list of servers a person reads.
+   *
+   * The name an operator chose, and this server's own host until one of them
+   * does. It is worked out as each request is answered — see
+   * {@link discoveryDocument} — rather than settled when the process started,
+   * because Studio shows it in place of `host:port` and a name that took a
+   * restart to appear would be a name nobody dared change.
+   */
   readonly name: string;
   readonly auth: {
     /**
@@ -78,6 +89,40 @@ export interface DiscoveryDocument {
   };
   /** The server's own version, for a support conversation rather than for a decision. */
   readonly version: string;
+}
+
+/**
+ * Everything the document is composed from, as it stands when one is asked for.
+ *
+ * Everything here but the name is settled when `up` starts: the ports, the
+ * fingerprint, the version, and what this build serves. The name is not, which
+ * is the whole reason this is a source rather than a finished document — it is
+ * a setting, and a setting somebody changes over ssh has to reach the next
+ * request rather than the next restart.
+ */
+export interface DiscoverySource {
+  /** Where the chosen name is read from, on each request. */
+  readonly database: DatabaseSync;
+  /** The host this server is reached at, which names it until somebody does. */
+  readonly host: string;
+  readonly auth: DiscoveryDocument["auth"];
+  readonly data: DiscoveryDocument["data"];
+  readonly capabilities: readonly string[];
+  readonly authority: DiscoveryDocument["authority"];
+  readonly version: string;
+}
+
+/** The document as it stands now, name and all. */
+export function discoveryDocument(source: DiscoverySource): DiscoveryDocument {
+  return {
+    protocol: 1,
+    name: storedServerName(source.database, source.host),
+    auth: source.auth,
+    data: source.data,
+    capabilities: source.capabilities,
+    authority: source.authority,
+    version: source.version,
+  };
 }
 
 /**
