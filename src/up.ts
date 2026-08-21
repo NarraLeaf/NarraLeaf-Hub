@@ -43,6 +43,9 @@ import {
 import { LORESERVER_VERSION, resolveArtifact } from "./loreserver/pin.js";
 import { Supervisor, describeExit } from "./loreserver/supervisor.js";
 import { startAuthorizationService } from "./projects/service.js";
+import { createTeamSocket, type TeamSocket } from "./team/endpoint.js";
+import { projectTopic, TOPIC_PROJECTS } from "./team/protocol.js";
+import { refuseUpgrade } from "./team/websocket.js";
 import { ViewPublisher } from "./publisher.js";
 import { ensureCertificates, type TeamAuthority } from "./tls/authority.js";
 import { trustCommandFor } from "./tls/trust.js";
@@ -177,6 +180,16 @@ export async function up(
   let authorizationTls: GrpcServer | undefined;
   let database: DatabaseSync | undefined;
   let publisher: ViewPublisher | undefined;
+  /**
+   * The sessions, once there are any.
+   *
+   * Declared out here because three things reach it and they are made at
+   * different moments: the reader announces what it has read, the Studio API
+   * announces a project appearing or going, and stopping this process ends every
+   * session. Each of those is written before or after the socket exists, so all
+   * three go through this and check.
+   */
+  let team: TeamSocket | undefined;
 
   try {
     const artifact = resolveArtifact();
@@ -273,6 +286,14 @@ export async function up(
       // unread. What it stops is a reader that has never once worked being
       // indistinguishable from one that has not finished its first clone.
       onReadability: (line) => stdout(`${line}\n`),
+      // Published on that project's own topic and not on the list's. One pass
+      // over the repositories touches every project, so announcing each of them
+      // to whoever holds the list would have every open Studio re-read the
+      // whole thing once a minute for nothing. The list moves when somebody
+      // makes a project or takes one off, which is what the API announces.
+      onProjectRead: (projectId) => {
+        team?.hub.publish(projectTopic(projectId), { kind: "project-read", project: projectId });
+      },
     });
     publisher = views;
     // Made here because both interfaces below are handed what it holds, and
@@ -312,7 +333,26 @@ export async function up(
       log: (line) => {
         stdout(`${line}\n`);
       },
+      announce: (event) => {
+        team?.hub.publish(TOPIC_PROJECTS, event);
+        if (event.kind === "project-forgotten") {
+          // Said on the project's own topic as well. Anybody holding it is
+          // watching something that is not there any more, and the alternative
+          // to telling them is a screen that goes quiet and looks exactly like
+          // a screen with nothing happening on it.
+          team?.hub.publish(projectTopic(event.project), event);
+        }
+      },
     };
+
+    // Made here rather than beside the listener because it needs the service
+    // above and the listener needs it: one object, handed to the thing that
+    // starts sessions and to the things that publish into them.
+    team = createTeamSocket({
+      service: studio,
+      version: VERSION,
+      host: hostOf(config.authOrigin),
+    });
 
     // The one address an author is given resolves to the listener below. It
     // answers before they have an account, which is the point: a server that
@@ -328,7 +368,12 @@ export async function up(
       // Asked of the thing that answers them rather than written out again
       // here, so that a route added to src/web/studio.ts is announced by the
       // same change that serves it.
-      capabilities: studioCapabilities(studio),
+      // What the routes serve and what a session serves, as one list. Both are
+      // worked out from what this build actually answers rather than written
+      // down a second time: a capability announced by a build that does not
+      // serve it is the one failure a client cannot recover from, because
+      // checking before asking is the whole of what a capability is for.
+      capabilities: [...studioCapabilities(studio), ...team.capabilities],
       authority: { sha256: certificates.authority.fingerprint256 },
       version: VERSION,
     };
@@ -347,6 +392,14 @@ export async function up(
         ...(api === undefined ? {} : { api }),
         studio,
       }),
+      upgrade: (request, socket, head) => {
+        if (team?.handleUpgrade(request, socket, head) === true) {
+          return;
+        }
+        // Still speaking HTTP at this point, so this is a status and a sentence
+        // rather than a dropped socket. See src/team/endpoint.ts.
+        refuseUpgrade(socket, 404, "nothing at that address accepts a WebSocket");
+      },
     });
     stdout(
       `auth endpoint on port ${config.authTlsPort} of every interface, over TLS, ` +
@@ -525,6 +578,10 @@ export async function up(
     }
     // It holds a timer and a reader that would go on reading repositories
     // through a database that is about to be closed under it.
+    // Before the database closes, and with a sentence. A session that simply
+    // stopped answering is one whose client reconnects into a machine that is
+    // going down, and then does it again a second later.
+    team?.hub.closeAll("this server is shutting down");
     publisher?.stop();
     database?.close();
   }

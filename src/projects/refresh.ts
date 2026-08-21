@@ -43,8 +43,14 @@ export interface ProjectReadingsOptions {
   readonly root: string;
   readonly database: DatabaseSync;
   readonly config: IdentityConfig;
-  /** Called each time a project's reading changes what is on screen. */
-  readonly onChange?: () => void;
+  /**
+   * Called each time a project's reading changes what is on screen, naming it.
+   *
+   * The id is there because two things listen now. A terminal or a browser
+   * redraws whatever it is holding and does not care which project moved; a
+   * session publishes on that project's own topic, and a topic needs the id.
+   */
+  readonly onChange?: (projectId: string) => void;
   /**
    * Called when a project stops being readable, or starts again.
    *
@@ -301,7 +307,7 @@ export class ProjectReadings {
       } finally {
         this.inside.delete(project.id);
       }
-      this.options.onChange?.();
+      this.options.onChange?.(project.id);
     }
   }
 

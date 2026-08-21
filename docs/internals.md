@@ -130,6 +130,67 @@ This is also what makes revocation immediate, and it is the part `loreserver`
 alone cannot do: it checks a token's signature and its expiry, and asks nothing
 else, but every repository access goes on to ask Team.
 
+## The Team protocol is a session, not a request
+
+Everything a Studio installation could ask this server, it asked one request at
+a time: seven routes under `/api/studio/v1`, a bearer token on each, and an
+answer. That is enough for a list of projects and it is not enough for anything
+an author does together with somebody else. Two things are missing from it and
+neither can be added to a request: **this server cannot say anything nobody
+asked for**, and **there is nowhere below a project to put anything**.
+
+So there is a second thing on the same listener. `GET /api/team/v1/socket`, with
+the same bearer, becomes a WebSocket, and over it either side speaks. Studio
+makes calls and subscribes to topics; this server answers calls and pushes
+events. The frames, the method names and the shapes they carry are all in
+`src/team/protocol.ts`, which is the one file to read before changing any of it,
+and whose twin lives in Studio.
+
+Four decisions in it are worth stating here because they are what the rest
+follows from.
+
+**It is additive, and the discovery document's `protocol` does not move.** A
+Studio that has never heard of the socket never opens one and loses nothing; a
+newer one finds a capability name — `session`, `comments` — in the same list the
+existing five arrive in and matches it literally. Nothing is ever discovered by
+getting a 404.
+
+**One listener, one certificate.** The same reason the discovery document and
+the operator's page are on the auth endpoint's port: an operator compares a
+fingerprint once, and everything a Studio installation says to this server
+arrives over the connection whose certificate was compared. That the `upgrade`
+event fires at all on an `http2.createSecureServer` with `allowHTTP1` is
+measured rather than assumed, and it is what makes this possible without a
+second port.
+
+**Anchors are opaque.** A comment is attached to a document inside a project and
+usually to something inside that document. Both are strings Studio writes and
+Studio interprets. This server stores them, indexes on them and compares them
+for equality; it never parses one, never checks one against a repository, and
+never has to be upgraded because Studio started anchoring to a new kind of
+thing. It is the same bargain the project reader already makes, where a file it
+cannot read is reported as unknown rather than as an error, and it is what keeps
+the two halves independently releasable.
+
+**A method is one place.** `src/team/methods.ts` holds a table of name,
+capability and handler, and the discovery document's capability list is worked
+out from that table rather than written down beside it. A build that leaves a
+module out loses the method and the capability together, which is the one
+direction that cannot strand a client: a capability announced by a build that
+does not serve it defeats the whole point of checking before asking.
+
+Who may do what has not changed and is still one sentence — every account of
+this server reaches every project on it. The single exception is not about
+projects: **a comment is edited or withdrawn by whoever wrote it**, operators
+included. That is authorship rather than authorisation.
+
+Delivery is deliberately the weakest guarantee that is still correct. Nothing is
+queued and nothing is replayed. Each topic carries a sequence number, a client is
+told where that number stands when it subscribes, and **anything other than
+exactly the number it last saw means read the collection again**. A restart
+takes the sequences back to nought, which reads as a missed event, which is what
+it is.
+
 ## The interface is a second host, not a second implementation
 
 The interface carries nothing out itself. A key that changes something names
@@ -289,7 +350,10 @@ and a dozen verbs, none of which writes anything. It includes gRPC, which Team
 both serves and calls: `src/grpc/` is the protocol buffer codec, the framing, a
 server and a client, on `node:http2`, for the dozen small messages `loreserver`
 and Team exchange. It includes reading MessagePack, which is what a Studio
-project file is written in. And it includes X.509:
+project file is written in. It includes WebSocket: `src/team/websocket.ts` is
+the handshake, the framing and the control frames, and no extensions at all —
+a few hundred lines against a specification that has not moved since 2011, for
+a protocol whose every message is JSON. And it includes X.509:
 `src/tls/` writes the DER of a certificate a byte at a time, and `node:crypto`
 signs it.
 

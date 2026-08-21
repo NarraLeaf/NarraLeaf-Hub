@@ -19,6 +19,7 @@
  *     that costs.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import {
   createSecureServer,
   createServer,
@@ -54,6 +55,11 @@ export interface GrpcCall {
 /** What a method does with a call: answer with one message, or fail. */
 export type GrpcMethod = (call: GrpcCall) => Buffer | Promise<Buffer>;
 
+/** Whether this listener has anything to say to a client that does not speak h2. */
+function speaksHttp1(options: GrpcServerOptions): boolean {
+  return options.http1 !== undefined || options.upgrade !== undefined;
+}
+
 /** The certificate and key a TLS listener presents. */
 export interface GrpcTlsOptions {
   /** The endpoint's certificate, and the authority's after it. */
@@ -73,6 +79,19 @@ export interface GrpcServerOptions {
    * negotiates h2 and arrives as a stream, which this never sees.
    */
   readonly http1?: (request: IncomingMessage, response: ServerResponse) => void;
+  /**
+   * Take an HTTP/1.1 upgrade on this listener, for the Team protocol's socket.
+   *
+   * The same listener, the same certificate and therefore the same decision to
+   * trust as everything else a Studio installation talks to - the reason set out
+   * in src/team/endpoint.ts. gRPC is untouched: an h2 client never sends one of
+   * these, and this event is only reached by a connection whose ALPN settled on
+   * HTTP/1.1.
+   *
+   * Handed the raw socket, because that is what an upgrade is. Whoever takes it
+   * owns everything after this point, refusals included.
+   */
+  readonly upgrade?: (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
   /** Interface to listen on; the loopback by default. */
   readonly host?: string;
   /**
@@ -271,8 +290,8 @@ export class GrpcServer {
             // every client of the service negotiates. HTTP/1.1 is offered only
             // where there is something to answer with, and a client that
             // negotiates it reaches `http1` rather than a protocol error.
-            ALPNProtocols: options.http1 === undefined ? ["h2"] : ["h2", "http/1.1"],
-            ...(options.http1 === undefined ? {} : { allowHTTP1: true }),
+            ALPNProtocols: speaksHttp1(options) ? ["h2", "http/1.1"] : ["h2"],
+            ...(speaksHttp1(options) ? { allowHTTP1: true } : {}),
           });
     const sessions = new Set<ServerHttp2Session>();
 
@@ -309,6 +328,16 @@ export class GrpcServer {
         if (request.httpVersionMajor === 1) {
           http1(request as unknown as IncomingMessage, response as unknown as ServerResponse);
         }
+      });
+    }
+
+    // An upgrade is not a request and never reaches the handler above: node
+    // emits it on the server itself, and a listener that is not there means the
+    // socket is dropped without an answer.
+    const upgrade = options.upgrade;
+    if (upgrade !== undefined) {
+      server.on("upgrade", (request, socket, head) => {
+        upgrade(request as IncomingMessage, socket as Duplex, head as Buffer);
       });
     }
 

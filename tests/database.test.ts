@@ -64,17 +64,22 @@ describe("migrate", () => {
         )
         .run("9a1c0e2e", "ada", "Ada Lovelace", "scrypt$N=16384,r=8,p=1$c2FsdA==$aGFzaA==", 1);
 
-      // Put the file back to the version before the newest migration. That
-      // one drops a table rather than adding one, so undoing it means putting
-      // a `project_grants` table back; one column is enough, because what the
-      // migration does to it does not depend on its shape, and a fuller copy
-      // here would be one more thing to keep in step with the migration list.
-      database.exec("CREATE TABLE project_grants (project_id TEXT NOT NULL PRIMARY KEY) STRICT");
+      // Put the file back to the version before the newest migration. That one
+      // adds the tables conversations live in, so undoing it means dropping
+      // them. ⚠ This pair of lines tracks whichever migration is last: a new
+      // one appended to the list is a new thing to undo here, and the failure
+      // when it is forgotten is this test rather than a server in the field.
+      database.exec("DROP TABLE comments");
+      database.exec("DROP TABLE threads");
       database.prepare("DELETE FROM schema_version WHERE version = ?").run(SCHEMA_VERSION);
       expect(schemaVersion(database)).toBe(SCHEMA_VERSION - 1);
 
       expect(migrate(database, path)).toBe(SCHEMA_VERSION);
 
+      expect(tableNames(database)).toContain("threads");
+      expect(tableNames(database)).toContain("comments");
+      // Still gone, from the migration before that one. A migration list that
+      // replayed from the start would put it back.
       expect(tableNames(database)).not.toContain("project_grants");
       // The account is still there. A migration that took the file back to
       // something empty would pass every check about tables and lose a Team server.

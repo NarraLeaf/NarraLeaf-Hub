@@ -1,0 +1,145 @@
+/**
+ * Where a session begins: the `upgrade` half of the listener everything else is on.
+ *
+ * The discovery document, the Studio REST API, the operator's page and now this
+ * are one port and one certificate. That is not thrift, it is the trust story:
+ * an operator compares a fingerprint once, and every conversation a Studio
+ * installation has with this server arrives over the connection whose
+ * certificate was compared. A second port would be a second such conversation,
+ * and one nobody would have.
+ *
+ * ⚠ Measured rather than assumed: the listener is an HTTP/2 secure server with
+ * `allowHTTP1`, and a connection whose ALPN settles on `http/1.1` does reach its
+ * `upgrade` event. That is what makes the paragraph above true rather than a
+ * plan.
+ *
+ * **A refusal here is an HTTP status, not a close code.** The socket is still
+ * speaking HTTP when this decides, and a 401 with a sentence is something a
+ * client can show a person. A 101 followed immediately by a close frame is a
+ * client that connected and then did not, which is the hardest kind of failure
+ * to report.
+ */
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
+
+import { bearerToken, describeRefusal, identifyToken } from "../identity/bearer.js";
+import { storedServerName } from "../identity/settings.js";
+import type { StudioApiOptions } from "../web/studio.js";
+import { TeamHub } from "./hub.js";
+import { capabilitiesOf, methodTable, type TeamMethod } from "./methods.js";
+import { commentMethods } from "./methods/comments.js";
+import { projectMethods } from "./methods/projects.js";
+import {
+  TEAM_HEARTBEAT_MS,
+  TEAM_SOCKET_PATH,
+  type TeamCapability,
+} from "./protocol.js";
+import { TeamSession } from "./session.js";
+import { completeUpgrade, isWebSocketUpgrade, refuseUpgrade } from "./websocket.js";
+
+/**
+ * The most one message may be.
+ *
+ * A suggestion is the largest thing a client sends, and this is comfortably
+ * above it with room for the frame around it. Anything beyond is somebody using
+ * a comment as a file store, and the answer is a close rather than a row.
+ */
+const MAXIMUM_MESSAGE_BYTES = 128 * 1024;
+
+export interface TeamSocketOptions {
+  /** The same service the REST API answers from: one database, one reader, one log. */
+  readonly service: StudioApiOptions;
+  /** This build's version, for the opening frame. */
+  readonly version: string;
+  /** What this server is called until somebody names it. */
+  readonly host: string;
+}
+
+/**
+ * The socket endpoint, and the handle to what is connected to it.
+ *
+ * The hub is returned rather than kept private because the things that publish
+ * are outside this file: the project reader announces what it has read, and the
+ * process announces that it is stopping.
+ */
+export interface TeamSocket {
+  readonly hub: TeamHub;
+  readonly capabilities: readonly TeamCapability[];
+  /**
+   * Take one upgrade request, and say whether it was ours.
+   *
+   * False means the path was not this endpoint's, so whoever is listening may go
+   * on to its own arms. Everything at this path is answered here, refusals
+   * included.
+   */
+  readonly handleUpgrade: (request: IncomingMessage, socket: Duplex, head: Buffer) => boolean;
+}
+
+/** Every method this build serves. */
+export function teamMethods(): readonly TeamMethod[] {
+  return [...projectMethods(), ...commentMethods()];
+}
+
+export function createTeamSocket(options: TeamSocketOptions): TeamSocket {
+  const methods = methodTable(teamMethods());
+  const capabilities = capabilitiesOf(methods);
+  const hub = new TeamHub(capabilities);
+
+  const handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): boolean => {
+    const path = new URL(request.url ?? "/", "http://team.invalid").pathname;
+    if (path !== TEAM_SOCKET_PATH) {
+      return false;
+    }
+    if (!isWebSocketUpgrade(request)) {
+      refuseUpgrade(socket, 400, "that is not a WebSocket handshake this server speaks");
+      return true;
+    }
+
+    const header = request.headers["authorization"];
+    const token = bearerToken(Array.isArray(header) ? header[0] : header);
+    const identified = identifyToken(
+      options.service.database,
+      options.service.keys,
+      options.service.config,
+      token,
+    );
+    if (identified.kind === "refused") {
+      refuseUpgrade(socket, 401, describeRefusal(identified.reason));
+      return true;
+    }
+
+    // Read as the session opens rather than when this server started, for the
+    // same reason the discovery document reads it per request: a name somebody
+    // changes over ssh should reach the next connection, not the next restart.
+    const serverName = storedServerName(options.service.database, options.host);
+
+    let session: TeamSession | undefined;
+    const connection = completeUpgrade(request, socket, head, {
+      maximumMessageBytes: MAXIMUM_MESSAGE_BYTES,
+      heartbeatMs: TEAM_HEARTBEAT_MS,
+      onMessage: (text) => {
+        session?.receive(text);
+      },
+      onClose: () => {
+        session?.closed();
+      },
+    });
+
+    session = new TeamSession({
+      connection,
+      hub,
+      service: options.service,
+      methods,
+      token: token as string,
+      user: identified.user,
+      serverName,
+      version: options.version,
+    });
+    options.service.log?.(
+      `team: ${identified.user.username} opened a session (${hub.size} open)`,
+    );
+    return true;
+  };
+
+  return { hub, capabilities, handleUpgrade };
+}

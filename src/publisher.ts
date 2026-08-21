@@ -46,6 +46,14 @@ export interface PublisherOptions {
    * put a line — see src/projects/refresh.ts on when it is called.
    */
   readonly onReadability?: (line: string) => void;
+  /**
+   * Called with a project's id each time this server has read its repository.
+   *
+   * Where a session announces it. Separate from the redraw the views do because
+   * the two want different things: a screen redraws whatever it is holding, and
+   * a topic needs to be named.
+   */
+  readonly onProjectRead?: (projectId: string) => void;
 }
 
 /** The views of one server, as they change. */
@@ -61,7 +69,10 @@ export class ViewPublisher {
       root,
       database: options.database,
       config: options.config,
-      onChange: () => this.#schedule(),
+      onChange: (projectId) => {
+        this.#schedule();
+        options.onProjectRead?.(projectId);
+      },
       ...(options.onReadability === undefined ? {} : { onReadability: options.onReadability }),
     });
     this.#context = {

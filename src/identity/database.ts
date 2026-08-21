@@ -279,6 +279,80 @@ const MIGRATIONS: readonly Migration[] = [
       "DROP TABLE project_grants",
     ],
   },
+  {
+    version: 8,
+    description: "conversations attached to places inside a project",
+    statements: [
+      // The first thing this server stores that an author wrote. Everything
+      // before it was either an account or a fact about a repository, and both
+      // of those have somewhere else they really live.
+      //
+      // `document`, `element` and `revision` are **an anchor, and this server
+      // does not read one**. They are strings Studio writes and Studio
+      // interprets: a path inside the project, an id for something inside that
+      // path, and what the repository was at when somebody wrote this. Stored,
+      // indexed and compared for equality; never parsed, never checked against
+      // a repository, and never a reason this server has to be upgraded in step
+      // with the one it serves. That bargain is set out in src/team/protocol.ts
+      // and it is the reason a comment can be attached to a kind of thing this
+      // build has never heard of.
+      //
+      // `created_by` is a user id with no foreign key, for the reason the
+      // decisions table gives: a row that cascaded away with an account would
+      // delete exactly the record somebody deleted an account over.
+      //
+      // `client_id` is what the client called this when it asked for it, and it
+      // is how a reply that was sent twice over a socket that dropped becomes
+      // one thread rather than two.
+      `CREATE TABLE threads (
+         id          TEXT    NOT NULL PRIMARY KEY,
+         project_id  TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         document    TEXT    NOT NULL,
+         element     TEXT,
+         revision    TEXT,
+         kind        TEXT    NOT NULL,
+         status      TEXT    NOT NULL,
+         created_by  TEXT    NOT NULL,
+         created_at  INTEGER NOT NULL,
+         updated_at  INTEGER NOT NULL,
+         resolved_by TEXT,
+         resolved_at INTEGER,
+         client_id   TEXT
+       ) STRICT`,
+      // Studio asks two questions of this table and they run in different
+      // directions: everything anchored at one place, when a row is on screen,
+      // and everything in one project by what changed last, when a panel is
+      // opened. Two indexes because one of them cannot answer the other.
+      "CREATE INDEX threads_by_anchor ON threads (project_id, document, element)",
+      "CREATE INDEX threads_by_project ON threads (project_id, updated_at)",
+      // Partial, because most rows have no client id and NULLs are not equal to
+      // one another in SQLite - a plain unique index would let one client
+      // repeat itself as often as it liked.
+      `CREATE UNIQUE INDEX threads_by_client ON threads (created_by, client_id)
+         WHERE client_id IS NOT NULL`,
+      // `suggestion` is the other opaque column: what this comment proposes to
+      // put in place of what it is anchored to, encoded by Studio. A comment
+      // that proposes nothing has none.
+      //
+      // `deleted_at` rather than a deleted row. The shape of a conversation is
+      // part of what the remaining comments mean, so a withdrawn comment keeps
+      // its place and loses its body.
+      `CREATE TABLE comments (
+         id         TEXT    NOT NULL PRIMARY KEY,
+         thread_id  TEXT    NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+         author_id  TEXT    NOT NULL,
+         body       TEXT    NOT NULL,
+         suggestion TEXT,
+         created_at INTEGER NOT NULL,
+         edited_at  INTEGER,
+         deleted_at INTEGER,
+         client_id  TEXT
+       ) STRICT`,
+      "CREATE INDEX comments_by_thread ON comments (thread_id, created_at)",
+      `CREATE UNIQUE INDEX comments_by_client ON comments (author_id, client_id)
+         WHERE client_id IS NOT NULL`,
+    ],
+  },
 ];
 
 /** The schema version this build of Team writes and expects. */

@@ -88,6 +88,7 @@ import {
   type ProjectRecord,
 } from "../projects/registry.js";
 import { loreserverUrl, repositoryCreate } from "../projects/repository.js";
+import type { TeamProjectsEvent } from "../team/protocol.js";
 import { NOT_READ_YET } from "../tui/teamview.js";
 import type { ProjectFileView, RevisionView } from "../tui/teamview.js";
 import { holdRefusedSignIn, isOperator } from "./api.js";
@@ -177,6 +178,16 @@ export interface StudioApiOptions {
   readonly readings?: StudioReadings;
   /** Somewhere to say what happened, in the same place `up` says everything else. */
   readonly log?: (line: string) => void;
+  /**
+   * Tell every open session that the list of projects moved.
+   *
+   * Absent on a build with no socket, and on every test that does not care.
+   * Called from the two routes that change what the list holds, rather than
+   * from the registry, because the registry is also written by the CLI and by
+   * loreserver adopting a repository - and an announcement is about a decision
+   * somebody made, not about a row.
+   */
+  readonly announce?: (event: TeamProjectsEvent) => void;
 }
 
 /**
@@ -225,7 +236,7 @@ export function studioCapabilities(options: StudioApiOptions): StudioCapability[
 }
 
 /** One project, as a Studio installation reads it. */
-interface ProjectBody {
+export interface ProjectBody {
   readonly id: string;
   readonly name: string;
   readonly description: string;
@@ -265,7 +276,7 @@ interface ProjectBody {
  * the operator's page and administer this server. It is not a permission over
  * any project: every account of this server reaches every project on it.
  */
-interface MemberBody {
+export interface MemberBody {
   readonly username: string;
   readonly displayName: string;
   /**
@@ -353,7 +364,7 @@ function answering(
   });
 }
 
-function projectBody(options: StudioApiOptions, project: ProjectRecord): ProjectBody {
+export function projectBody(options: StudioApiOptions, project: ProjectRecord): ProjectBody {
   const { database, config } = options;
   const maker = findUserById(database, project.createdBy);
   // Whatever the reader has landed, and nothing is asked of it here. A project
@@ -373,7 +384,7 @@ function projectBody(options: StudioApiOptions, project: ProjectRecord): Project
   };
 }
 
-function memberBody(user: UserRecord): MemberBody {
+export function memberBody(user: UserRecord): MemberBody {
   return {
     username: user.username,
     displayName: user.displayName,
@@ -680,6 +691,10 @@ function answerProjectForget(
   // The name is read out of the row before it goes, because this is the one
   // line here whose subject does not exist by the time anybody reads it.
   options.log?.(`studio: ${user.username} forgot ${project.name} (${project.id})`);
+  // Its conversations went with the row, by the foreign key migration 8 wrote.
+  // Anybody holding that project's threads topic is told the project is gone
+  // rather than told nothing and left listening to something that cannot speak.
+  options.announce?.({ kind: "project-forgotten", project: project.id });
   sendNothing(response);
 }
 
@@ -944,6 +959,7 @@ async function answerProjectCreate(
 
   if (claimed !== undefined) {
     options.log?.(`studio: ${user.username} registered ${project.name} (${project.id})`);
+    options.announce?.({ kind: "project-created", project: project.id });
     // No history, and for a different reason from the one below: this
     // repository may have years of it, and none of it has arrived yet. Absent
     // is what says the reader has not been round; a nought would say the
@@ -976,6 +992,7 @@ async function answerProjectCreate(
   }
 
   options.log?.(`studio: ${user.username} created ${project.name} (${project.id})`);
+  options.announce?.({ kind: "project-created", project: project.id });
   // No history on it, and that is right: the repository was made a moment ago
   // and nothing has been read out of it. Absent says so; nought would say
   // somebody had already emptied it.

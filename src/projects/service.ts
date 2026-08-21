@@ -27,6 +27,7 @@
  * it was told, and a refusal reaches the person as "not found".
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import type { DatabaseSync } from "node:sqlite";
 
 import {
@@ -698,6 +699,8 @@ export interface AuthorizationServiceOptions extends AuthorizationContext {
   readonly tls?: { readonly cert: string; readonly key: string };
   /** Answer HTTP/1.1 on this listener too - the discovery document, and only it. */
   readonly http1?: (request: IncomingMessage, response: ServerResponse) => void;
+  /** Take an HTTP/1.1 upgrade on this listener - the Team protocol's socket. */
+  readonly upgrade?: (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
   /** The option that moves this listener, for the message if it cannot start. */
   readonly portOption?: string;
   /** Called for a failure that belongs to no call. */
@@ -715,6 +718,7 @@ export async function startAuthorizationService(
     methods: authorizationMethods(options),
     ...(options.tls === undefined ? {} : { tls: options.tls }),
     ...(options.http1 === undefined ? {} : { http1: options.http1 }),
+    ...(options.upgrade === undefined ? {} : { upgrade: options.upgrade }),
     ...(options.portOption === undefined ? {} : { portOption: options.portOption }),
     ...(options.onError === undefined ? {} : { onError: options.onError }),
   });
