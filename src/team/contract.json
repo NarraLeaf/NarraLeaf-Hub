@@ -25,6 +25,7 @@
     "comments.edit",
     "comments.delete",
     "clients.announce",
+    "clients.withdraw",
     "clients.list",
     "live.list",
     "live.open",

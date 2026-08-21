@@ -818,6 +818,27 @@ describe("which installation is on the other end", () => {
     expect(left).toEqual([]);
   });
 
+  it("takes a window's presence back when it closes, without the socket closing", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.send("subscribe", { topic: projectClientsTopic(project) });
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    await ada.until(() => ada.events.length > 0);
+
+    await bob.value(TEAM_METHODS.clientsWithdraw, { project });
+
+    expect((await ada.value(TEAM_METHODS.clientsList, { project }))["clients"]).toEqual([]);
+    expect(
+      ada.events.some((each) => (each.payload as { kind: string }).kind === "client-gone"),
+    ).toBe(true);
+    // The session is still perfectly good: what closed was a window.
+    expect((await bob.call(TEAM_METHODS.clientsList, { project })).code).toBeUndefined();
+  });
+
+  it("says nothing went wrong withdrawing a project nothing was announced about", async () => {
+    const { ada, project } = await withTwo();
+    expect((await ada.call(TEAM_METHODS.clientsWithdraw, { project })).code).toBeUndefined();
+  });
+
   it("refuses an announcement about a project this server has not got", async () => {
     const { ada } = await withTwo();
     const refusal = await ada.call(

@@ -74,6 +74,20 @@ export function clientMethods(): TeamMethod[] {
       },
     },
     {
+      name: TEAM_METHODS.clientsWithdraw,
+      capability: "clients",
+      handle: (params: unknown, context: MethodContext) => {
+        // Never refused, including for a project nothing was ever announced
+        // about: the state the caller wanted is the state there is, which is the
+        // rule leaving a room and dropping a subscription both follow.
+        context.presence.withdraw(
+          context.connection.id,
+          requiredText(paramsObject(params), "project", ID_LIMIT),
+        );
+        return null;
+      },
+    },
+    {
       name: TEAM_METHODS.clientsList,
       capability: "clients",
       handle: (params: unknown, context: MethodContext) => {

@@ -220,6 +220,25 @@ export class TeamPresence {
       .filter((instance): instance is TeamClientInstance => instance !== undefined);
   }
 
+  /**
+   * Take back what one connection said about one project, because that window closed.
+   *
+   * Needed because a socket outlives a window: Studio holds one connection per
+   * server and a window per project, so closing a project leaves the connection
+   * open and would leave a presence behind claiming somebody still has that
+   * project open. This is the only way an instance goes without its socket
+   * going, and it is safe to be wrong about - a client that never calls it loses
+   * nothing except a stale row that its next disconnect clears.
+   */
+  withdraw(connection: string, project: string): void {
+    const instance = this.instanceOn(connection, project);
+    if (instance === undefined) {
+      return;
+    }
+    this.byConnection.get(connection)?.delete(instance.id);
+    this.retire(instance.id);
+  }
+
   /** Everything connected, or everything with one project open. */
   clients(project?: string): TeamClientInstance[] {
     const all = [...this.instances.values()].map((entry) => entry.instance);

@@ -649,6 +649,8 @@ export const TEAM_METHODS = {
   commentsDelete: "comments.delete",
   /** Say which installation this is, and what it has open. */
   clientsAnnounce: "clients.announce",
+  /** Take one window's presence back, because it closed while the session stayed open. */
+  clientsWithdraw: "clients.withdraw",
   /** Which installations are connected, optionally only those on one project. */
   clientsList: "clients.list",
   /** The live sessions open on one project. */
