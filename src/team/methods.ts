@@ -17,7 +17,8 @@
  */
 import type { UserRecord } from "../identity/users.js";
 import type { StudioApiOptions } from "../web/studio.js";
-import type { TeamAccount, TeamCapability, TeamErrorCode } from "./protocol.js";
+import type { TeamPresence } from "./presence.js";
+import type { TeamAccount, TeamCapability, TeamClientInstance, TeamErrorCode } from "./protocol.js";
 
 /**
  * A refusal a method raises, and the one thing a handler ever throws on purpose.
@@ -53,6 +54,35 @@ export interface MethodContext {
    * handler announces without a socket.
    */
   readonly publish: (topic: string, payload: unknown) => void;
+  /**
+   * The link session this call arrived on, by id.
+   *
+   * Here because a handful of methods are about the caller's own connection
+   * rather than about a row: saying which installation is on the other end, and
+   * everything that follows from it. See {@link callingInstance}.
+   */
+  readonly connection: { readonly id: string };
+  /** Who is connected and which live sessions are open. See src/team/presence.ts. */
+  readonly presence: TeamPresence;
+}
+
+/**
+ * Which installation is calling, refusing the call if it never said.
+ *
+ * Announcing is one call and a client makes it as soon as its session opens, so
+ * a caller reaching one of these without having announced is a client that
+ * skipped a step rather than an older one - an older client has no idea these
+ * methods exist. The refusal names the remedy.
+ */
+export function callingInstance(context: MethodContext): TeamClientInstance {
+  const instance = context.presence.instanceOf(context.connection.id);
+  if (instance === undefined) {
+    throw new MethodError(
+      "refused",
+      "this session has not said which installation it is; call clients.announce first",
+    );
+  }
+  return instance;
 }
 
 /** One thing a session can be asked for. */

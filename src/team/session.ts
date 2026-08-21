@@ -30,6 +30,7 @@ import type { StudioApiOptions } from "../web/studio.js";
 import { isOperator } from "../web/api.js";
 import type { TeamHub, HubSession } from "./hub.js";
 import { MethodError, type MethodContext, type TeamMethod } from "./methods.js";
+import type { TeamPresence } from "./presence.js";
 import {
   TEAM_HEARTBEAT_MS,
   TEAM_PROTOCOL_VERSION,
@@ -60,6 +61,15 @@ export interface SessionOptions {
   readonly hub: TeamHub;
   readonly service: StudioApiOptions;
   readonly methods: ReadonlyMap<string, TeamMethod>;
+  /**
+   * Who is connected and which live sessions are open.
+   *
+   * Shared by every session of this server, and this one's entry in it is
+   * removed when the socket closes rather than when a client says goodbye - a
+   * client that is told to say so is one that will one day crash instead, and a
+   * room full of people who are not there is worse than no room.
+   */
+  readonly presence: TeamPresence;
   /** The token this session was opened with, kept so the caller can be identified again. */
   readonly token: string;
   /** Who it was when it opened, so the hello frame does not repeat the work. */
@@ -184,6 +194,10 @@ export class TeamSession implements HubSession {
     }
     this.topics.clear();
     this.options.hub.remove(this);
+    // Whatever this connection said it was goes with it, and so does its place
+    // in every live session. This is the only path that removes an instance:
+    // see the note on SessionOptions.presence.
+    this.options.presence.dropConnection(this.id);
   }
 
   /* ------------------------------------------------------------- internals */
@@ -215,6 +229,8 @@ export class TeamSession implements HubSession {
       publish: (topic, payload) => {
         this.options.hub.publish(topic, payload);
       },
+      connection: { id: this.id },
+      presence: this.options.presence,
     };
 
     this.inFlight += 1;
@@ -265,7 +281,12 @@ export class TeamSession implements HubSession {
       return;
     }
 
-    const verdict = judgeTopic(this.options.service.database, user, frame.topic);
+    const verdict = judgeTopic(
+      this.options.service.database,
+      user,
+      frame.topic,
+      this.options.presence,
+    );
     if (verdict.kind === "unknown") {
       this.fail(id, "not-found", verdict.detail);
       return;

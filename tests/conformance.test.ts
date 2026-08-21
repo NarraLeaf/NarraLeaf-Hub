@@ -23,12 +23,19 @@ import { describe, expect, it } from "vitest";
 import {
   ANCHOR_FIELD_LIMIT,
   COMMENT_BODY_LIMIT,
+  INSTANCE_FIELD_LIMIT,
+  LIVE_PAYLOAD_LIMIT,
+  OVERLAY_BODY_LIMIT,
   SUGGESTION_LIMIT,
   TEAM_METHODS,
   TEAM_PROTOCOL_VERSION,
   TEAM_SOCKET_PATH,
   TOPIC_MEMBERS,
   TOPIC_PROJECTS,
+  liveTopic,
+  projectClientsTopic,
+  projectLiveTopic,
+  projectOverlayTopic,
   projectThreadsTopic,
   projectTopic,
 } from "../src/team/protocol.js";
@@ -75,11 +82,24 @@ describe("the protocol contract", () => {
     expect(projectThreadsTopic("abc")).toBe(
       contract.topics["projectThreads"]?.replace("{project}", "abc"),
     );
+    expect(projectOverlayTopic("abc")).toBe(
+      contract.topics["projectOverlay"]?.replace("{project}", "abc"),
+    );
+    expect(projectClientsTopic("abc")).toBe(
+      contract.topics["projectClients"]?.replace("{project}", "abc"),
+    );
+    expect(projectLiveTopic("abc")).toBe(
+      contract.topics["projectLive"]?.replace("{project}", "abc"),
+    );
+    expect(liveTopic("xyz")).toBe(contract.topics["live"]?.replace("{session}", "xyz"));
   });
 
   it("bounds what it stores at the sizes the contract states", () => {
     expect(ANCHOR_FIELD_LIMIT).toBe(contract.limits["anchorField"]);
     expect(COMMENT_BODY_LIMIT).toBe(contract.limits["commentBody"]);
     expect(SUGGESTION_LIMIT).toBe(contract.limits["suggestion"]);
+    expect(OVERLAY_BODY_LIMIT).toBe(contract.limits["overlayBody"]);
+    expect(LIVE_PAYLOAD_LIMIT).toBe(contract.limits["livePayload"]);
+    expect(INSTANCE_FIELD_LIMIT).toBe(contract.limits["instanceField"]);
   });
 });

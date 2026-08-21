@@ -27,8 +27,12 @@ import { storedServerName } from "../identity/settings.js";
 import type { StudioApiOptions } from "../web/studio.js";
 import { TeamHub } from "./hub.js";
 import { capabilitiesOf, methodTable, type TeamMethod } from "./methods.js";
+import { clientMethods } from "./methods/clients.js";
 import { commentMethods } from "./methods/comments.js";
+import { liveMethods } from "./methods/live.js";
+import { overlayMethods } from "./methods/overlay.js";
 import { projectMethods } from "./methods/projects.js";
+import { TeamPresence } from "./presence.js";
 import {
   TEAM_HEARTBEAT_MS,
   TEAM_SOCKET_PATH,
@@ -77,13 +81,25 @@ export interface TeamSocket {
 
 /** Every method this build serves. */
 export function teamMethods(): readonly TeamMethod[] {
-  return [...projectMethods(), ...commentMethods()];
+  return [
+    ...projectMethods(),
+    ...commentMethods(),
+    ...clientMethods(),
+    ...liveMethods(),
+    ...overlayMethods(),
+  ];
 }
 
 export function createTeamSocket(options: TeamSocketOptions): TeamSocket {
   const methods = methodTable(teamMethods());
   const capabilities = capabilitiesOf(methods);
   const hub = new TeamHub(capabilities);
+  // Given the hub's publish rather than the hub, because what presence needs is
+  // a way to reach whoever is listening and nothing else. The one-way dependency
+  // is what keeps a room from being able to end a session or count them.
+  const presence = new TeamPresence((topic, payload) => {
+    hub.publish(topic, payload);
+  });
 
   const handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): boolean => {
     const path = new URL(request.url ?? "/", "http://team.invalid").pathname;
@@ -130,6 +146,7 @@ export function createTeamSocket(options: TeamSocketOptions): TeamSocket {
       hub,
       service: options.service,
       methods,
+      presence,
       token: token as string,
       user: identified.user,
       serverName,

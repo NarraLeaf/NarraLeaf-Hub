@@ -56,6 +56,16 @@ export interface RevisionView {
    * rather than as a question Team did not ask.
    */
   readonly revisions?: number;
+  /**
+   * What the tip revision is, absent when Team has not read one.
+   *
+   * The only field here a client compares rather than displays: overlay records
+   * name the revision they were written against, and this is what they are
+   * measured against — see src/team/methods/overlay.ts. **Absent is "not read
+   * yet", never "there are none"**, and a reader that confuses the two marks
+   * everything stale for a minute after this server starts.
+   */
+  readonly head?: string;
   readonly branch?: string;
   readonly bytes?: number;
   readonly lastAt?: number;

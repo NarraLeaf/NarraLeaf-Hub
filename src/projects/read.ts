@@ -112,6 +112,7 @@ async function read(options: ReadProjectOptions): Promise<ProjectReading> {
     const details: RevisionDetails = await revisionDetails(local, tip.revision).catch(() => ({}));
     const history: RevisionView = {
       revisions: revisions.length,
+      head: tip.revision,
       ...(branch === undefined ? {} : { branch }),
       ...(details.timestamp === undefined ? {} : { lastAt: details.timestamp }),
       ...(details.author === undefined ? {} : { lastBy: details.author }),

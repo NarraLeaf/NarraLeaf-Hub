@@ -32,6 +32,10 @@ import { createTeamSocket, type TeamSocket } from "../src/team/endpoint.js";
 import {
   TEAM_METHODS,
   TEAM_SOCKET_PATH,
+  liveTopic,
+  projectClientsTopic,
+  projectLiveTopic,
+  projectOverlayTopic,
   projectThreadsTopic,
   TOPIC_PROJECTS,
   type TeamHelloFrame,
@@ -75,7 +79,7 @@ interface Harness {
   readonly connect: (token: string) => Promise<Client>;
 }
 
-async function harness(): Promise<Harness> {
+async function harness(extra: Partial<StudioApiOptions> = {}): Promise<Harness> {
   const root = await temporaryRoot();
   const layout = identityLayout(root);
   const database = await openMigratedDatabase(layout.databasePath);
@@ -88,6 +92,10 @@ async function harness(): Promise<Harness> {
     keys,
     config,
     dataPort: config.dataPort,
+    // Whatever a test wants this server to have read out of a repository. Most
+    // want none, which is a server that has not got round to one yet - a state
+    // the overlay methods have to answer honestly rather than as "empty".
+    ...extra,
   };
   const socket = createTeamSocket({ service, version: "0.0.0-test", host: "127.0.0.1" });
 
@@ -646,5 +654,493 @@ describe("what a session refuses to carry on with", () => {
     client.send_raw(JSON.stringify({ t: "shout", id: 1 }));
     await client.until(() => client.byes.length > 0);
     expect(client.byes[0]?.code).toBe("bad-params");
+  });
+});
+
+/* ------------------------------------------- instances, rooms and overlay */
+
+/**
+ * A project with two connected sessions, and nothing announced on either.
+ *
+ * Announcing is deliberately left to each test: what an installation says about
+ * itself is half of what these methods are, and a helper that did it would hide
+ * the one refusal that matters - a call about a machine, from a session that
+ * never said which machine it is.
+ */
+async function withTwo(extra: Partial<StudioApiOptions> = {}): Promise<{
+  team: Harness;
+  project: string;
+  ada: Client;
+  bob: Client;
+}> {
+  const team = await harness(extra);
+  const adaId = await account(team.database, "ada");
+  await account(team.database, "bob");
+  const project = createProject(team.database, {
+    id: newProjectId(),
+    name: "lighthouse",
+    description: "",
+    createdBy: adaId,
+  });
+  return {
+    team,
+    project: project.id,
+    ada: await team.connect(team.tokenFor("ada")),
+    bob: await team.connect(team.tokenFor("bob")),
+  };
+}
+
+/** What a client says about itself, with only the interesting field varying. */
+function announcement(instance: string, project?: string): Record<string, unknown> {
+  return {
+    instance,
+    label: instance === "nomen" ? "Nomen" : "the studio iMac",
+    agent: "NarraLeaf Studio 0.0.0-test",
+    ...(project === undefined ? {} : { project }),
+  };
+}
+
+describe("which installation is on the other end", () => {
+  it("is nobody until a session says so", async () => {
+    const { ada, project } = await withTwo();
+    const listed = await ada.value(TEAM_METHODS.clientsList, { project });
+    expect(listed["clients"]).toEqual([]);
+  });
+
+  it("is the id the client chose, not one this server made up", async () => {
+    const { ada, project } = await withTwo();
+    const said = await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    expect((said["client"] as { id: string }).id).toBe("nomen");
+    expect((said["client"] as { account: string }).account).toBe("ada");
+  });
+
+  it("lists two machines of one project, and narrows to a project", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+
+    const here = (await ada.value(TEAM_METHODS.clientsList, { project }))["clients"] as {
+      id: string;
+    }[];
+    expect(here.map((each) => each.id).sort()).toEqual(["imac", "nomen"]);
+
+    const elsewhere = (await ada.value(TEAM_METHODS.clientsList, { project: newProjectId() }))[
+      "clients"
+    ] as unknown[];
+    expect(elsewhere).toEqual([]);
+  });
+
+  it("tells a project's watchers when a machine arrives", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.send("subscribe", { topic: projectClientsTopic(project) });
+
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+
+    await ada.until(() => ada.events.length > 0);
+    expect(ada.events[0]?.topic).toBe(projectClientsTopic(project));
+    expect((ada.events[0]?.payload as { kind: string }).kind).toBe("client-here");
+  });
+
+  it("moves a machine that opened a different project, saying so on both", async () => {
+    const { ada, bob, team, project } = await withTwo();
+    const second = createProject(team.database, {
+      id: newProjectId(),
+      name: "driftwood",
+      description: "",
+      createdBy: requireUser(team.database, "ada").id,
+    });
+    await ada.send("subscribe", { topic: projectClientsTopic(project) });
+    await ada.send("subscribe", { topic: projectClientsTopic(second.id) });
+
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", second.id));
+
+    await ada.until(() => ada.events.length >= 3);
+    const kinds = ada.events.map((each) => ({
+      topic: each.topic,
+      kind: (each.payload as { kind: string }).kind,
+    }));
+    expect(kinds).toContainEqual({ topic: projectClientsTopic(project), kind: "client-gone" });
+    expect(kinds).toContainEqual({ topic: projectClientsTopic(second.id), kind: "client-here" });
+    expect(
+      ((await ada.value(TEAM_METHODS.clientsList, { project }))["clients"] as unknown[]).length,
+    ).toBe(0);
+  });
+
+  it("forgets a machine whose socket closed, without being told goodbye", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.send("subscribe", { topic: projectClientsTopic(project) });
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    await ada.until(() => ada.events.length > 0);
+
+    bob.close();
+
+    await ada.until(() =>
+      ada.events.some((each) => (each.payload as { kind: string }).kind === "client-gone"),
+    );
+    const left = (await ada.value(TEAM_METHODS.clientsList, { project }))["clients"] as unknown[];
+    expect(left).toEqual([]);
+  });
+
+  it("refuses an announcement about a project this server has not got", async () => {
+    const { ada } = await withTwo();
+    const refusal = await ada.call(
+      TEAM_METHODS.clientsAnnounce,
+      announcement("nomen", newProjectId()),
+    );
+    expect(refusal.code).toBe("not-found");
+  });
+});
+
+describe("a live session", () => {
+  it("cannot be opened by a session that never said what it is", async () => {
+    const { ada, project } = await withTwo();
+    const refusal = await ada.call(TEAM_METHODS.liveOpen, { project });
+    expect(refusal.code).toBe("refused");
+  });
+
+  it("has its opener in it already, because the last one out closes it", async () => {
+    const { ada, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+
+    const opened = await ada.value(TEAM_METHODS.liveOpen, { project, title: "act one" });
+    const session = opened["session"] as {
+      id: string;
+      title: string;
+      members: { instance: string }[];
+    };
+    expect(session.title).toBe("act one");
+    expect(session.members.map((each) => each.instance)).toEqual(["nomen"]);
+  });
+
+  it("is announced on the project it belongs to", async () => {
+    const { ada, bob, project } = await withTwo();
+    await bob.send("subscribe", { topic: projectLiveTopic(project) });
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+
+    await ada.value(TEAM_METHODS.liveOpen, { project });
+
+    await bob.until(() => bob.events.length > 0);
+    expect((bob.events[0]?.payload as { kind: string }).kind).toBe("live-opened");
+  });
+
+  it("gains a second machine when it joins", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    const opened = await ada.value(TEAM_METHODS.liveOpen, { project });
+    const id = (opened["session"] as { id: string }).id;
+
+    const joined = await bob.value(TEAM_METHODS.liveJoin, { session: id });
+    const members = (joined["session"] as { members: { instance: string }[] }).members;
+    expect(members.map((each) => each.instance).sort()).toEqual(["imac", "nomen"]);
+  });
+
+  it("carries what one machine says to the others, the speaker included", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    const opened = await ada.value(TEAM_METHODS.liveOpen, { project });
+    const id = (opened["session"] as { id: string }).id;
+    await bob.value(TEAM_METHODS.liveJoin, { session: id });
+    await ada.send("subscribe", { topic: liveTopic(id) });
+    await bob.send("subscribe", { topic: liveTopic(id) });
+
+    await ada.value(TEAM_METHODS.liveSay, { session: id, payload: { caret: "row-14" } });
+
+    await bob.until(() => bob.events.some((each) => each.topic === liveTopic(id)));
+    await ada.until(() => ada.events.some((each) => each.topic === liveTopic(id)));
+    const heard = bob.events.find((each) => each.topic === liveTopic(id))?.payload as {
+      from: string;
+      payload: { caret: string };
+    };
+    expect(heard.from).toBe("nomen");
+    // Handed on exactly as it arrived: this server has read none of it.
+    expect(heard.payload).toEqual({ caret: "row-14" });
+  });
+
+  it("refuses to carry anything from a machine that is not in it", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    const opened = await ada.value(TEAM_METHODS.liveOpen, { project });
+    const id = (opened["session"] as { id: string }).id;
+
+    const refusal = await bob.call(TEAM_METHODS.liveSay, { session: id, payload: null });
+    expect(refusal.code).toBe("refused");
+  });
+
+  it("is closed by its opener and by nobody else", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    const opened = await ada.value(TEAM_METHODS.liveOpen, { project });
+    const id = (opened["session"] as { id: string }).id;
+    await bob.value(TEAM_METHODS.liveJoin, { session: id });
+
+    expect((await bob.call(TEAM_METHODS.liveClose, { session: id })).code).toBe("refused");
+    await ada.value(TEAM_METHODS.liveClose, { session: id });
+    expect((await ada.value(TEAM_METHODS.liveList, { project }))["sessions"]).toEqual([]);
+  });
+
+  it("ends when the last machine leaves, without anybody closing it", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    const opened = await ada.value(TEAM_METHODS.liveOpen, { project });
+    const id = (opened["session"] as { id: string }).id;
+    await bob.value(TEAM_METHODS.liveJoin, { session: id });
+
+    await bob.value(TEAM_METHODS.liveLeave, { session: id });
+    expect(
+      ((await ada.value(TEAM_METHODS.liveList, { project }))["sessions"] as unknown[]).length,
+    ).toBe(1);
+
+    await ada.value(TEAM_METHODS.liveLeave, { session: id });
+    expect((await ada.value(TEAM_METHODS.liveList, { project }))["sessions"]).toEqual([]);
+  });
+
+  it("ends when the last machine's socket dies, which is the same thing", async () => {
+    const { ada, bob, project } = await withTwo();
+    await ada.value(TEAM_METHODS.clientsAnnounce, announcement("nomen", project));
+    await bob.value(TEAM_METHODS.clientsAnnounce, announcement("imac", project));
+    const opened = await bob.value(TEAM_METHODS.liveOpen, { project });
+    expect((opened["session"] as { id: string }).id).toBeTruthy();
+
+    bob.close();
+
+    // Polled rather than waited on as an event: what proves the room is gone is
+    // that the list no longer holds it, and the list is a call.
+    const started = Date.now();
+    let open = 1;
+    while (open > 0 && Date.now() - started < 4000) {
+      open = ((await ada.value(TEAM_METHODS.liveList, { project }))["sessions"] as unknown[]).length;
+    }
+    expect(open).toBe(0);
+  });
+
+  it("refuses a subscription to a room that is not open", async () => {
+    const { ada } = await withTwo();
+    const answer = await ada.send("subscribe", { topic: liveTopic("not-a-session") });
+    expect(answer.code).toBe("not-found");
+  });
+});
+
+describe("what is attached to a project without being in it", () => {
+  it("comes back with the revision it was written against", async () => {
+    const { ada, project } = await withTwo();
+    await ada.value(TEAM_METHODS.overlayPut, {
+      project,
+      anchor: { document: "story/act-one.json", element: "row-14", revision: "rev-1" },
+      kind: "review",
+      body: JSON.stringify({ state: "needs-work" }),
+    });
+
+    const listed = await ada.value(TEAM_METHODS.overlayList, { project });
+    const records = listed["records"] as {
+      anchor: { revision: string; element: string };
+      kind: string;
+      author: string;
+    }[];
+    expect(records).toHaveLength(1);
+    expect(records[0]?.anchor.revision).toBe("rev-1");
+    expect(records[0]?.anchor.element).toBe("row-14");
+    expect(records[0]?.author).toBe("ada");
+  });
+
+  it("insists a record says which revision it is about", async () => {
+    const { ada, project } = await withTwo();
+    const refusal = await ada.call(TEAM_METHODS.overlayPut, {
+      project,
+      anchor: { document: "story/act-one.json" },
+      kind: "review",
+      body: "{}",
+    });
+    expect(refusal.code).toBe("bad-params");
+  });
+
+  it("leaves the head absent where this server has read no repository", async () => {
+    const { ada, project } = await withTwo();
+    const listed = await ada.value(TEAM_METHODS.overlayList, { project });
+    // Absent, and it must not be an empty string or a zero: a client that read
+    // "not read yet" as "there are no revisions" would mark every record stale.
+    expect(listed["head"]).toBeUndefined();
+  });
+
+  it("hands back the head this server last read, so a client can age a record", async () => {
+    const { ada, project } = await withTwo({
+      readings: {
+        get: () => ({
+          history: { revisions: 3, head: "rev-3" },
+          file: { readable: false, reason: "not read in this test" },
+        }),
+      },
+    });
+    await ada.value(TEAM_METHODS.overlayPut, {
+      project,
+      anchor: { document: "story/act-one.json", revision: "rev-1" },
+      kind: "review",
+      body: "{}",
+    });
+
+    const listed = await ada.value(TEAM_METHODS.overlayList, { project });
+    expect(listed["head"]).toBe("rev-3");
+    // The comparison is the client's. This server says both numbers and no more.
+    expect((listed["records"] as { anchor: { revision: string } }[])[0]?.anchor.revision).toBe(
+      "rev-1",
+    );
+  });
+
+  it("is one row however many times the same write arrives", async () => {
+    const { ada, project } = await withTwo();
+    const write = {
+      project,
+      anchor: { document: "story/act-one.json", revision: "rev-1" },
+      kind: "review",
+      body: "{}",
+      clientId: "the-same-write",
+    };
+    const first = await ada.value(TEAM_METHODS.overlayPut, write);
+    const second = await ada.value(TEAM_METHODS.overlayPut, write);
+
+    expect((second["record"] as { id: string }).id).toBe((first["record"] as { id: string }).id);
+    expect(second["repeated"]).toBe(true);
+    expect(
+      ((await ada.value(TEAM_METHODS.overlayList, { project }))["records"] as unknown[]).length,
+    ).toBe(1);
+  });
+
+  it("narrows to a document, an element and a kind", async () => {
+    const { ada, project } = await withTwo();
+    const base = { project, kind: "review", body: "{}" };
+    await ada.value(TEAM_METHODS.overlayPut, {
+      ...base,
+      anchor: { document: "story/act-one.json", element: "row-14", revision: "rev-1" },
+    });
+    await ada.value(TEAM_METHODS.overlayPut, {
+      ...base,
+      anchor: { document: "story/act-one.json", element: "row-15", revision: "rev-1" },
+    });
+    await ada.value(TEAM_METHODS.overlayPut, {
+      ...base,
+      kind: "playtest",
+      anchor: { document: "story/act-two.json", revision: "rev-1" },
+    });
+
+    const one = await ada.value(TEAM_METHODS.overlayList, {
+      project,
+      document: "story/act-one.json",
+      element: "row-14",
+    });
+    expect((one["records"] as unknown[]).length).toBe(1);
+    // The whole project's count travels with a narrowed read, so a screen
+    // showing one row can still say how much else there is.
+    expect(one["total"]).toBe(3);
+
+    const kind = await ada.value(TEAM_METHODS.overlayList, { project, kind: "playtest" });
+    expect((kind["records"] as unknown[]).length).toBe(1);
+  });
+
+  it("tells a project's watchers, once, and not for a repeat", async () => {
+    const { ada, bob, project } = await withTwo();
+    await bob.send("subscribe", { topic: projectOverlayTopic(project) });
+    const write = {
+      project,
+      anchor: { document: "story/act-one.json", revision: "rev-1" },
+      kind: "review",
+      body: "{}",
+      clientId: "once",
+    };
+
+    await ada.value(TEAM_METHODS.overlayPut, write);
+    await bob.until(() => bob.events.length > 0);
+    await ada.value(TEAM_METHODS.overlayPut, write);
+
+    // Nothing to wait for, so the check is that a second one has not turned up
+    // by the time another round trip has been and gone.
+    await ada.value(TEAM_METHODS.overlayList, { project });
+    expect(bob.events).toHaveLength(1);
+    expect((bob.events[0]?.payload as { kind: string }).kind).toBe("overlay-put");
+  });
+
+  it("moves a record forward onto a new revision, which is what following the head is", async () => {
+    const { ada, project } = await withTwo();
+    const written = await ada.value(TEAM_METHODS.overlayPut, {
+      project,
+      anchor: { document: "story/act-one.json", element: "row-14", revision: "rev-1" },
+      kind: "review",
+      body: JSON.stringify({ state: "needs-work" }),
+    });
+    const id = (written["record"] as { id: string }).id;
+
+    const moved = await ada.value(TEAM_METHODS.overlayPut, {
+      id,
+      anchor: { revision: "rev-2" },
+      body: JSON.stringify({ state: "looked-again" }),
+    });
+    const record = moved["record"] as {
+      anchor: { revision: string; element: string };
+      body: string;
+    };
+    expect(record.anchor.revision).toBe("rev-2");
+    // The place did not move. A record that changed which element it was about
+    // would be a different record.
+    expect(record.anchor.element).toBe("row-14");
+    expect(JSON.parse(record.body)).toEqual({ state: "looked-again" });
+    expect(
+      ((await ada.value(TEAM_METHODS.overlayList, { project }))["records"] as unknown[]).length,
+    ).toBe(1);
+  });
+
+  it("is replaced and taken off by its author and by nobody else", async () => {
+    const { ada, bob, project } = await withTwo();
+    const written = await ada.value(TEAM_METHODS.overlayPut, {
+      project,
+      anchor: { document: "story/act-one.json", revision: "rev-1" },
+      kind: "review",
+      body: "{}",
+    });
+    const id = (written["record"] as { id: string }).id;
+
+    const refused = await bob.call(TEAM_METHODS.overlayPut, {
+      id,
+      anchor: { revision: "rev-2" },
+      body: "{}",
+    });
+    expect(refused.code).toBe("refused");
+    expect((await bob.call(TEAM_METHODS.overlayDrop, { id })).code).toBe("refused");
+
+    await ada.value(TEAM_METHODS.overlayDrop, { id });
+    expect((await ada.value(TEAM_METHODS.overlayList, { project }))["records"]).toEqual([]);
+  });
+
+  it("says nothing went wrong when what was dropped is already gone", async () => {
+    const { ada, project } = await withTwo();
+    const written = await ada.value(TEAM_METHODS.overlayPut, {
+      project,
+      anchor: { document: "story/act-one.json", revision: "rev-1" },
+      kind: "review",
+      body: "{}",
+    });
+    const id = (written["record"] as { id: string }).id;
+    await ada.value(TEAM_METHODS.overlayDrop, { id });
+    expect((await ada.call(TEAM_METHODS.overlayDrop, { id })).code).toBeUndefined();
+  });
+
+  it("goes with the project when the project is taken off this server", async () => {
+    const { ada, team, project } = await withTwo();
+    await ada.value(TEAM_METHODS.overlayPut, {
+      project,
+      anchor: { document: "story/act-one.json", revision: "rev-1" },
+      kind: "review",
+      body: "{}",
+    });
+
+    forgetProject(team.database, project);
+
+    const rows = team.database.prepare("SELECT COUNT(*) AS total FROM overlay").get() as {
+      total: number;
+    };
+    expect(rows.total).toBe(0);
   });
 });

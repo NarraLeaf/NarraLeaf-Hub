@@ -357,6 +357,63 @@ const MIGRATIONS: readonly Migration[] = [
          WHERE client_id IS NOT NULL`,
     ],
   },
+  {
+    version: 9,
+    description: "data attached to a project at a revision, outside its repository",
+    statements: [
+      // The third place a project's content can live, and the only one that is
+      // neither the repository nor a version of it. A revision is what an author
+      // recorded; a thread is a conversation about one; a row here is anything
+      // else a client wants kept beside a place in a project without changing
+      // what that project is — a review mark, a translator's flag, a playtest
+      // note. **Nothing here is ever written to a repository.**
+      //
+      // `revision` is NOT NULL where a thread's is nullable, and that is the
+      // difference between the two tables rather than an oversight. A thread is
+      // about a place; a row here is about a place **at a version**, which is
+      // what asks for one, and a record that did not say which version could
+      // never be told from a stale one.
+      //
+      // `kind` is a word Studio chooses and this server groups by. It is not an
+      // enumeration here and must not become one: the moment this build has an
+      // opinion about which kinds exist, a Studio that invents a new one needs a
+      // server upgrade — which is the bargain src/team/protocol.ts spends every
+      // opaque column avoiding.
+      //
+      // `instance` is the client installation that wrote it, as that client
+      // named itself. A plain string with nothing behind it: instances live in
+      // memory and only while connected (see src/team/presence.ts), so this is a
+      // note of who was at the keyboard rather than a reference to a row.
+      //
+      // `author_id` carries no foreign key, for the reason the threads table
+      // gives: a row that cascaded away with an account would delete exactly the
+      // record somebody deleted an account over.
+      `CREATE TABLE overlay (
+         id         TEXT    NOT NULL PRIMARY KEY,
+         project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         revision   TEXT    NOT NULL,
+         document   TEXT,
+         element    TEXT,
+         kind       TEXT    NOT NULL,
+         body       TEXT    NOT NULL,
+         author_id  TEXT    NOT NULL,
+         instance   TEXT,
+         created_at INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL,
+         client_id  TEXT
+       ) STRICT`,
+      // Two reads, in two directions, exactly as the threads table has: what is
+      // attached at one place, when a row is on screen, and everything in one
+      // project, when a window opens and pulls the lot.
+      "CREATE INDEX overlay_by_anchor ON overlay (project_id, document, element)",
+      "CREATE INDEX overlay_by_project ON overlay (project_id, updated_at)",
+      // Partial, because most rows have no client id and NULLs are not equal to
+      // one another in SQLite — a plain unique index would let one client repeat
+      // itself as often as it liked.
+      `CREATE UNIQUE INDEX overlay_by_client ON overlay (author_id, client_id)
+         WHERE client_id IS NOT NULL`,
+    ],
+  },
 ];
 
 /** The schema version this build of Team writes and expects. */

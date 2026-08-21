@@ -23,6 +23,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { findProjectById } from "../projects/registry.js";
 import type { UserRecord } from "../identity/users.js";
+import type { TeamPresence } from "./presence.js";
 import { TOPIC_MEMBERS, TOPIC_PROJECTS } from "./protocol.js";
 
 /** What a topic turned out to be. */
@@ -40,7 +41,10 @@ export const SUBSCRIPTION_LIMIT = 64;
 const PROJECT_PREFIX = "project:";
 
 /** What may hang off one project, after the id. */
-const PROJECT_SUFFIXES: readonly string[] = ["", "/threads"];
+const PROJECT_SUFFIXES: readonly string[] = ["", "/threads", "/overlay", "/clients", "/live"];
+
+/** The prefix a live session's own topic starts with. */
+const LIVE_PREFIX = "live:";
 
 /**
  * Whether this session may subscribe to `topic`.
@@ -53,8 +57,25 @@ export function judgeTopic(
   database: DatabaseSync,
   _user: UserRecord,
   topic: string,
+  presence?: TeamPresence,
 ): TopicVerdict {
   if (topic === TOPIC_PROJECTS || topic === TOPIC_MEMBERS) {
+    return { kind: "allowed" };
+  }
+
+  if (topic.startsWith(LIVE_PREFIX)) {
+    // Existence, not membership. Subscribing is hearing and joining is being
+    // counted, and they are different acts: a client subscribes so that the
+    // events it is about to be sent are not missed between joining and the
+    // subscription landing, which would be a race it could not win the other way
+    // round. Speaking is where membership is checked - see methods/live.ts.
+    //
+    // A build with no live sessions has no presence to ask, and a topic naming
+    // one is then a topic nobody publishes on.
+    const id = topic.slice(LIVE_PREFIX.length);
+    if (presence?.liveSession(id) === undefined) {
+      return { kind: "unknown", detail: "there is no live session of that id on this server" };
+    }
     return { kind: "allowed" };
   }
 
