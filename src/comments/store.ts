@@ -35,6 +35,7 @@ import {
   textColumn,
   type Row,
 } from "../identity/database.js";
+import { findUserById } from "../identity/users.js";
 import type {
   TeamAnchor,
   TeamComment,
@@ -76,6 +77,7 @@ export interface CommentRecord {
 }
 
 function toThread(row: Row): ThreadRecord {
+  const document = optionalTextColumn(row, "document");
   const element = optionalTextColumn(row, "element");
   const revision = optionalTextColumn(row, "revision");
   const resolvedBy = optionalTextColumn(row, "resolved_by");
@@ -84,7 +86,7 @@ function toThread(row: Row): ThreadRecord {
     id: textColumn(row, "id"),
     projectId: textColumn(row, "project_id"),
     anchor: {
-      document: textColumn(row, "document"),
+      ...(document === undefined ? {} : { document }),
       ...(element === undefined ? {} : { element }),
       ...(revision === undefined ? {} : { revision }),
     },
@@ -170,7 +172,7 @@ export function createThread(database: DatabaseSync, input: NewThread): ThreadCr
       .run(
         threadId,
         input.projectId,
-        input.anchor.document,
+        input.anchor.document ?? null,
         input.anchor.element ?? null,
         input.anchor.revision ?? null,
         input.kind,
@@ -489,11 +491,32 @@ export function countComments(database: DatabaseSync, threadId: string): number 
 
 /* ------------------------------------------------------- what the wire sees */
 
-export function commentView(record: CommentRecord): TeamComment {
+/**
+ * A username for an account id, remembered for as long as one answer is built.
+ *
+ * A page of threads names the same few people over and over, and every one of them would
+ * otherwise be a row read. Per call rather than kept: an account renamed while a server
+ * runs must not go on being called what it was.
+ */
+export function nameResolver(database: DatabaseSync): (userId: string) => string | undefined {
+  const known = new Map<string, string | undefined>();
+  return (userId) => {
+    if (!known.has(userId)) {
+      known.set(userId, findUserById(database, userId)?.username);
+    }
+    return known.get(userId);
+  };
+}
+
+export function commentView(
+  record: CommentRecord,
+  nameOf: (userId: string) => string | undefined,
+): TeamComment {
+  const author = nameOf(record.authorId);
   return {
     id: record.id,
     thread: record.threadId,
-    author: record.authorId,
+    ...(author === undefined ? {} : { author }),
     body: record.body,
     ...(record.suggestion === undefined ? {} : { suggestion: record.suggestion }),
     createdAt: record.createdAt,
@@ -503,20 +526,26 @@ export function commentView(record: CommentRecord): TeamComment {
 }
 
 /** One thread as the protocol carries it, with its count and its opening comment. */
-export function threadView(database: DatabaseSync, record: ThreadRecord): TeamThread {
+export function threadView(
+  database: DatabaseSync,
+  record: ThreadRecord,
+  nameOf: (userId: string) => string | undefined = nameResolver(database),
+): TeamThread {
   const opening = openingComment(database, record.id);
+  const createdBy = nameOf(record.createdBy);
+  const resolvedBy = record.resolvedBy === undefined ? undefined : nameOf(record.resolvedBy);
   return {
     id: record.id,
     project: record.projectId,
     anchor: record.anchor,
     kind: record.kind,
     status: record.status,
-    createdBy: record.createdBy,
+    ...(createdBy === undefined ? {} : { createdBy }),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
-    ...(record.resolvedBy === undefined ? {} : { resolvedBy: record.resolvedBy }),
+    ...(resolvedBy === undefined ? {} : { resolvedBy }),
     ...(record.resolvedAt === undefined ? {} : { resolvedAt: record.resolvedAt }),
     comments: countComments(database, record.id),
-    ...(opening === undefined ? {} : { opening: commentView(opening) }),
+    ...(opening === undefined ? {} : { opening: commentView(opening, nameOf) }),
   };
 }

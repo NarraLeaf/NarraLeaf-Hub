@@ -262,7 +262,14 @@ export function projectThreadsTopic(projectId: string): string {
  * begins anchoring to something new needs nothing here at all.
  */
 export interface TeamAnchor {
-  readonly document: string;
+  /**
+   * Which document inside the project, and absent for one about the project itself.
+   *
+   * Absent is a real case rather than a gap: "this project" is the first thing anybody
+   * has to say about a project, and a made-up path standing in for it would be a string
+   * every reader had to learn not to show.
+   */
+  readonly document?: string;
   readonly element?: string;
   readonly revision?: string;
 }
@@ -291,11 +298,20 @@ export interface TeamThread {
   readonly anchor: TeamAnchor;
   readonly kind: TeamThreadKind;
   readonly status: TeamThreadStatus;
-  /** The account that opened it, by user id. Match it against the members list for a name. */
-  readonly createdBy: string;
+  /**
+   * Who opened it, by username, and absent for an account this server no longer has.
+   *
+   * A name rather than an id, for the reason the project list carries one: what a reader
+   * needs is who said this, and an id would send every client to the members list to
+   * find out. Absent rather than a stand-in, because a thread outlives the account that
+   * opened it and a row claiming an author it cannot name would be worse than a row that
+   * does not claim one.
+   */
+  readonly createdBy?: string;
   readonly createdAt: number;
   /** When anything in it last changed, so a list can be ordered by what is live. */
   readonly updatedAt: number;
+  /** Who settled it, by username. */
   readonly resolvedBy?: string;
   readonly resolvedAt?: number;
   /** How many comments it holds, withdrawn ones included: a list shows a count, not bodies. */
@@ -319,8 +335,8 @@ export type TeamThreadStatus = "open" | "resolved";
 export interface TeamComment {
   readonly id: string;
   readonly thread: string;
-  /** The account that wrote it, by user id. */
-  readonly author: string;
+  /** Who wrote it, by username. Absent for the same reason {@link TeamThread.createdBy} is. */
+  readonly author?: string;
   readonly body: string;
   /**
    * What this comment proposes, as Studio encoded it.

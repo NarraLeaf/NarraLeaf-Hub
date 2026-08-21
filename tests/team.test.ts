@@ -471,6 +471,32 @@ describe("conversations", () => {
     expect(threads[0]?.anchor.revision).toBe("abc123");
   });
 
+  it("names whoever said it, rather than handing back an account id", async () => {
+    const { project, ada } = await withProject();
+    const opened = await ada.value(TEAM_METHODS.threadsCreate, {
+      project,
+      anchor: {},
+      body: "about this project",
+    });
+    expect((opened["thread"] as { createdBy: string }).createdBy).toBe("ada");
+    expect((opened["comment"] as { author: string }).author).toBe("ada");
+  });
+
+  it("takes a thread about the project itself, with nothing anchored", async () => {
+    const { project, ada } = await withProject();
+    const opened = await ada.value(TEAM_METHODS.threadsCreate, {
+      project,
+      anchor: {},
+      body: "where should this go",
+    });
+    // Absent rather than a path standing in for one: a note about the project has no
+    // document, and inventing one would put a string on screen nobody wrote.
+    expect((opened["thread"] as { anchor: Record<string, unknown> }).anchor).toEqual({});
+
+    const listed = await ada.value(TEAM_METHODS.threadsList, { project });
+    expect((listed["threads"] as unknown[]).length).toBe(1);
+  });
+
   it("narrows a list to one place inside a document", async () => {
     const { project, ada } = await withProject();
     for (const element of ["row-1", "row-2"]) {

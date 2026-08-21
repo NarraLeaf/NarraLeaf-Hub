@@ -287,6 +287,10 @@ const MIGRATIONS: readonly Migration[] = [
       // before it was either an account or a fact about a repository, and both
       // of those have somewhere else they really live.
       //
+      // `document` is null on a thread about the project itself, which is the
+      // first thing anybody says about one; a path invented to stand for that
+      // would be a string every reader had to learn to hide.
+      //
       // `document`, `element` and `revision` are **an anchor, and this server
       // does not read one**. They are strings Studio writes and Studio
       // interprets: a path inside the project, an id for something inside that
@@ -307,7 +311,7 @@ const MIGRATIONS: readonly Migration[] = [
       `CREATE TABLE threads (
          id          TEXT    NOT NULL PRIMARY KEY,
          project_id  TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-         document    TEXT    NOT NULL,
+         document    TEXT,
          element     TEXT,
          revision    TEXT,
          kind        TEXT    NOT NULL,

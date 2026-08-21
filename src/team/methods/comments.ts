@@ -31,6 +31,7 @@ import {
   findComment,
   findThread,
   listThreads,
+  nameResolver,
   setThreadStatus,
   threadComments,
   threadView,
@@ -98,10 +99,11 @@ function anchorOf(params: Record<string, unknown>): TeamAnchor {
     throw new MethodError("bad-params", "anchor has to be an object");
   }
   const anchor = raw as Record<string, unknown>;
+  const document = optionalText(anchor, "document", ANCHOR_FIELD_LIMIT);
   const element = optionalText(anchor, "element", ANCHOR_FIELD_LIMIT);
   const revision = optionalText(anchor, "revision", ANCHOR_FIELD_LIMIT);
   return {
-    document: requiredText(anchor, "document", ANCHOR_FIELD_LIMIT),
+    ...(document === undefined ? {} : { document }),
     ...(element === undefined ? {} : { element }),
     ...(revision === undefined ? {} : { revision }),
   };
@@ -118,7 +120,7 @@ function finishCommentUpdate(
   updated: CommentRecord,
 ): { comment: TeamComment } {
   const thread = findThread(context.options.database, updated.threadId);
-  const comment = commentView(updated);
+  const comment = commentView(updated, nameResolver(context.options.database));
   if (thread !== undefined) {
     announce(context, thread.projectId, {
       kind: "comment-updated",
@@ -171,8 +173,13 @@ export function commentMethods(): TeamMethod[] {
           limit: boundedCount(read, "limit", DEFAULT_PAGE, MAXIMUM_PAGE),
           ...(before === undefined ? {} : { before }),
         });
+        // One resolver for the whole page, so a list naming the same three people
+        // fifty times reads three rows rather than fifty.
+        const nameOf = nameResolver(context.options.database);
         return {
-          threads: page.threads.map((thread) => threadView(context.options.database, thread)),
+          threads: page.threads.map((thread) =>
+            threadView(context.options.database, thread, nameOf),
+          ),
           ...(page.cursor === undefined ? {} : { cursor: page.cursor }),
         };
       },
@@ -186,13 +193,14 @@ export function commentMethods(): TeamMethod[] {
         if (thread === undefined) {
           throw new MethodError("not-found", "there is no thread of that id on this server");
         }
+        const nameOf = nameResolver(context.options.database);
         return {
-          thread: threadView(context.options.database, thread),
+          thread: threadView(context.options.database, thread, nameOf),
           // Whole rather than paged. A thread is a conversation somebody is
           // reading, not a log: one that needed paging would be one nobody
           // could follow anyway.
           comments: threadComments(context.options.database, threadId).map((comment) =>
-            commentView(comment),
+            commentView(comment, nameOf),
           ),
         };
       },
@@ -226,7 +234,7 @@ export function commentMethods(): TeamMethod[] {
         if (!created.repeated) {
           announce(context, projectId, { kind: "thread-created", thread });
         }
-        return { thread, comment: commentView(created.comment) };
+        return { thread, comment: commentView(created.comment, nameResolver(context.options.database)) };
       },
     },
     {
@@ -249,7 +257,7 @@ export function commentMethods(): TeamMethod[] {
           ...(clientId === undefined ? {} : { clientId }),
           now: Date.now(),
         });
-        const comment = commentView(added.comment);
+        const comment = commentView(added.comment, nameResolver(context.options.database));
         if (!added.repeated) {
           announce(context, thread.projectId, {
             kind: "comment-created",

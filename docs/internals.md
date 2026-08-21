@@ -390,6 +390,21 @@ node scripts/build.mjs
 node scripts/tui-drive.mjs --root /srv/team --columns 120 --rows 40 --keys 2,down,x
 ```
 
+`scripts/socket-endpoint.ts` is the same kind of thing for the Team protocol. The
+suites here drive a session with node's own WebSocket client, which proves the
+server against an implementation nobody here wrote. What no suite in this
+repository can prove is the join — Studio's client, its certificate handling and
+its framing against this server's — so this is a listener with one account, one
+project and one token, and what connects to it is somebody else's business. It
+publishes on the `projects` topic once a second, so a client can be seen being
+told rather than asking.
+
+```sh
+npx esbuild scripts/socket-endpoint.ts --bundle --platform=node --format=cjs \
+  --external:koffi --define:__NLTEAM_VERSION__=\"0.0.0-drive\" --outfile=endpoint.cjs
+node endpoint.cjs cert.pem key.pem
+```
+
 The certificate tests are worth knowing about before changing anything under
 `src/tls/`. They read what the writer produced back with
 `crypto.X509Certificate`, compare the extensions against the exact bytes DER
