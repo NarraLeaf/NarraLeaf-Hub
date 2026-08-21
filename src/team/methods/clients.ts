@@ -18,6 +18,7 @@
  * **Nothing announced here is stored.** See src/team/presence.ts for why.
  */
 import { findProjectById } from "../../projects/registry.js";
+import { TooManyInstancesError } from "../presence.js";
 import {
   MethodError,
   optionalText,
@@ -54,14 +55,22 @@ export function clientMethods(): TeamMethod[] {
         // Bounded as an anchor field is, and for the same reason: it is a
         // revision as the client writes one, and this server never reads it.
         const revision = optionalText(read, "revision", ANCHOR_FIELD_LIMIT);
-        const client = context.presence.announce(context.connection.id, context.account.username, {
-          id: requiredText(read, "instance", ID_LIMIT),
-          label: requiredText(read, "label", INSTANCE_FIELD_LIMIT),
-          agent: requiredText(read, "agent", INSTANCE_FIELD_LIMIT),
-          ...(project === undefined ? {} : { project }),
-          ...(revision === undefined ? {} : { revision }),
-        });
-        return { client };
+        try {
+          return {
+            client: context.presence.announce(context.connection.id, context.account.username, {
+              id: requiredText(read, "instance", ID_LIMIT),
+              label: requiredText(read, "label", INSTANCE_FIELD_LIMIT),
+              agent: requiredText(read, "agent", INSTANCE_FIELD_LIMIT),
+              ...(project === undefined ? {} : { project }),
+              ...(revision === undefined ? {} : { revision }),
+            }),
+          };
+        } catch (error) {
+          if (error instanceof TooManyInstancesError) {
+            throw new MethodError("refused", error.message);
+          }
+          throw error;
+        }
       },
     },
     {

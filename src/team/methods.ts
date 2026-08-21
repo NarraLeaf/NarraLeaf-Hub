@@ -67,19 +67,25 @@ export interface MethodContext {
 }
 
 /**
- * Which installation is calling, refusing the call if it never said.
+ * Which installation is calling about one project, refusing if it never said.
  *
- * Announcing is one call and a client makes it as soon as its session opens, so
- * a caller reaching one of these without having announced is a client that
- * skipped a step rather than an older one - an older client has no idea these
- * methods exist. The refusal names the remedy.
+ * Resolved by project rather than named in the parameters: one link session
+ * carries an instance per window, a window is a project, and the client composes
+ * its instance ids out of exactly that - so naming one would be the caller
+ * repeating itself. Every method that needs an instance is about a project
+ * already, which is what makes this always answerable.
+ *
+ * Announcing is one call and a client makes it as soon as it opens a project, so
+ * a caller reaching one of these without having announced skipped a step rather
+ * than being old - an older client has no idea these methods exist. The refusal
+ * names the remedy.
  */
-export function callingInstance(context: MethodContext): TeamClientInstance {
-  const instance = context.presence.instanceOf(context.connection.id);
+export function callingInstance(context: MethodContext, project: string): TeamClientInstance {
+  const instance = context.presence.instanceOn(context.connection.id, project);
   if (instance === undefined) {
     throw new MethodError(
       "refused",
-      "this session has not said which installation it is; call clients.announce first",
+      "this session has not said which installation has that project open; call clients.announce first",
     );
   }
   return instance;

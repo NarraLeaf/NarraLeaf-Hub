@@ -36,6 +36,7 @@ import {
 import {
   NoSuchLiveSessionError,
   TooManyLiveSessionsError,
+  type TeamPresence,
 } from "../presence.js";
 import {
   ANCHOR_FIELD_LIMIT,
@@ -54,6 +55,22 @@ function project(context: MethodContext, params: Record<string, unknown>): strin
     throw new MethodError("not-found", "there is no project of that id on this server");
   }
   return id;
+}
+
+/**
+ * The room a call names, insisting it is open.
+ *
+ * Read before the caller's own instance is resolved, because **the room is what
+ * says which project this call is about** - and the project is what an instance
+ * is found by. A client naming a room it is not in still gets an honest "there
+ * is no such room" rather than a complaint about announcing.
+ */
+function room(presence: TeamPresence, id: string): { project: string } {
+  const session = presence.liveSession(id);
+  if (session === undefined) {
+    throw new MethodError("not-found", "there is no live session of that id on this server");
+  }
+  return session;
 }
 
 /** Turn the registry's own refusals into ones the protocol carries. */
@@ -81,8 +98,8 @@ export function liveMethods(): TeamMethod[] {
       capability: "live",
       handle: (params: unknown, context: MethodContext) => {
         const read = paramsObject(params);
-        const instance = callingInstance(context);
         const id = project(context, read);
+        const instance = callingInstance(context, id);
         const revision = optionalText(read, "revision", ANCHOR_FIELD_LIMIT);
         const title = optionalText(read, "title", INSTANCE_FIELD_LIMIT);
         try {
@@ -102,8 +119,8 @@ export function liveMethods(): TeamMethod[] {
       name: TEAM_METHODS.liveJoin,
       capability: "live",
       handle: (params: unknown, context: MethodContext) => {
-        const instance = callingInstance(context);
         const id = requiredText(paramsObject(params), "session", ID_LIMIT);
+        const instance = callingInstance(context, room(context.presence, id).project);
         try {
           return { session: context.presence.join(instance, id) };
         } catch (error) {
@@ -115,11 +132,18 @@ export function liveMethods(): TeamMethod[] {
       name: TEAM_METHODS.liveLeave,
       capability: "live",
       handle: (params: unknown, context: MethodContext) => {
-        const instance = callingInstance(context);
-        // Never refused, including for a room that is not there. The state the
-        // caller wanted is the state there is, which is the same rule
-        // unsubscribing from an unheld topic follows.
-        context.presence.leave(instance.id, requiredText(paramsObject(params), "session", ID_LIMIT));
+        // Never refused, including for a room that is not there and for a session
+        // that never announced. The state the caller wanted is the state there
+        // is, which is the rule unsubscribing from an unheld topic follows.
+        const id = requiredText(paramsObject(params), "session", ID_LIMIT);
+        const session = context.presence.liveSession(id);
+        if (session === undefined) {
+          return null;
+        }
+        const instance = context.presence.instanceOn(context.connection.id, session.project);
+        if (instance !== undefined) {
+          context.presence.leave(instance.id, id);
+        }
         return null;
       },
     },
@@ -127,8 +151,8 @@ export function liveMethods(): TeamMethod[] {
       name: TEAM_METHODS.liveClose,
       capability: "live",
       handle: (params: unknown, context: MethodContext) => {
-        const instance = callingInstance(context);
         const id = requiredText(paramsObject(params), "session", ID_LIMIT);
+        const instance = callingInstance(context, room(context.presence, id).project);
         let closed: boolean;
         try {
           closed = context.presence.close(instance.id, id);
@@ -146,11 +170,8 @@ export function liveMethods(): TeamMethod[] {
       capability: "live",
       handle: (params: unknown, context: MethodContext) => {
         const read = paramsObject(params);
-        const instance = callingInstance(context);
         const id = requiredText(read, "session", ID_LIMIT);
-        if (context.presence.liveSession(id) === undefined) {
-          throw new MethodError("not-found", "there is no live session of that id on this server");
-        }
+        const instance = callingInstance(context, room(context.presence, id).project);
         // Membership rather than mere subscription, and the two really differ: a
         // client may subscribe to a room's topic to watch it, and speaking in
         // one is something only the people in it do.

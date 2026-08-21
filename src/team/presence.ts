@@ -89,12 +89,34 @@ export class TooManyLiveSessionsError extends Error {
   }
 }
 
+/**
+ * The most instances one link session may carry.
+ *
+ * ⚠ **More than one is the ordinary case, not a corner.** Studio holds one
+ * socket per server and opens a window per project, so a person with two of this
+ * server's projects open is one connection carrying two installations' worth of
+ * presence. A model of one instance per connection would have those two windows
+ * overwriting each other's entry, and the project field would flap between them.
+ *
+ * The bound is here so that a client looping on `clients.announce` with fresh
+ * ids costs itself rather than this server.
+ */
+export const INSTANCES_PER_CONNECTION = 16;
+
+/** Raised where one connection has announced as many instances as it may. */
+export class TooManyInstancesError extends Error {
+  constructor() {
+    super("this session has announced as many installations as it may");
+    this.name = "TooManyInstancesError";
+  }
+}
+
 export class TeamPresence {
   /** Instance id to what it said and which connection carries it. */
   private readonly instances = new Map<string, InstanceEntry>();
 
-  /** Connection id to the instance announced on it, so a close can find one. */
-  private readonly byConnection = new Map<string, string>();
+  /** Connection id to every instance announced on it, so a close can find them all. */
+  private readonly byConnection = new Map<string, Set<string>>();
 
   private readonly sessions = new Map<string, LiveEntry>();
 
@@ -129,15 +151,15 @@ export class TeamPresence {
     const previous = this.instances.get(said.id);
     const before = previous?.instance.project;
 
-    // A connection that announced one id and now announces another leaves the
-    // first behind. Rare - a client generates its id once - but a stale entry
-    // pinned to a live connection is one nothing would ever clear.
-    const announcedBefore = this.byConnection.get(connection);
-    if (announcedBefore !== undefined && announcedBefore !== said.id) {
-      this.retire(announcedBefore);
-    }
+    // An id announced on a second connection moves to it. The alternative is two
+    // entries for one installation, one of which is a socket about to be found
+    // dead; whoever holds the id last holds it.
     if (previous !== undefined && previous.connection !== connection) {
-      this.byConnection.delete(previous.connection);
+      this.byConnection.get(previous.connection)?.delete(said.id);
+    }
+    const held = this.byConnection.get(connection) ?? new Set<string>();
+    if (!held.has(said.id) && held.size >= INSTANCES_PER_CONNECTION) {
+      throw new TooManyInstancesError();
     }
 
     const instance: TeamClientInstance = {
@@ -152,7 +174,8 @@ export class TeamPresence {
       since: previous?.connection === connection ? previous.instance.since : Date.now(),
     };
     this.instances.set(said.id, { connection, instance });
-    this.byConnection.set(connection, said.id);
+    held.add(said.id);
+    this.byConnection.set(connection, held);
 
     if (before !== undefined && before !== instance.project) {
       this.publish(projectClientsTopic(before), { kind: "client-gone", client: instance.id });
@@ -163,10 +186,38 @@ export class TeamPresence {
     return instance;
   }
 
-  /** The instance announced on one connection, or undefined for one that never did. */
-  instanceOf(connection: string): TeamClientInstance | undefined {
-    const id = this.byConnection.get(connection);
-    return id === undefined ? undefined : this.instances.get(id)?.instance;
+  /**
+   * The instance on one connection that has one project open.
+   *
+   * **This is how a call finds out which installation is making it**, and it is
+   * resolved by project rather than named in the parameters on purpose: the
+   * client composes an instance id out of its installation and the project, so
+   * the caller would only be repeating something it already said. Every method
+   * that needs an instance is already about one project - a room belongs to one,
+   * a record is attached to one - so there is always something to resolve by.
+   *
+   * Undefined for a session that never announced, and for one whose windows are
+   * all on other projects.
+   */
+  instanceOn(connection: string, project: string): TeamClientInstance | undefined {
+    for (const id of this.byConnection.get(connection) ?? []) {
+      const entry = this.instances.get(id);
+      if (entry?.instance.project === project) {
+        return entry.instance;
+      }
+    }
+    return undefined;
+  }
+
+  /** Everything announced on one connection, for a log line rather than a decision. */
+  instancesOf(connection: string): TeamClientInstance[] {
+    const held = this.byConnection.get(connection);
+    if (held === undefined) {
+      return [];
+    }
+    return [...held]
+      .map((id) => this.instances.get(id)?.instance)
+      .filter((instance): instance is TeamClientInstance => instance !== undefined);
   }
 
   /** Everything connected, or everything with one project open. */
@@ -183,18 +234,17 @@ export class TeamPresence {
    * announced anything, which is every connection from a Studio too old to.
    */
   dropConnection(connection: string): void {
-    const id = this.byConnection.get(connection);
+    const held = this.byConnection.get(connection);
     this.byConnection.delete(connection);
-    if (id === undefined) {
-      return;
+    for (const id of held ?? []) {
+      const entry = this.instances.get(id);
+      // Only where this connection is still the one holding it: an instance that
+      // moved to a newer socket must not be swept by the older one closing.
+      if (entry === undefined || entry.connection !== connection) {
+        continue;
+      }
+      this.retire(id);
     }
-    const entry = this.instances.get(id);
-    // Only if this connection is still the one holding it: an instance that
-    // moved to a newer socket must not be swept by the older one closing.
-    if (entry === undefined || entry.connection !== connection) {
-      return;
-    }
-    this.retire(id);
   }
 
   /** Take one instance out of everything, telling whoever was watching. */

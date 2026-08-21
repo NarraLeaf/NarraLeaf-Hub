@@ -730,6 +730,42 @@ describe("which installation is on the other end", () => {
     expect(elsewhere).toEqual([]);
   });
 
+  it("carries one entry per window of a machine that has two projects open", async () => {
+    const { ada, team, project } = await withTwo();
+    const second = createProject(team.database, {
+      id: newProjectId(),
+      name: "driftwood",
+      description: "",
+      createdBy: requireUser(team.database, "ada").id,
+    });
+    // What Studio composes: one installation, a window per project, and an
+    // instance id made of both - all of it down one socket, because Studio holds
+    // one per server rather than one per window.
+    const window = (id: string): Record<string, unknown> => ({
+      instance: `nomen.${id}`,
+      label: "Nomen",
+      agent: "NarraLeaf Studio 0.0.0-test",
+      project: id,
+    });
+    await ada.value(TEAM_METHODS.clientsAnnounce, window(project));
+    await ada.value(TEAM_METHODS.clientsAnnounce, window(second.id));
+
+    const on = async (id: string): Promise<number> =>
+      ((await ada.value(TEAM_METHODS.clientsList, { project: id }))["clients"] as unknown[]).length;
+    expect(await on(project)).toBe(1);
+    expect(await on(second.id)).toBe(1);
+    // Neither overwrote the other, which is what a model of one instance per
+    // connection would have done.
+    expect(((await ada.value(TEAM_METHODS.clientsList, {}))["clients"] as unknown[]).length).toBe(2);
+
+    // And a room opened from one window belongs to that window rather than to
+    // the machine: the instance is resolved by the project the call is about.
+    const opened = await ada.value(TEAM_METHODS.liveOpen, { project });
+    expect((opened["session"] as { openedByInstance: string }).openedByInstance).toBe(
+      `nomen.${project}`,
+    );
+  });
+
   it("tells a project's watchers when a machine arrives", async () => {
     const { ada, bob, project } = await withTwo();
     await ada.send("subscribe", { topic: projectClientsTopic(project) });

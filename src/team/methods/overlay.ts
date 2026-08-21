@@ -147,7 +147,7 @@ export function overlayMethods(): TeamMethod[] {
         // an instance is useful to record and it is not a permission. Refusing
         // here would make `overlay` depend on `clients`, and a build serving one
         // without the other is a build this table has no opinion about.
-        const instance = context.presence.instanceOf(context.connection.id)?.id;
+        const instance = context.presence.instanceOn(context.connection.id, projectId)?.id;
         const clientId = optionalText(read, "clientId", ID_LIMIT);
         const written = putOverlay(context.options.database, {
           projectId,
